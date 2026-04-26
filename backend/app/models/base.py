@@ -18,10 +18,10 @@ class AuditBase(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        # Python-side UUID (used by ORM before commit)
-        default=uuid.uuid4,
-        # DB-side fallback (used for raw SQL / migrations)
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4,  # Python-side UUID (used by ORM before commit)
+        server_default=text(
+            "gen_random_uuid()"
+        ),  # DB-side fallback (used for raw SQL / migrations)
     )
 
     # --------------------------------------------------
