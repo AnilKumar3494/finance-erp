@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
-from app.api.v1.routes import auth
+# from app.core.config import settings
+from app.api.v1.routes import auth, customers
 
 # --------------------------------------------------
 # APP INIT
@@ -31,6 +31,7 @@ app.add_middleware(
 # ROUTERS
 # --------------------------------------------------
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(customers.router, prefix="/api/v1")
 
 # Add future routers here:
 # app.include_router(customers.router, prefix="/api/v1")

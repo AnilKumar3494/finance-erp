@@ -8,7 +8,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import TokenData, UserCreate
 
 # --------------------------------------------------
@@ -98,20 +98,29 @@ def create_user(
 ) -> User:
     """
     Register a new user.
+    - All new users are defaulted to Employee but default
     - Hashes password before storage
     - Never stores plain text
     """
+
+    existing_users = db.query(User).count()
+
+    if hasattr(data, "role") and existing_users > 0:
+        assigned_role = data.role
+    else:
+        assigned_role = UserRole.ADMIN if existing_users == 0 else UserRole.EMPLOYEE
+
     user = User(
         username=data.username,
         email=data.email,
         full_name=data.full_name,
-        role=data.role,
+        role=assigned_role,
         password_hash=hash_password(data.password),
         created_by_id=created_by,
     )
     db.add(user)
     db.commit()
-    db.refresh(user)  # Pulls DB-generated fields (id, created_at) back into object
+    db.refresh(user)
     return user
 
 
