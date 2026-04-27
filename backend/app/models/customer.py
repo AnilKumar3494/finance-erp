@@ -9,9 +9,9 @@ from app.models.base import AuditBase
 # Only imported during type checking — avoids circular imports at runtime
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.loan import Loan
 
-    # from app.models.loan import Loan
-    # from app.models.document import Document
+# from app.models.document import Document
 
 
 class Customer(AuditBase):
@@ -48,11 +48,11 @@ class Customer(AuditBase):
         "User", foreign_keys=[assigned_employee_id], backref="assigned_customers"
     )
 
-    # loans: Mapped[list["Loan"]] = relationship(
-    #     "Loan",
-    #     back_populates="customer",
-    #     primaryjoin="and_(Customer.id == Loan.customer_id, Loan.is_deleted == False)",
-    # )
+    loans: Mapped[list["Loan"]] = relationship(
+        "Loan",
+        back_populates="customer",
+        primaryjoin="and_(Customer.id == Loan.customer_id, Loan.is_deleted == False)",
+    )
 
     # documents: Mapped[list["Document"]] = relationship(
     #     "Document",
