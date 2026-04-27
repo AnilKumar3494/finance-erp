@@ -151,7 +151,7 @@ def update_loan_route(
         )
 
     # Block non-admins from changing principal
-    if payload.principal is not None and current_user.role != UserRole.Admin:
+    if payload.principal is not None and current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can update the principal amount",
