@@ -10,8 +10,7 @@ from app.models.base import AuditBase
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.loan import Loan
-
-# from app.models.document import Document
+    from app.models.document import Document
 
 
 class Customer(AuditBase):
@@ -54,8 +53,8 @@ class Customer(AuditBase):
         primaryjoin="and_(Customer.id == Loan.customer_id, Loan.is_deleted == False)",
     )
 
-    # documents: Mapped[list["Document"]] = relationship(
-    #     "Document",
-    #     back_populates="customer",
-    #     primaryjoin="and_(Customer.id == Document.customer_id, Document.is_deleted == False)",
-    # )
+    documents: Mapped[list["Document"]] = relationship(
+        "Document",
+        back_populates="customer",
+        primaryjoin="and_(Customer.id == Document.customer_id, Document.is_deleted == False)",
+    )
