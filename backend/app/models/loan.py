@@ -11,8 +11,7 @@ from app.models.base import AuditBase
 if TYPE_CHECKING:
     from app.models.customer import Customer
     from app.models.vehicle import Vehicle
-
-    # from app.models.transaction import Transaction
+    from app.models.transaction import Transaction
 
 
 class LoanStatus(str, enum.Enum):
@@ -66,9 +65,8 @@ class Loan(AuditBase):
         "Vehicle", foreign_keys=[vehicle_id]
     )
 
-    # TODO: Uncomment when transaction model is built
-    # transactions: Mapped[list["Transaction"]] = relationship(
-    #     "Transaction",
-    #     back_populates="loan",
-    #     primaryjoin="and_(Loan.id == Transaction.loan_id, Transaction.is_deleted == False)"
-    # )
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        back_populates="loan",
+        primaryjoin="and_(Loan.id == Transaction.loan_id, Transaction.is_deleted == False)",
+    )

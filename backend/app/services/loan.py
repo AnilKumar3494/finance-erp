@@ -144,10 +144,22 @@ def update_loan(
 
 def close_loan(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
     """Mark loan as CLOSED"""
+
+    from app.services.transaction import get_loan_transaction_summary
+
+    summary = get_loan_transaction_summary(db, loan)
+
+    if summary["outstanding"] > Decimal("0.00"):
+        raise ValueError(
+            f"Cannot close loan. Outstanding balance: {summary['outstanding']}"
+        )
+
     loan.status = LoanStatus.CLOSED
     loan.updated_by_id = updated_by
+
     db.commit()
     db.refresh(loan)
+
     return loan
 
 

@@ -171,7 +171,7 @@ def update_loan_route(
 def close_loan_route(
     loan_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     loan = get_loan(db, loan_id)
     if not loan:
@@ -183,7 +183,11 @@ def close_loan_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Loan is already {loan.status.value}",
         )
-    return enrich_loan(close_loan(db=db, loan=loan, updated_by=current_user.id))
+    try:
+        return enrich_loan(close_loan(db=db, loan=loan, updated_by=current_user.id))
+
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # --------------------------------------------------
