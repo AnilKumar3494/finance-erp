@@ -9,6 +9,7 @@ from app.models.base import AuditBase
 
 if TYPE_CHECKING:
     from app.models.customer import Customer
+    from app.models.user import User
 
 
 class DocCategory(str, enum.Enum):
@@ -42,9 +43,18 @@ class Document(AuditBase):
 
     content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
+    file_size: Mapped[Optional[int]] = mapped_column(nullable=True)
+
     # --------------------------------------------------
     # RELATIONSHIPS
     # --------------------------------------------------
     customer: Mapped["Customer"] = relationship(
         "Customer", back_populates="documents", foreign_keys=[customer_id]
+    )
+
+    # Who uploaded — links to created_by_id from AuditBase
+    uploaded_by: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys="Document.created_by_id",  # reuse AuditBase field
+        primaryjoin="Document.created_by_id == User.id",
     )

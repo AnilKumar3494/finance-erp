@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from app.models.document import DocCategory
 
@@ -18,6 +18,20 @@ class DocumentResponse(BaseModel):
     content_type: Optional[str]
     is_deleted: bool
     created_by_id: Optional[uuid.UUID]
+    uploaded_by_name: Optional[str] = None
+
+    @computed_field
+    @property
+    def file_size_display(self) -> Optional[str]:
+        """Human readable file size e.g. 2.3 MB"""
+        if not self.file_size:
+            return None
+        if self.file_size < 1024:
+            return f"{self.file_size} B"
+        elif self.file_size < 1024 * 1024:
+            return f"{self.file_size / 1024:.1f} KB"
+        else:
+            return f"{self.file_size / (1024 * 1024):.1f} MB"
 
     model_config = {"from_attributes": True}
 
@@ -37,4 +51,6 @@ class DocumentDownloadResponse(BaseModel):
 # --------------------------------------------------
 class DocumentListResponse(BaseModel):
     total: int
+    page: int
+    page_size: int
     results: list[DocumentResponse]

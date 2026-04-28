@@ -1,5 +1,6 @@
 import uuid
 from typing import Optional
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -23,6 +24,8 @@ from app.schemas.document import (
     DocumentResponse,
 )
 from app.services.document import (
+    check_document_access,
+    enrich_document,
     get_document,
     get_download_url,
     list_documents,
@@ -58,14 +61,13 @@ async def upload(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Validate file type
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type not allowed. Allowed: JPEG, PNG, PDF",
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
-    # Read and validate file size
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(
@@ -74,7 +76,7 @@ async def upload(
         )
 
     try:
-        return upload_document(
+        document = upload_document(
             db=db,
             customer_id=customer_id,
             doc_type=doc_type,
@@ -83,58 +85,37 @@ async def upload(
             content_type=file.content_type,
             created_by=current_user.id,
         )
+        enriched = enrich_document(document, db)
+        return DocumentResponse(**enriched)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-# --------------------------------------------------
-# LIST
-# --------------------------------------------------
 @router.get(
-    "/", response_model=DocumentListResponse, summary="List documents with filters"
+    "/",
+    response_model=DocumentListResponse,
+    summary="List documents — Admin sees all, Employee sees assigned only",
 )
 def list_all(
     customer_id: Optional[uuid.UUID] = Query(None),
     doc_type: Optional[DocCategory] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    results, total = list_documents(db=db, customer_id=customer_id, doc_type=doc_type)
-    return DocumentListResponse(total=total, results=results)
-
-
-# --------------------------------------------------
-# GET DOWNLOAD URL
-# --------------------------------------------------
-@router.get(
-    "/{document_id}/download",
-    response_model=DocumentDownloadResponse,
-    summary="Get a pre-signed download URL",
-)
-def download(
-    document_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    document = get_document(db, document_id)
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
-        )
-    try:
-        url = get_download_url(document)
-        return DocumentDownloadResponse(
-            document_id=document.id,
-            file_name=document.file_name,
-            download_url=url,
-            expires_in_seconds=3600,
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    results, total = list_documents(
+        db=db,
+        requesting_user=current_user,  # ← ownership filter
+        customer_id=customer_id,
+        doc_type=doc_type,
+        page=page,
+        page_size=page_size,
+    )
+    enriched = [DocumentResponse(**enrich_document(d, db)) for d in results]
+    return DocumentListResponse(
+        total=total, page=page, page_size=page_size, results=enriched
+    )
 
 
 # --------------------------------------------------
@@ -153,7 +134,50 @@ def get_one(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-    return document
+
+    if not check_document_access(document, current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
+
+    return DocumentResponse(**enrich_document(document, db))
+
+
+# --------------------------------------------------
+# DOWNLOAD
+# --------------------------------------------------
+@router.get(
+    "/{document_id}/download",
+    response_model=DocumentDownloadResponse,
+    summary="Get a pre-signed download URL",
+)
+def download(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    document = get_document(db, document_id)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    if not check_document_access(document, current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
+
+    try:
+        return DocumentDownloadResponse(
+            document_id=document.id,
+            file_name=document.file_name,
+            download_url=get_download_url(document),
+            expires_in_seconds=3600,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 # --------------------------------------------------
