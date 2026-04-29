@@ -16,7 +16,10 @@ class DocumentResponse(BaseModel):
     s3_key: str
     file_name: Optional[str]
     content_type: Optional[str]
+    file_size: Optional[int] = None
+    file_hash: Optional[str] = None
     is_deleted: bool
+    deleted_by_id: Optional[uuid.UUID] = None
     created_by_id: Optional[uuid.UUID]
     uploaded_by_name: Optional[str] = None
 

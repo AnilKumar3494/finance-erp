@@ -67,3 +67,24 @@ def delete_file_from_s3(s3_key: str) -> None:
         client.delete_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key)
     except ClientError as e:
         raise ValueError(f"S3 delete failed: {str(e)}")
+
+
+# --------------------------------------------------
+# MOVE / ARCHIVE
+# --------------------------------------------------
+def archive_file_in_s3(old_key: str, new_key: str) -> None:
+    """
+    Copies an object to a new key and deletes the old one.
+    Used for moving soft-deleted files into an archive directory.
+    """
+    client = get_s3_client()
+    bucket = settings.S3_BUCKET_NAME
+    try:
+        # 1. Copy the file to the new location
+        copy_source = {"Bucket": bucket, "Key": old_key}
+        client.copy_object(CopySource=copy_source, Bucket=bucket, Key=new_key)
+
+        # 2. Delete the original file
+        client.delete_object(Bucket=bucket, Key=old_key)
+    except ClientError as e:
+        raise ValueError(f"S3 archive failed: {str(e)}")

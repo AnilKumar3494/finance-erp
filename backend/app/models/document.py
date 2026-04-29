@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import Enum, ForeignKey, String, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
@@ -33,6 +33,10 @@ class Document(AuditBase):
     # --------------------------------------------------
     # DOCUMENT INFO
     # --------------------------------------------------
+    file_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     doc_type: Mapped[DocCategory] = mapped_column(
         Enum(DocCategory, name="doc_category", create_type=False), nullable=False
     )
@@ -43,7 +47,7 @@ class Document(AuditBase):
 
     content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    file_size: Mapped[Optional[int]] = mapped_column(nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # --------------------------------------------------
     # RELATIONSHIPS
@@ -57,4 +61,8 @@ class Document(AuditBase):
         "User",
         foreign_keys="Document.created_by_id",  # reuse AuditBase field
         primaryjoin="Document.created_by_id == User.id",
+    )
+
+    deleted_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
