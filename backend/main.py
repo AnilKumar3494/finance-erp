@@ -2,7 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # from app.core.config import settings
-from app.api.v1.routes import auth, customers, vehicles, loans, transactions, documents
+from app.api.v1.routes import (
+    auth,
+    customers,
+    vehicles,
+    loans,
+    transactions,
+    documents,
+    reports,
+)
 
 # --------------------------------------------------
 # APP INIT
@@ -36,6 +44,7 @@ app.include_router(vehicles.router, prefix="/api/v1")
 app.include_router(loans.router, prefix="/api/v1")
 app.include_router(transactions.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(reports.router, prefix="/api/v1")
 
 
 # --------------------------------------------------
