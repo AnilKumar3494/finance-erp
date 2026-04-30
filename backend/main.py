@@ -1,3 +1,5 @@
+## ADDED this to check and see if Gemini still has access
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
