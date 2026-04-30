@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Union, Optional
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.user import User, UserRole
-from app.schemas.user import TokenData, UserCreate
+from app.schemas.user import TokenData, UserCreate, AdminUserCreate
 
 # --------------------------------------------------
 # PASSWORD HASHING
@@ -94,7 +94,9 @@ def get_user_by_id(db: Session, user_id: uuid.UUID) -> Optional[User]:
 
 
 def create_user(
-    db: Session, data: UserCreate, created_by: Optional[uuid.UUID] = None
+    db: Session,
+    data: Union[UserCreate, AdminUserCreate],
+    created_by: Optional[uuid.UUID] = None,
 ) -> User:
     """
     Register a new user.

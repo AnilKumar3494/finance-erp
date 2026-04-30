@@ -8,6 +8,7 @@ from app.models.base import AuditBase
 
 
 class UserRole(str, enum.Enum):
+    SUPER_ADMIN = "SUPER_ADMIN"
     ADMIN = "ADMIN"
     EMPLOYEE = "EMPLOYEE"
 

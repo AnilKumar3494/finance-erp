@@ -1,10 +1,10 @@
 import uuid
-from typing import Optional
-
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User, UserRole
 from app.services.auth import decode_access_token, get_user_by_id
@@ -13,7 +13,7 @@ from app.services.auth import decode_access_token, get_user_by_id
 # TOKEN EXTRACTOR
 # Pulls Bearer token from Authorization header
 # --------------------------------------------------
-bearer_scheme = HTTPBearer(auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 # --------------------------------------------------
@@ -21,55 +21,56 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # Every protected route uses this
 # --------------------------------------------------
 def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> User:
-    """
-    1. Extracts JWT from Authorization: Bearer <token>
-    2. Decodes and validates the token
-    3. Fetches the user from DB
-    4. Returns the live User ORM object
-    """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    """Decodes the JWT and fetches the active user."""
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        user_id_str = payload.get("sub")
+        if user_id_str is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
 
-    # No token provided
-    if not credentials:
-        raise credentials_exception
-
-    # Decode the JWT
-    token_data = decode_access_token(credentials.credentials)
-    if not token_data or not token_data.user_id:
-        raise credentials_exception
-
-    # Fetch user from DB — confirms they still exist and are active
-    user = get_user_by_id(db, token_data.user_id)
-    if not user:
-        raise credentials_exception
-
+    user = get_user_by_id(db, uuid.UUID(user_id_str))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found or inactive"
+        )
     return user
 
 
-# --------------------------------------------------
-# ROLE GUARDS
-# Use these on routes that need specific permissions
-# --------------------------------------------------
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Only ADMIN role can access this route"""
-    if current_user.role != UserRole.ADMIN:
+    """
+    Guard 1: Standard Admin Level
+    Allows BOTH Standard ADMIN and SUPER_ADMIN.
+    Used for: Creating/Removing Employees, Creating Admins.
+    """
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough privileges. Admin access required.",
         )
     return current_user
 
 
-def require_active_user(current_user: User = Depends(get_current_user)) -> User:
-    """Blocks suspended accounts even with valid JWT"""
-    if not current_user.is_active:
+def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Guard 2: Super Admin Level
+    Allows ONLY SUPER_ADMIN.
+    Used for: Removing Standard Admins.
+    """
+    if current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supreme privileges required. Super Admin access only.",
         )
     return current_user
