@@ -1,5 +1,11 @@
+import io
+import csv
+
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
+
 from sqlalchemy.orm import Session
+from typing import Literal
 
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
@@ -17,6 +23,8 @@ from app.services.report import (
     get_dashboard_summary,
     get_employee_report,
     get_loan_portfolio,
+    get_collection_chart,
+    get_monthly_trends,
 )
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
@@ -57,7 +65,7 @@ def loan_portfolio(
     summary="Daily or monthly collection breakdown",
 )
 def collections(
-    period: str = Query("daily", regex="^(daily|monthly)$"),
+    period: Literal["daily", "monthly"] = Query("daily"),
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -91,3 +99,63 @@ def employee_report(
     db: Session = Depends(get_db), current_user: User = Depends(require_admin)
 ):
     return get_employee_report(db)
+
+
+# --------------------------------------------------
+# CSV Exports
+# --------------------------------------------------
+@router.get("/customers/export")
+def export_customers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    data = get_customer_report(db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(
+        ["Customer Name", "Mobile", "Active Loans", "Principal", "Paid", "Outstanding"]
+    )
+
+    for row in data["results"]:
+        writer.writerow(
+            [
+                row["customer_name"],
+                row["mobile_number"],
+                row["active_loans"],
+                row["total_principal"],
+                row["total_paid"],
+                row["total_outstanding"],
+            ]
+        )
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=customers_report.csv"},
+    )
+
+
+# --------------------------------------------------
+# Charts
+# --------------------------------------------------
+@router.get("/charts/collections")
+def chart_collections(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return get_collection_chart(db)
+
+
+# --------------------------------------------------
+# Trends
+# --------------------------------------------------
+@router.get("/trends")
+def trends(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return get_monthly_trends(db)
