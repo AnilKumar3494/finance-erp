@@ -70,7 +70,9 @@ def create(
     summary="List all customers with search and pagination",
 )
 def list_all(
-    search: Optional[str] = Query(None, description="Search by name or mobile"),
+    search: Optional[str] = Query(
+        None, description="Search by customer name, mobile, or employee name"
+    ),
     assigned_employee_id: Optional[uuid.UUID] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
