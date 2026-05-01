@@ -93,6 +93,16 @@ def get_user_by_id(db: Session, user_id: uuid.UUID) -> Optional[User]:
     )
 
 
+def list_employees(db: Session) -> tuple[list[User], int]:
+    """Fetch all active employees for dropdowns and staff lists"""
+    query = db.query(User).filter(
+        User.role == UserRole.EMPLOYEE, User.is_active == True, User.is_deleted == False
+    )
+    total = query.count()
+    results = query.all()
+    return results, total
+
+
 def create_user(
     db: Session,
     data: Union[UserCreate, AdminUserCreate],

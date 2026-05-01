@@ -7,13 +7,21 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin, require_super_admin
 from app.models.user import User, UserRole
-from app.schemas.user import Token, UserCreate, UserLogin, UserResponse, AdminUserCreate
+from app.schemas.user import (
+    Token,
+    UserCreate,
+    UserListResponse,
+    UserLogin,
+    UserResponse,
+    AdminUserCreate,
+)
 from app.services.auth import (
     authenticate_user,
     create_user,
     create_access_token,
     get_user_by_login,
     get_user_by_id,
+    list_employees,
 )
 
 
@@ -95,6 +103,27 @@ def login(
 )
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+# --------------------------------------------------
+# LIST EMPLOYEES
+# --------------------------------------------------
+@router.get(
+    "/employees",
+    response_model=UserListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List all active employees (Used for Dropdowns)",
+)
+def get_all_employees(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns a list of all active employees.
+    Any authenticated user can access this to populate assignment dropdowns.
+    """
+    results, total = list_employees(db)
+    return UserListResponse(total=total, results=results)
 
 
 ### --------------------------------------------------

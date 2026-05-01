@@ -70,3 +70,11 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     user_id: Optional[uuid.UUID] = None
     role: Optional[UserRole] = None
+
+
+# --------------------------------------------------
+# LIST RESPONSE
+# --------------------------------------------------
+class UserListResponse(BaseModel):
+    total: int
+    results: list[UserResponse]
