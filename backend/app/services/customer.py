@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.models.customer import Customer
+from app.models.user import User
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 
 
@@ -38,7 +39,11 @@ def list_customers(
     List customers with optional search + filter.
     Returns (results, total_count)
     """
-    query = db.query(Customer).filter(Customer.is_deleted == False)
+    query = (
+        db.query(Customer, User.full_name)
+        .outerjoin(User, Customer.assigned_employee_id == User.id)
+        .filter(Customer.is_deleted == False)
+    )
 
     # Search by name or mobile
     if search:
@@ -46,6 +51,7 @@ def list_customers(
             or_(
                 Customer.full_name.ilike(f"%{search}%"),
                 Customer.mobile_number.ilike(f"%{search}%"),
+                User.full_name.ilike(f"%{search}%"),
             )
         )
 
@@ -54,7 +60,12 @@ def list_customers(
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
 
     total = query.count()
-    results = query.offset((page - 1) * page_size).limit(page_size).all()
+    raw_results = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    results = []
+    for customer, emp_name in raw_results:
+        customer.assigned_employee_name = emp_name
+        results.append(customer)
 
     return results, total
 
@@ -75,7 +86,7 @@ def create_customer(
     try:
         db.commit()
         db.refresh(customer)
-        return customer
+        return get_customer(db, customer.id)
     except IntegrityError as e:
         db.rollback()
         raise ValueError(f"Duplicate value — {str(e.orig)}")
@@ -91,7 +102,7 @@ def update_customer(
     customer.updated_by_id = updated_by
     db.commit()
     db.refresh(customer)
-    return customer
+    return get_customer(db, customer.id)
 
 
 def soft_delete_customer(

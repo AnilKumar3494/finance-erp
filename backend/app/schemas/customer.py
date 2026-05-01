@@ -63,6 +63,7 @@ class CustomerResponse(CustomerBase):
     is_deleted: bool
     created_by_id: Optional[uuid.UUID]
     assigned_employee_id: Optional[uuid.UUID]
+    assigned_employee_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
