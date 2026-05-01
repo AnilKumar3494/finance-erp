@@ -18,7 +18,7 @@ from app.api.v1.routes import (
 # APP INIT
 # --------------------------------------------------
 app = FastAPI(
-    title="Your App Name",
+    title="FinERP API TESTING",
     description="Loan Management System API",
     version="1.0.0",
     docs_url="/docs",  # Swagger UI

@@ -66,6 +66,20 @@ class CustomerResponse(CustomerBase):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("aadhaar_number", mode="after")
+    @classmethod
+    def mask_aadhaar(cls, v: Optional[str]) -> Optional[str]:
+        if v and len(v) == 12:
+            return f"********{v[-4:]}"
+        return v
+
+    @field_validator("pan_number", mode="after")
+    @classmethod
+    def mask_pan(cls, v: Optional[str]) -> Optional[str]:
+        if v and len(v) == 10:
+            return f"{v[:2]}******{v[-2:]}"
+        return v
+
 
 # --------------------------------------------------
 # LIST RESPONSE (Paginated)
@@ -75,3 +89,13 @@ class CustomerListResponse(BaseModel):
     page: int
     page_size: int
     results: list[CustomerResponse]
+
+
+# --------------------------------------------------
+# UNMASKED RESPONSE (For Admin View Only)
+# --------------------------------------------------
+class CustomerUnmaskedPII(BaseModel):
+    aadhaar_number: Optional[str] = None
+    pan_number: Optional[str] = None
+
+    model_config = {"from_attributes": True}

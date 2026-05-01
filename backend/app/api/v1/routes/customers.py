@@ -7,11 +7,12 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.customer import (
     CustomerCreate,
     CustomerListResponse,
     CustomerResponse,
+    CustomerUnmaskedPII,
     CustomerUpdate,
 )
 from app.services.customer import (
@@ -77,6 +78,10 @@ def list_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+
+    if current_user.role == UserRole.EMPLOYEE:
+        assigned_employee_id = current_user.id
+
     results, total = list_customers(
         db=db,
         search=search,
@@ -107,7 +112,45 @@ def get_one(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
         )
+
+    if (
+        current_user.role == UserRole.EMPLOYEE
+        and customer.assigned_employee_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Access denied. Customer not assigned to you."
+        )
+
     return customer
+
+
+# --------------------------------------------------
+# UNMASK PII (Admin Only)
+# --------------------------------------------------
+@router.get(
+    "/{customer_id}/unmask",
+    response_model=CustomerUnmaskedPII,
+    summary="Get unmasked PII data (Admin Only)",
+)
+def get_unmasked_pii(
+    customer_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),  # SECURITY: Admins only
+):
+    """
+    Called by the frontend when the Admin clicks the 'Eye' icon to unmask data.
+    """
+    customer = get_customer(db, customer_id)
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
+        )
+
+    # FUTURE AUDIT TRIGGER: Log this action in the audit_logs table here.
+
+    return CustomerUnmaskedPII(
+        aadhaar_number=customer.aadhaar_number, pan_number=customer.pan_number
+    )
 
 
 # --------------------------------------------------
@@ -127,6 +170,15 @@ def update(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
         )
+
+    if (
+        current_user.role == UserRole.EMPLOYEE
+        and customer.assigned_employee_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Access denied. Customer not assigned to you."
+        )
+
     return update_customer(
         db=db, customer=customer, data=payload, updated_by=current_user.id
     )

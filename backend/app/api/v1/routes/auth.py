@@ -39,11 +39,18 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 )
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     """
-    Register a new user.
+    Register a new user only for first user.
     - Username and email must both be unique
     - Password is hashed before storage — never stored plain
     - First user can be ADMIN, rest default to EMPLOYEE
     """
+    existing_users = db.query(User).count()
+    if existing_users > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration disabled.",
+        )
+
     # Check username taken
     if get_user_by_login(db, payload.username):
         raise HTTPException(
@@ -116,12 +123,13 @@ def get_me(current_user: User = Depends(get_current_user)):
 )
 def get_all_employees(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_admin: User = Depends(require_admin),
 ):
     """
     Returns a list of all active employees.
-    Any authenticated user can access this to populate assignment dropdowns.
+    Only Admins can access this to populate assignment dropdowns.
     """
+
     results, total = list_employees(db)
     return UserListResponse(total=total, results=results)
 
