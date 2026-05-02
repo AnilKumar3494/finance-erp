@@ -17,7 +17,6 @@ from app.schemas.vehicle import (
 from app.services.vehicle import (
     create_vehicle,
     get_vehicle,
-    get_vehicle_by_plate,
     list_vehicles,
     soft_delete_vehicle,
     update_vehicle,
@@ -40,11 +39,6 @@ def create_vehicle_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # Admin only
 ):
-    if get_vehicle_by_plate(db, payload.plate_number):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Plate number already registered",
-        )
     try:
         return create_vehicle(db=db, data=payload, created_by=current_user.id)
     except ValueError as e:
@@ -135,4 +129,7 @@ def delete_vehicle_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
         )
-    soft_delete_vehicle(db=db, vehicle=vehicle, deleted_by=current_user.id)
+    try:
+        soft_delete_vehicle(db=db, vehicle=vehicle, deleted_by=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

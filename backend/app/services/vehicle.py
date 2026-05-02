@@ -66,11 +66,7 @@ def list_vehicles(
 def create_vehicle(db: Session, data: VehicleCreate, created_by: uuid.UUID) -> Vehicle:
     """Create a new vehicle"""
     vehicle = Vehicle(
-        type=data.type,
-        plate_number=data.plate_number.upper(),
-        market_value=data.market_value,
-        purchase_cost=data.purchase_cost,
-        status=data.status,
+        **data.model_dump(),
         created_by_id=created_by,
     )
     db.add(vehicle)
@@ -80,7 +76,7 @@ def create_vehicle(db: Session, data: VehicleCreate, created_by: uuid.UUID) -> V
         return vehicle
     except IntegrityError:
         db.rollback()
-        raise ValueError("Plate number already registered")
+        raise ValueError("Chassis number already exists")
 
 
 def update_vehicle(
@@ -91,16 +87,33 @@ def update_vehicle(
         setattr(vehicle, field, value)
 
     vehicle.updated_by_id = updated_by
-    db.commit()
-    db.refresh(vehicle)
-    return vehicle
+    try:
+        db.commit()
+        db.refresh(vehicle)
+        return vehicle
+    except IntegrityError:
+        db.rollback()
+        raise ValueError("Plate number or chassis number already exists")
 
 
 def soft_delete_vehicle(
     db: Session, vehicle: Vehicle, deleted_by: uuid.UUID
 ) -> Vehicle:
     """Soft delete — never hard delete"""
+    from app.models.loan import Loan, LoanStatus
     from datetime import datetime, timezone
+
+    active_loan = (
+        db.query(Loan)
+        .filter(
+            Loan.vehicle_id == vehicle.id,
+            Loan.status == LoanStatus.ACTIVE,
+            Loan.is_deleted == False,
+        )
+        .first()
+    )
+    if active_loan:
+        raise ValueError("Cannot delete vehicle — it is collateral for an active loan")
 
     vehicle.is_deleted = True
     vehicle.deleted_at = datetime.now(timezone.utc)
