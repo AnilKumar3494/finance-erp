@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.customer import Customer
     from app.models.vehicle import Vehicle
     from app.models.transaction import Transaction
+    from app.models.user import User
 
 
 class LoanStatus(str, enum.Enum):
@@ -69,4 +70,12 @@ class Loan(AuditBase):
         "Transaction",
         back_populates="loan",
         primaryjoin="and_(Loan.id == Transaction.loan_id, Transaction.is_deleted == False)",
+    )
+
+    created_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys="[Loan.created_by_id]", lazy="noload"
+    )
+
+    updated_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys="[Loan.updated_by_id]", lazy="noload"
     )

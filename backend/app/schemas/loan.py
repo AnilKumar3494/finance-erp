@@ -5,6 +5,44 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.loan import LoanStatus
+from app.models.user import UserRole
+
+
+# --------------------------------------------------
+# NESTED SCHEMAS (Lightweight — for includes)
+# --------------------------------------------------
+class UserNested(BaseModel):
+    """Lightweight user info for nesting in responses"""
+
+    id: uuid.UUID
+    username: str
+    full_name: Optional[str] = None
+    role: UserRole
+
+    model_config = {"from_attributes": True}
+
+
+class CustomerNested(BaseModel):
+    """Lightweight customer info for nesting in responses"""
+
+    id: uuid.UUID
+    full_name: str
+    mobile_number: str
+    assigned_employee_id: Optional[uuid.UUID] = None
+
+    model_config = {"from_attributes": True}
+
+
+class VehicleNested(BaseModel):
+    """Lightweight vehicle info for nesting in responses"""
+
+    id: uuid.UUID
+    plate_number: str
+    make: Optional[str] = None
+    model: Optional[str] = None
+    year: Optional[int] = None
+
+    model_config = {"from_attributes": True}
 
 
 # --------------------------------------------------
@@ -60,12 +98,18 @@ class LoanResponse(LoanBase):
     status: LoanStatus
     loan_number: str
     is_deleted: bool
-    created_by_id: Optional[uuid.UUID]
-    updated_by_id: Optional[uuid.UUID]
+    created_by_id: Optional[uuid.UUID] = None
+    updated_by_id: Optional[uuid.UUID] = None
 
     # Computed fields
     monthly_interest: Optional[Decimal] = None
     total_payable: Optional[Decimal] = None
+
+    # Nested objects (populated only when ?include= is used)
+    customer: Optional[CustomerNested] = None
+    vehicle: Optional[VehicleNested] = None
+    created_by: Optional[UserNested] = None
+    updated_by: Optional[UserNested] = None
 
     model_config = {"from_attributes": True}
 

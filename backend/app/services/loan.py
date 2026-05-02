@@ -4,12 +4,39 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.schemas.loan import LoanCreate, LoanUpdate
 from app.models.loan import Loan, LoanStatus
 from app.models.customer import Customer
 from app.models.vehicle import Vehicle
+
+
+# --------------------------------------------------
+# VALID INCLUDE OPTIONS
+# --------------------------------------------------
+VALID_INCLUDES = {"customer", "vehicle", "created_by", "updated_by"}
+
+
+def parse_includes(include: Optional[str]) -> set[str]:
+    """Parse and validate comma-separated include string"""
+    if not include:
+        return set()
+    requested = {s.strip().lower() for s in include.split(",")}
+    return requested & VALID_INCLUDES
+
+
+def _apply_eager_loading(query, includes: set[str]):
+    """Apply joinedload for requested relationships"""
+    if "customer" in includes:
+        query = query.options(joinedload(Loan.customer))
+    if "vehicle" in includes:
+        query = query.options(joinedload(Loan.vehicle))
+    if "created_by" in includes:
+        query = query.options(joinedload(Loan.created_by))
+    if "updated_by" in includes:
+        query = query.options(joinedload(Loan.updated_by))
+    return query
 
 
 # --------------------------------------------------
@@ -29,9 +56,14 @@ def calculate_total_payable(principal: Decimal, rate: Decimal, tenure: int) -> D
 # --------------------------------------------------
 # QUERIES
 # --------------------------------------------------
-def get_loan(db: Session, loan_id: uuid.UUID) -> Optional[Loan]:
+def get_loan(
+    db: Session, loan_id: uuid.UUID, include: Optional[str] = None
+) -> Optional[Loan]:
     """Fetch single active loan by ID"""
-    return db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
+    includes = parse_includes(include)
+    query = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False)
+    query = _apply_eager_loading(query, includes)
+    return query.first()
 
 
 def generate_loan_number() -> str:
@@ -40,17 +72,18 @@ def generate_loan_number() -> str:
     return f"LMS-{year}-{random_part}"
 
 
-def get_active_loans_by_customer(db: Session, customer_id: uuid.UUID) -> list[Loan]:
+def get_active_loans_by_customer(
+    db: Session, customer_id: uuid.UUID, include: Optional[str] = None
+) -> list[Loan]:
     """Get all active loans for a customer"""
-    return (
-        db.query(Loan)
-        .filter(
-            Loan.customer_id == customer_id,
-            Loan.status == LoanStatus.ACTIVE,
-            Loan.is_deleted == False,
-        )
-        .all()
+    includes = parse_includes(include)
+    query = db.query(Loan).filter(
+        Loan.customer_id == customer_id,
+        Loan.status == LoanStatus.ACTIVE,
+        Loan.is_deleted == False,
     )
+    query = _apply_eager_loading(query, includes)
+    return query.all()
 
 
 def list_loans(
@@ -61,8 +94,10 @@ def list_loans(
     page: int = 1,
     page_size: int = 20,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    include: Optional[str] = None,
 ) -> tuple[list[Loan], int]:
-    """List loans with optional filters"""
+    """List loans with optional filters and eager loading"""
+    includes = parse_includes(include)
     query = db.query(Loan).filter(Loan.is_deleted == False)
 
     if assigned_employee_id:
@@ -81,6 +116,9 @@ def list_loans(
         query = query.filter(Loan.status == status)
 
     total = query.count()
+
+    query = _apply_eager_loading(query, includes)
+
     results = (
         query.order_by(Loan.created_at.desc())
         .offset((page - 1) * page_size)
@@ -182,8 +220,6 @@ def mark_bad_debt(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
 
 
 def soft_delete_loan(db: Session, loan: Loan, deleted_by: uuid.UUID) -> Loan:
-    from datetime import datetime, timezone
-
     loan.is_deleted = True
     loan.deleted_at = datetime.now(timezone.utc)
     loan.updated_by_id = deleted_by

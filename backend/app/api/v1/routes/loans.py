@@ -13,10 +13,13 @@ from app.models.vehicle import Vehicle
 from app.models.loan import Loan, LoanStatus
 
 from app.schemas.loan import (
+    CustomerNested,
     LoanCreate,
     LoanListResponse,
     LoanResponse,
     LoanUpdate,
+    UserNested,
+    VehicleNested,
 )
 from app.services.loan import (
     calculate_monthly_interest,
@@ -27,6 +30,7 @@ from app.services.loan import (
     get_loan,
     list_loans,
     mark_bad_debt,
+    parse_includes,
     soft_delete_loan,
     update_loan,
 )
@@ -35,9 +39,13 @@ router = APIRouter(prefix="/loans", tags=["Loans"])
 
 
 # --------------------------------------------------
-# HELPER — Attach computed fields to response
+# HELPER — Attach computed fields + nested objects
 # --------------------------------------------------
-def enrich_loan(loan) -> LoanResponse:
+def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
+    """
+    Build response with computed fields.
+    If includes is provided, populate nested objects from eagerly-loaded relationships.
+    """
     response = LoanResponse.model_validate(loan)
     response.monthly_interest = calculate_monthly_interest(
         loan.principal, loan.interest_rate
@@ -45,14 +53,26 @@ def enrich_loan(loan) -> LoanResponse:
     response.total_payable = calculate_total_payable(
         loan.principal, loan.interest_rate, loan.tenure
     )
+
+    if includes:
+        if "customer" in includes and loan.customer:
+            response.customer = CustomerNested.model_validate(loan.customer)
+
+        if "vehicle" in includes and loan.vehicle:
+            response.vehicle = VehicleNested.model_validate(loan.vehicle)
+
+        if "created_by" in includes and loan.created_by:
+            response.created_by = UserNested.model_validate(loan.created_by)
+
+        if "updated_by" in includes and loan.updated_by:
+            response.updated_by = UserNested.model_validate(loan.updated_by)
+
     return response
 
 
 def _assert_loan_access(loan: "Loan", current_user: User, db: Session) -> None:
     """Raise 403 if an employee tries to access a loan outside their assigned customers."""
     if current_user.role == UserRole.EMPLOYEE:
-        from app.models.customer import Customer
-
         customer = (
             db.query(Customer)
             .filter(
@@ -98,6 +118,10 @@ def list_all(
     customer_id: Optional[uuid.UUID] = Query(None),
     vehicle_id: Optional[uuid.UUID] = Query(None),
     status: Optional[LoanStatus] = Query(None),
+    include: Optional[str] = Query(
+        None,
+        description="Comma-separated list of related objects to include: customer, vehicle, created_by, updated_by",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -106,6 +130,7 @@ def list_all(
     assigned_employee_id = (
         current_user.id if current_user.role == UserRole.EMPLOYEE else None
     )
+    includes = parse_includes(include)
     results, total = list_loans(
         db=db,
         customer_id=customer_id,
@@ -114,12 +139,13 @@ def list_all(
         page=page,
         page_size=page_size,
         assigned_employee_id=assigned_employee_id,
+        include=include,
     )
     return LoanListResponse(
         total=total,
         page=page,
         page_size=page_size,
-        results=[enrich_loan(l) for l in results],
+        results=[enrich_loan(l, includes) for l in results],
     )
 
 
@@ -131,16 +157,21 @@ def list_all(
 )
 def get_one(
     loan_id: uuid.UUID,
+    include: Optional[str] = Query(
+        None,
+        description="Comma-separated list of related objects to include: customer, vehicle, created_by, updated_by",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    loan = get_loan(db, loan_id)
+    includes = parse_includes(include)
+    loan = get_loan(db, loan_id, include=include)
     if not loan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
     _assert_loan_access(loan, current_user, db)
-    return enrich_loan(loan)
+    return enrich_loan(loan, includes)
 
 
 # --------------------------------------------------
@@ -153,6 +184,10 @@ def get_one(
 )
 def get_customer_active_loans(
     customer_id: uuid.UUID,
+    include: Optional[str] = Query(
+        None,
+        description="Comma-separated list of related objects to include: customer, vehicle, created_by, updated_by",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -172,8 +207,9 @@ def get_customer_active_loans(
                 detail="Access denied to this customer's loans",
             )
 
-    loans = get_active_loans_by_customer(db, customer_id)
-    return [enrich_loan(l) for l in loans]
+    includes = parse_includes(include)
+    loans = get_active_loans_by_customer(db, customer_id, include=include)
+    return [enrich_loan(l, includes) for l in loans]
 
 
 # --------------------------------------------------
