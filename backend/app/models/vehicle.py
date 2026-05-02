@@ -33,9 +33,7 @@ class Vehicle(AuditBase):
         Enum(AssetType, name="asset_type", create_type=False), nullable=False
     )
 
-    plate_number: Mapped[str] = mapped_column(
-        String(20), unique=True, nullable=False, index=True
-    )
+    plate_number: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
     make: Mapped[Optional[str]] = mapped_column(String(50))
     model: Mapped[Optional[str]] = mapped_column(String(50))

@@ -20,6 +20,8 @@ from app.services.vehicle import (
     list_vehicles,
     soft_delete_vehicle,
     update_vehicle,
+    get_vehicle_by_plate,
+    get_vehicle_by_chassis,
 )
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
@@ -39,10 +41,19 @@ def create_vehicle_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # Admin only
 ):
-    try:
-        return create_vehicle(db=db, data=payload, created_by=current_user.id)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    if payload.plate_number and get_vehicle_by_plate(db, payload.plate_number):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Plate number already registered to an active vehicle",
+        )
+
+    if payload.chassis_number and get_vehicle_by_chassis(db, payload.chassis_number):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Chassis number already exists in the system",
+        )
+
+    return create_vehicle(db=db, data=payload, created_by=current_user.id)
 
 
 # --------------------------------------------------
@@ -106,6 +117,21 @@ def update_vehicle_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
         )
+
+    if payload.plate_number and payload.plate_number != vehicle.plate_number:
+        if get_vehicle_by_plate(db, payload.plate_number):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Plate number already registered to an active vehicle",
+            )
+
+    if payload.chassis_number and payload.chassis_number != vehicle.chassis_number:
+        if get_vehicle_by_chassis(db, payload.chassis_number):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Chassis number already exists in the system",
+            )
+
     return update_vehicle(
         db=db, vehicle=vehicle, data=payload, updated_by=current_user.id
     )

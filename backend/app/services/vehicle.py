@@ -28,6 +28,14 @@ def get_vehicle_by_plate(db: Session, plate_number: str) -> Optional[Vehicle]:
     )
 
 
+def get_vehicle_by_chassis(db: Session, chassis_number: str) -> Optional[Vehicle]:
+    """
+    Finds a vehicle by chassis number across ALL records.
+    A chassis number is permanent and can NEVER be reused, even if deleted.
+    """
+    return db.query(Vehicle).filter(Vehicle.chassis_number == chassis_number).first()
+
+
 def list_vehicles(
     db: Session,
     search: Optional[str] = None,
