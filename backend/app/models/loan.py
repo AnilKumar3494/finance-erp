@@ -27,7 +27,7 @@ class Loan(AuditBase):
     # RELATIONSHIPS KEYS
     # --------------------------------------------------
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True
     )
 
     vehicle_id: Mapped[Optional[uuid.UUID]] = mapped_column(

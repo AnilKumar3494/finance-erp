@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,7 +35,7 @@ def get_loan(db: Session, loan_id: uuid.UUID) -> Optional[Loan]:
 
 
 def generate_loan_number() -> str:
-    year = datetime.utcnow().year
+    year = datetime.now(timezone.utc).year
     random_part = str(uuid.uuid4().int)[0:6]
     return f"LMS-{year}-{random_part}"
 
@@ -60,9 +60,16 @@ def list_loans(
     status: Optional[LoanStatus] = None,
     page: int = 1,
     page_size: int = 20,
+    assigned_employee_id: Optional[uuid.UUID] = None,
 ) -> tuple[list[Loan], int]:
     """List loans with optional filters"""
     query = db.query(Loan).filter(Loan.is_deleted == False)
+
+    if assigned_employee_id:
+        query = query.join(Customer, Loan.customer_id == Customer.id).filter(
+            Customer.assigned_employee_id == assigned_employee_id,
+            Customer.is_deleted == False,
+        )
 
     if customer_id:
         query = query.filter(Loan.customer_id == customer_id)
@@ -124,9 +131,11 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         db.commit()
         db.refresh(loan)
         return loan
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        raise ValueError("Invalid customer or vehicle ID")
+        if "loans_loan_number_key" in str(e.orig):
+            raise ValueError("Loan number collision — please retry")
+        raise ValueError("Invalid customer or vehicle reference")
 
 
 def update_loan(

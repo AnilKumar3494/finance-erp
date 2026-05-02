@@ -10,7 +10,7 @@ from app.dependencies.auth import get_current_user, require_admin
 from app.models.user import User, UserRole
 from app.models.customer import Customer
 from app.models.vehicle import Vehicle
-from app.models.loan import LoanStatus
+from app.models.loan import Loan, LoanStatus
 
 from app.schemas.loan import (
     LoanCreate,
@@ -48,6 +48,27 @@ def enrich_loan(loan) -> LoanResponse:
     return response
 
 
+def _assert_loan_access(loan: "Loan", current_user: User, db: Session) -> None:
+    """Raise 403 if an employee tries to access a loan outside their assigned customers."""
+    if current_user.role == UserRole.EMPLOYEE:
+        from app.models.customer import Customer
+
+        customer = (
+            db.query(Customer)
+            .filter(
+                Customer.id == loan.customer_id,
+                Customer.assigned_employee_id == current_user.id,
+                Customer.is_deleted == False,
+            )
+            .first()
+        )
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this loan",
+            )
+
+
 # --------------------------------------------------
 # CREATE
 # --------------------------------------------------
@@ -82,6 +103,9 @@ def list_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    assigned_employee_id = (
+        current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    )
     results, total = list_loans(
         db=db,
         customer_id=customer_id,
@@ -89,6 +113,7 @@ def list_all(
         status=status,
         page=page,
         page_size=page_size,
+        assigned_employee_id=assigned_employee_id,
     )
     return LoanListResponse(
         total=total,
@@ -114,6 +139,7 @@ def get_one(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
+    _assert_loan_access(loan, current_user, db)
     return enrich_loan(loan)
 
 
@@ -130,6 +156,22 @@ def get_customer_active_loans(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        customer = (
+            db.query(Customer)
+            .filter(
+                Customer.id == customer_id,
+                Customer.assigned_employee_id == current_user.id,
+                Customer.is_deleted == False,
+            )
+            .first()
+        )
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this customer's loans",
+            )
+
     loans = get_active_loans_by_customer(db, customer_id)
     return [enrich_loan(l) for l in loans]
 
@@ -150,12 +192,24 @@ def update_loan_route(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
 
-    # Block non-admins from changing principal
-    if payload.principal is not None and current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can update the principal amount",
-        )
+    _assert_loan_access(loan, current_user, db)
+
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        if payload.principal is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can update the principal amount",
+            )
+        if payload.interest_rate is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can update the interest rate",
+            )
+        if payload.status is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can change loan status",
+            )
 
     return enrich_loan(
         update_loan(db=db, loan=loan, data=payload, updated_by=current_user.id)
@@ -223,11 +277,18 @@ def mark_bad_debt_route(
 def delete_loan_route(
     loan_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # Admin only
+    current_user: User = Depends(require_admin),
 ):
     loan = get_loan(db, loan_id)
     if not loan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
+
+    if loan.status == LoanStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete an ACTIVE loan. Close or mark as bad debt first.",
+        )
+
     soft_delete_loan(db=db, loan=loan, deleted_by=current_user.id)
