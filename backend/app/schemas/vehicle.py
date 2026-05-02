@@ -13,6 +13,13 @@ from app.models.vehicle import AssetStatus, AssetType
 class VehicleBase(BaseModel):
     type: AssetType
     plate_number: str = Field(..., min_length=2, max_length=20)
+    make: Optional[str] = Field(None, max_length=50)
+    model: Optional[str] = Field(None, max_length=50)
+
+    ##AKCHECK: Check what is the minimun year for a vehicle
+    year: Optional[int] = Field(None, ge=1900, le=2100)
+    color: Optional[str] = Field(None, max_length=30)
+    chassis_number: Optional[str] = Field(None, max_length=50)
     market_value: Decimal = Field(default=Decimal("0.00"), ge=0)
     purchase_cost: Decimal = Field(default=Decimal("0.00"), ge=0)
     status: AssetStatus = AssetStatus.IN_YARD
@@ -36,6 +43,11 @@ class VehicleCreate(VehicleBase):
 class VehicleUpdate(BaseModel):
     type: Optional[AssetType] = None
     plate_number: Optional[str] = Field(None, min_length=2, max_length=20)
+    make: Optional[str] = Field(None, max_length=50)
+    model: Optional[str] = Field(None, max_length=50)
+    year: Optional[int] = Field(None, ge=1900, le=2100)
+    color: Optional[str] = Field(None, max_length=30)
+    chassis_number: Optional[str] = Field(None, max_length=50)
     market_value: Optional[Decimal] = Field(None, ge=0)
     purchase_cost: Optional[Decimal] = Field(None, ge=0)
     status: Optional[AssetStatus] = None

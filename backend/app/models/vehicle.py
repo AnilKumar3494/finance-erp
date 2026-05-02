@@ -1,14 +1,14 @@
 import enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from decimal import Decimal
-from sqlalchemy import Enum, Numeric, String
+from sqlalchemy import Enum, Numeric, String, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
 
-# if TYPE_CHECKING:
-# from app.models.loan import Loan
+if TYPE_CHECKING:
+    from app.models.loan import Loan
 
 
 class AssetType(str, enum.Enum):
@@ -33,9 +33,15 @@ class Vehicle(AuditBase):
         Enum(AssetType, name="asset_type", create_type=False), nullable=False
     )
 
-    plate_number: Mapped[str] = mapped_column(
-        String(20), unique=True, nullable=False, index=True
-    )
+    plate_number: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+
+    make: Mapped[Optional[str]] = mapped_column(String(50))
+    model: Mapped[Optional[str]] = mapped_column(String(50))
+    year: Mapped[Optional[int]] = mapped_column(Integer)
+    color: Mapped[Optional[str]] = mapped_column(String(30))
+
+    ##AKCHECK: Check if this is must required or if this can be optional
+    chassis_number: Mapped[Optional[str]] = mapped_column(String(50), unique=True)
 
     market_value: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), default=Decimal("0.00"), server_default="0.00", nullable=False
@@ -54,9 +60,8 @@ class Vehicle(AuditBase):
     # --------------------------------------------------
     # RELATIONSHIPS
     # --------------------------------------------------
-    # TODO: Uncomment when loan model is built
-    # loans: Mapped[list["Loan"]] = relationship(
-    #     "Loan",
-    #     back_populates="vehicle",
-    #     primaryjoin="and_(Vehicle.id == Loan.vehicle_id, Loan.is_deleted == False)"
-    # )
+    loans: Mapped[list["Loan"]] = relationship(
+        "Loan",
+        back_populates="vehicle",
+        primaryjoin="and_(Vehicle.id == Loan.vehicle_id, Loan.is_deleted == False)",
+    )
