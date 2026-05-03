@@ -214,7 +214,7 @@ def update_transaction_route(
 @router.delete(
     "/{transaction_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Soft delete a transaction (PENDING/FAILED only)",
+    summary="Soft delete a transaction (FAILED only)",
 )
 def delete_transaction_route(
     transaction_id: uuid.UUID,

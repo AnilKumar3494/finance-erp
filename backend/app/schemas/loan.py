@@ -89,6 +89,8 @@ class LoanUpdate(BaseModel):
     interest_rate: Optional[Decimal] = Field(None, gt=0, le=100)
     tenure: Optional[int] = Field(None, gt=0, le=360)
 
+    model_config = {"extra": "forbid"}
+
 
 # --------------------------------------------------
 # RESPONSE

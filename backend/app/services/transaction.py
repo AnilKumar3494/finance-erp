@@ -307,11 +307,17 @@ def update_transaction(
 def soft_delete_transaction(
     db: Session, transaction: Transaction, deleted_by: uuid.UUID
 ) -> Transaction:
-    """Soft delete — only allowed for PENDING or FAILED transactions."""
+    """Soft delete — only allowed for FAILED transactions."""
     if transaction.status == TransactionStatus.SUCCESS:
         raise ValueError(
             "Cannot delete a confirmed transaction. "
             "Contact super admin for reversal."
+        )
+
+    if transaction.status == TransactionStatus.PENDING:
+        raise ValueError(
+            "Cannot delete a pending transaction. "
+            "Mark it as failed first, then delete."
         )
 
     transaction.is_deleted = True
