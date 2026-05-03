@@ -59,16 +59,17 @@ class Loan(AuditBase):
     # RELATIONSHIPS
     # --------------------------------------------------
     customer: Mapped["Customer"] = relationship(
-        "Customer", back_populates="loans", foreign_keys=[customer_id]
+        "Customer", back_populates="loans", foreign_keys=[customer_id], lazy="noload"
     )
 
     vehicle: Mapped[Optional["Vehicle"]] = relationship(
-        "Vehicle", foreign_keys=[vehicle_id]
+        "Vehicle", foreign_keys=[vehicle_id], lazy="noload"
     )
 
     transactions: Mapped[list["Transaction"]] = relationship(
         "Transaction",
         back_populates="loan",
+        lazy="noload",
         primaryjoin="and_(Loan.id == Transaction.loan_id, Transaction.is_deleted == False)",
     )
 
