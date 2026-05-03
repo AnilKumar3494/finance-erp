@@ -19,6 +19,7 @@ from app.services.loan import get_loan
 from app.services.transaction import (
     confirm_transaction,
     create_transaction,
+    fail_transaction,
     get_loan_transaction_summary,
     get_transaction,
     list_transactions,
@@ -60,7 +61,7 @@ def create_transaction_route(
 def list_all(
     loan_id: Optional[uuid.UUID] = Query(None),
     collected_by_id: Optional[uuid.UUID] = Query(None),
-    status: Optional[TransactionStatus] = Query(None),
+    status_filter: Optional[TransactionStatus] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -70,9 +71,11 @@ def list_all(
         db=db,
         loan_id=loan_id,
         collected_by_id=collected_by_id,
-        status=status,
+        status=status_filter,
         page=page,
         page_size=page_size,
+        current_user_id=current_user.id,
+        current_user_role=current_user.role,
     )
     return TransactionListResponse(
         total=total,
@@ -126,7 +129,7 @@ def loan_summary(
 
 
 # --------------------------------------------------
-# CONFIRM TRANSACTION
+# CONFIRM TRANSACTION (Admin only)
 # --------------------------------------------------
 @router.post(
     "/{transaction_id}/confirm",
@@ -136,7 +139,7 @@ def loan_summary(
 def confirm_transaction_route(
     transaction_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # Admin only
+    current_user: User = Depends(require_admin),
 ):
     transaction = get_transaction(db, transaction_id)
     if not transaction:
@@ -152,45 +155,80 @@ def confirm_transaction_route(
 
 
 # --------------------------------------------------
-# UPDATE
+# FAIL TRANSACTION (Admin only)
+# --------------------------------------------------
+@router.post(
+    "/{transaction_id}/fail",
+    response_model=TransactionResponse,
+    summary="Mark a pending transaction as failed",
+)
+def fail_transaction_route(
+    transaction_id: uuid.UUID,
+    reason: Optional[str] = Query(None, max_length=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    transaction = get_transaction(db, transaction_id)
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
+        )
+    try:
+        return fail_transaction(
+            db=db, transaction=transaction, updated_by=current_user.id, reason=reason
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# --------------------------------------------------
+# UPDATE (Admin only)
 # --------------------------------------------------
 @router.patch(
     "/{transaction_id}",
     response_model=TransactionResponse,
-    summary="Update transaction notes or status",
+    summary="Update transaction notes",
 )
 def update_transaction_route(
     transaction_id: uuid.UUID,
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # Admin only
+    current_user: User = Depends(require_admin),
 ):
     transaction = get_transaction(db, transaction_id)
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-    return update_transaction(
-        db=db, transaction=transaction, data=payload, updated_by=current_user.id
-    )
+    try:
+        return update_transaction(
+            db=db, transaction=transaction, data=payload, updated_by=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # --------------------------------------------------
-# SOFT DELETE
+# SOFT DELETE (Admin only)
 # --------------------------------------------------
 @router.delete(
     "/{transaction_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Soft delete a transaction",
+    summary="Soft delete a transaction (FAILED only)",
 )
 def delete_transaction_route(
     transaction_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # Admin only
+    current_user: User = Depends(require_admin),
 ):
     transaction = get_transaction(db, transaction_id)
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-    soft_delete_transaction(db=db, transaction=transaction, deleted_by=current_user.id)
+    try:
+        soft_delete_transaction(
+            db=db, transaction=transaction, deleted_by=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

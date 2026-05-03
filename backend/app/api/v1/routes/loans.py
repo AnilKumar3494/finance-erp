@@ -230,6 +230,12 @@ def update_loan_route(
 
     _assert_loan_access(loan, current_user, db)
 
+    if not payload.model_dump(exclude_unset=True):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided to update",
+        )
+
     if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         if payload.principal is not None:
             raise HTTPException(

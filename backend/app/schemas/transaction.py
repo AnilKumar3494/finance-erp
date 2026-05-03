@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -12,24 +13,36 @@ from app.models.transaction import PaymentMethod, TransactionStatus
 # --------------------------------------------------
 class TransactionBase(BaseModel):
     loan_id: uuid.UUID
-    amount: Decimal = Field(..., gt=0, description="Payment amount must be positive")
+    amount: Decimal = Field(
+        ...,
+        gt=0,
+        max_digits=15,
+        decimal_places=2,
+        description="Payment amount must be positive",
+    )
     payment_mode: PaymentMethod
-    notes: Optional[str] = Field(None, max_length=255)
+    notes: Optional[str] = Field(None, max_length=1000)
 
 
 # --------------------------------------------------
 # CREATE
 # --------------------------------------------------
 class TransactionCreate(TransactionBase):
-    pass
+    collected_by_id: Optional[uuid.UUID] = Field(
+        None, description="Defaults to current user if not provided"
+    )
+    idempotency_key: Optional[str] = Field(
+        None,
+        max_length=64,
+        description="Client-generated key to prevent duplicate submissions",
+    )
 
 
 # --------------------------------------------------
-# UPDATE (Only status and notes)
+# UPDATE (Notes only — status changes via /confirm or /fail)
 # --------------------------------------------------
 class TransactionUpdate(BaseModel):
-    status: Optional[TransactionStatus] = None
-    notes: Optional[str] = Field(None, max_length=255)
+    notes: Optional[str] = Field(None, max_length=1000)
 
 
 # --------------------------------------------------
@@ -42,6 +55,9 @@ class TransactionResponse(TransactionBase):
     is_deleted: bool
     created_by_id: Optional[uuid.UUID]
     updated_by_id: Optional[uuid.UUID]
+    idempotency_key: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -65,5 +81,6 @@ class LoanTransactionSummary(BaseModel):
     principal: Decimal
     total_payable: Decimal
     total_paid: Decimal
+    total_pending: Decimal
     outstanding: Decimal
     transaction_count: int

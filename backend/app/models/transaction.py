@@ -3,7 +3,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Enum, ForeignKey, Numeric, String
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
@@ -23,16 +23,21 @@ class PaymentMethod(str, enum.Enum):
 class TransactionStatus(str, enum.Enum):
     PENDING = "PENDING"
     SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
 
 
 class Transaction(AuditBase):
     __tablename__ = "transactions"
 
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_transactions_amount_positive"),
+    )
+
     # --------------------------------------------------
     # FOREIGN KEYS
     # --------------------------------------------------
     loan_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("loans.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("loans.id", ondelete="RESTRICT"), nullable=False, index=True
     )
 
     collected_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -55,7 +60,11 @@ class Transaction(AuditBase):
         nullable=False,
     )
 
-    notes: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    idempotency_key: Mapped[Optional[str]] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
 
     # --------------------------------------------------
     # RELATIONSHIPS
