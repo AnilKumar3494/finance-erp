@@ -1,7 +1,7 @@
-## ADDED this to check and see if Gemini still has access
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_swagger_ui_theme import setup_swagger_ui_theme
+
 
 # from app.core.config import settings
 from app.api.v1.routes import (
@@ -21,9 +21,13 @@ app = FastAPI(
     title="FinERP API TESTING",
     description="Loan Management System API",
     version="1.0.0",
-    docs_url="/docs",  # Swagger UI
+    docs_url=None,  # Swagger UI
     redoc_url="/redoc",  # ReDoc UI
 )
+
+
+setup_swagger_ui_theme(app, docs_path="/docs")
+
 
 # --------------------------------------------------
 # CORS (Cross Origin Resource Sharing)
