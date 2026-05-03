@@ -197,7 +197,7 @@ def remove_employee_account(
 def create_admin_account(
     payload: AdminUserCreate = Body(
         ...,
-        example={
+        examples={
             "username": "admin_priya",
             "email": "priya.admin@financeerp.com",
             "full_name": "Priya Sharma",
