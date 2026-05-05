@@ -54,6 +54,9 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 async def upload(
     customer_id: uuid.UUID = Form(...),
     doc_type: DocCategory = Form(...),
+    loan_id: Optional[uuid.UUID] = Form(None),
+    transaction_id: Optional[uuid.UUID] = Form(None),
+    vehicle_id: Optional[uuid.UUID] = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -108,9 +111,12 @@ async def upload(
             requesting_user=current_user,
             customer_id=customer_id,
             doc_type=doc_type,
+            loan_id=loan_id,
+            transaction_id=transaction_id,
+            vehicle_id=vehicle_id,
             file_bytes=file_bytes,
             file_name=file.filename,
-            content_type=detected_mime,  # trusted value — not file.content_type
+            content_type=detected_mime,
             created_by=current_user.id,
         )
         return DocumentResponse.model_validate(document)

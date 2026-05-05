@@ -12,6 +12,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.customer import Customer
 from app.models.document import DocCategory, Document
 from app.models.user import User, UserRole
+from app.models.loan import Loan
+from app.models.transaction import Transaction
+from app.models.vehicle import Vehicle
 from app.utils.s3 import (
     archive_file_in_s3,
     delete_file_from_s3,
@@ -117,6 +120,9 @@ def upload_document(
     file_name: str,
     content_type: str,
     created_by: uuid.UUID,
+    loan_id: Optional[uuid.UUID] = None,
+    transaction_id: Optional[uuid.UUID] = None,
+    vehicle_id: Optional[uuid.UUID] = None,
 ) -> Document:
     customer = (
         db.query(Customer)
@@ -132,6 +138,59 @@ def upload_document(
         and customer.assigned_employee_id != requesting_user.id
     ):
         raise PermissionError("Customer not assigned to you")
+
+    if doc_type == DocCategory.LOAN_AGREEMENT:
+        if not loan_id:
+            raise ValueError("loan_id is required for LOAN_AGREEMENT documents")
+        loan = (
+            db.query(Loan)
+            .filter(
+                Loan.id == loan_id,
+                Loan.customer_id == customer_id,
+                Loan.is_deleted == False,
+            )
+            .first()
+        )
+        if not loan:
+            raise ValueError("Loan not found or does not belong to this customer")
+
+    elif doc_type == DocCategory.RECEIPT:
+        if not transaction_id:
+            raise ValueError("transaction_id is required for RECEIPT documents")
+        txn = (
+            db.query(Transaction)
+            .join(Loan, Loan.id == Transaction.loan_id)
+            .filter(
+                Transaction.id == transaction_id,
+                Loan.customer_id == customer_id,
+                Transaction.is_deleted == False,
+            )
+            .first()
+        )
+        if not txn:
+            raise ValueError(
+                "Transaction not found or does not belong to this customer"
+            )
+
+    elif doc_type == DocCategory.VEHICLE_IMAGE:
+        if not vehicle_id:
+            raise ValueError("vehicle_id is required for VEHICLE_IMAGE documents")
+        vehicle = (
+            db.query(Vehicle)
+            .filter(
+                Vehicle.id == vehicle_id,
+                Vehicle.is_deleted == False,
+            )
+            .first()
+        )
+        if not vehicle:
+            raise ValueError("Vehicle not found")
+
+    elif doc_type == DocCategory.KYC:
+        if loan_id or transaction_id or vehicle_id:
+            raise ValueError(
+                "KYC documents must not have loan_id, transaction_id, or vehicle_id"
+            )
 
     file_hash = hashlib.sha256(file_bytes).hexdigest()
 
@@ -154,6 +213,9 @@ def upload_document(
 
         document = Document(
             customer_id=customer_id,
+            loan_id=loan_id,
+            transaction_id=transaction_id,
+            vehicle_id=vehicle_id,
             doc_type=doc_type,
             s3_key=s3_key,
             file_name=save_file_name,

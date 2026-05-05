@@ -22,6 +22,9 @@ class _UploaderMini(BaseModel):
 class DocumentResponse(BaseModel):
     id: uuid.UUID
     customer_id: uuid.UUID
+    loan_id: Optional[uuid.UUID] = None
+    transaction_id: Optional[uuid.UUID] = None
+    vehicle_id: Optional[uuid.UUID] = None
     doc_type: DocCategory
     s3_key: str
     file_name: Optional[str]
