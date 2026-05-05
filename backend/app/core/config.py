@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import computed_field
 from functools import lru_cache
@@ -19,6 +20,33 @@ class Settings(BaseSettings):
     # AWS
     AWS_REGION: str = "ap-south-1"
     S3_BUCKET_NAME: str
+    KMS_KEY_ID: Optional[str] = None
+
+    # Documents module
+    MAX_DOCUMENT_UPLOAD_BYTES: int = 10 * 1024 * 1024  # 10 MB
+    PRESIGNED_URL_TTL_SECONDS: int = 480  # 8 minutes
+    ALLOWED_DOCUMENT_EXTENSIONS: set[str] = {
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".doc",
+        ".docx",
+        ".txt",
+        ".webp",
+    }
+    ALLOWED_DOCUMENT_MIME_TYPES: set[str] = {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+    }
+
+    # Logging
+    LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
 
     @computed_field
     @property
