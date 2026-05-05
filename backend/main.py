@@ -40,7 +40,11 @@ setup_swagger_ui_theme(app, docs_path="/docs")
 # --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Add your frontend URL here
+    allow_origins=[
+        "http://localhost:3000",   # Frontend
+        "http://localhost:8000",   # Swagger UI via localhost
+        "http://127.0.0.1:8000",  # Swagger UI via 127.0.0.1
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
