@@ -1,7 +1,9 @@
+import logging
 import uuid
 from pathlib import Path
 from typing import Optional
 
+import magic
 from fastapi import (
     APIRouter,
     Depends,
@@ -14,19 +16,21 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.document import DocCategory, Document
+from app.models.document import DocCategory
 from app.models.user import User
 from app.schemas.document import (
     DocumentDownloadResponse,
     DocumentListResponse,
     DocumentResponse,
+    DocumentUpdate,
 )
 from app.services.document import (
     check_document_access,
-    enrich_document,
     get_document,
+    get_document_including_deleted,
     get_download_url,
     list_documents,
     restore_document,
@@ -34,19 +38,8 @@ from app.services.document import (
     upload_document,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["Documents"])
-
-ALLOWED_EXTENSIONS = {
-    ".pdf",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".doc",
-    ".docx",
-    ".txt",
-}
-
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 # --------------------------------------------------
@@ -65,40 +58,66 @@ async def upload(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename"
+        )
+
+    # Cheap extension check first (rejects obvious junk before reading)
     ext = Path(file.filename).suffix.lower()
-
-    if ext not in ALLOWED_EXTENSIONS:
+    if ext not in settings.ALLOWED_DOCUMENT_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            detail=(
+                f"Invalid file type. Allowed: "
+                f"{', '.join(sorted(settings.ALLOWED_DOCUMENT_EXTENSIONS))}"
+            ),
         )
 
-    file_bytes = await file.read()
+    # Stream and abort on size limit (don't load full file blindly)
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(1024 * 1024):  # 1MB blocks
+        total += len(chunk)
+        if total > settings.MAX_DOCUMENT_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"File too large. Max "
+                    f"{settings.MAX_DOCUMENT_UPLOAD_BYTES // (1024*1024)} MB"
+                ),
+            )
+        chunks.append(chunk)
+    file_bytes = b"".join(chunks)
 
-    if len(file_bytes) > MAX_FILE_SIZE:
+    # trust magic-byte detection over client-supplied content_type
+    detected_mime = magic.from_buffer(file_bytes[:2048], mime=True)
+    if detected_mime not in settings.ALLOWED_DOCUMENT_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File too large. Maximum size is 10MB",
+            detail=f"Invalid file content (detected: {detected_mime})",
         )
+
+    # AKTODO: hand file_bytes to AV scanner (e.g. ClamAV) before persisting.
+    #         Reject if infected, mark scan_status=PENDING and scan async otherwise.
 
     try:
         document = upload_document(
             db=db,
+            requesting_user=current_user,
             customer_id=customer_id,
             doc_type=doc_type,
             file_bytes=file_bytes,
             file_name=file.filename,
-            content_type=file.content_type,
+            content_type=detected_mime,  # trusted value — not file.content_type
             created_by=current_user.id,
         )
-
-        return DocumentResponse(**enrich_document(document, db))
-
+        return DocumentResponse.model_validate(document)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # --------------------------------------------------
@@ -125,14 +144,11 @@ def list_all(
         page=page,
         page_size=page_size,
     )
-
-    enriched = [DocumentResponse(**enrich_document(doc, db)) for doc in results]
-
     return DocumentListResponse(
         total=total,
         page=page,
         page_size=page_size,
-        results=enriched,
+        results=[DocumentResponse.model_validate(d) for d in results],
     )
 
 
@@ -150,20 +166,15 @@ def get_one(
     current_user: User = Depends(get_current_user),
 ):
     document = get_document(db, document_id)
-
     if not document:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-
     if not check_document_access(document, current_user, db):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
-
-    return DocumentResponse(**enrich_document(document, db))
+    return DocumentResponse.model_validate(document)
 
 
 # --------------------------------------------------
@@ -172,7 +183,7 @@ def get_one(
 @router.get(
     "/{document_id}/download",
     response_model=DocumentDownloadResponse,
-    summary="Get a pre-signed download URL",
+    summary="Get a pre-signed download URL (8-min TTL)",
 )
 def download(
     document_id: uuid.UUID,
@@ -180,32 +191,58 @@ def download(
     current_user: User = Depends(get_current_user),
 ):
     document = get_document(db, document_id)
-
     if not document:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-
     if not check_document_access(document, current_user, db):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
+
+    # AKTODO: log download event to a dedicated audit table
 
     try:
         return DocumentDownloadResponse(
             document_id=document.id,
             file_name=document.file_name,
             download_url=get_download_url(document),
-            expires_in_seconds=3600,
+            expires_in_seconds=settings.PRESIGNED_URL_TTL_SECONDS,
         )
-
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+
+# --------------------------------------------------
+# UPDATE METADATA
+# --------------------------------------------------
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentResponse,
+    summary="Update document metadata (e.g. fix wrong doc_type)",
+)
+def update_metadata(
+    document_id: uuid.UUID,
+    payload: DocumentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    document = get_document(db, document_id)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(document, field, value)
+    document.updated_by_id = current_user.id
+
+    db.commit()
+    db.refresh(document)
+    return DocumentResponse.model_validate(document)
 
 
 # --------------------------------------------------
@@ -222,25 +259,14 @@ def delete(
     current_user: User = Depends(require_admin),
 ):
     document = get_document(db, document_id)
-
     if not document:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-
     try:
-        soft_delete_document(
-            db=db,
-            document=document,
-            deleted_by=current_user.id,
-        )
-
+        soft_delete_document(db=db, document=document, deleted_by=current_user.id)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # --------------------------------------------------
@@ -256,32 +282,19 @@ def restore(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    # Must fetch INCLUDING deleted docs
-    document = db.query(Document).filter(Document.id == document_id).first()
-
+    document = get_document_including_deleted(db, document_id)
     if not document:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-
     if not document.is_deleted:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Document is already active",
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Document is already active"
         )
-
     try:
         restored = restore_document(
-            db=db,
-            document=document,
-            restored_by=current_user.id,
+            db=db, document=document, restored_by=current_user.id
         )
-
-        return DocumentResponse(**enrich_document(restored, db))
-
+        return DocumentResponse.model_validate(restored)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
