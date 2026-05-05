@@ -18,6 +18,8 @@ from app.utils.s3 import (
     upload_file_to_s3,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def get_document(db: Session, document_id: uuid.UUID) -> Optional[Document]:
     """Fetch single active document by ID"""
@@ -180,29 +182,32 @@ def enrich_document(document: Document, db: Session) -> dict:
     return doc_dict
 
 
-def soft_delete_document(
-    db: Session, document: Document, deleted_by: uuid.UUID
-) -> Document:
-    """Soft delete — file stays in S3, only marked deleted in DB"""
+# soft_delete_document — write DB first, S3 second, with compensation
+def soft_delete_document(db, document, deleted_by):
     new_s3_key = document.s3_key.replace("customers/", "archives/", 1)
+    old_s3_key = document.s3_key
+
+    # Stage DB changes
+    document.s3_key = new_s3_key
+    document.is_deleted = True
+    document.deleted_at = datetime.now(timezone.utc)
+    document.deleted_by_id = deleted_by
+    document.updated_by_id = deleted_by
 
     try:
-        archive_file_in_s3(old_key=document.s3_key, new_key=new_s3_key)
-
-        document.s3_key = new_s3_key
-        document.is_deleted = True
-        document.deleted_at = datetime.now(timezone.utc)
-        document.deleted_by_id = deleted_by
-        document.updated_by_id = deleted_by
-
+        db.flush()  # validate at DB level, not commit yet
+        archive_file_in_s3(old_s3_key, new_s3_key)
         db.commit()
         db.refresh(document)
-
         return document
-
-    except Exception:
+    except Exception as e:
         db.rollback()
-        raise ValueError("Archive failed")
+        # compensating: if archive ran, move it back
+        try:
+            archive_file_in_s3(new_s3_key, old_s3_key)
+        except Exception:
+            logger.exception("ORPHAN S3 KEY %s after rollback", new_s3_key)
+        raise ValueError(f"Archive failed: {e}")
 
 
 def restore_document(db: Session, document: Document, restored_by: uuid.UUID):

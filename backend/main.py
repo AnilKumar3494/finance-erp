@@ -2,8 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_swagger_ui_theme import setup_swagger_ui_theme
 
-
-# from app.core.config import settings
+from app.core.logging_config import configure_logging
 from app.api.v1.routes import (
     auth,
     customers,
@@ -13,6 +12,12 @@ from app.api.v1.routes import (
     documents,
     reports,
 )
+
+
+# --------------------------------------------------
+# LOGGING (must happen before app init)
+# --------------------------------------------------
+configure_logging()
 
 # --------------------------------------------------
 # APP INIT
