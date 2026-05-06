@@ -330,3 +330,6 @@ def restore_document(
         except Exception:
             logger.exception("ORPHAN S3 KEY %s after restore rollback", new_s3_key)
         raise ValueError(f"Restore failed: {e}")
+
+
+### AKTODO: For listing soft deleted files GET /documents/?include_deleted=true
