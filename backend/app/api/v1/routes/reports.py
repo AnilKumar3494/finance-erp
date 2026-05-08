@@ -1,21 +1,23 @@
 import io
 import csv
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from sqlalchemy.orm import Session
 from typing import Literal
 
 from app.core.db import get_db
-from app.dependencies.auth import get_current_user, require_admin
+from app.dependencies.auth import require_admin
 from app.models.user import User
 from app.schemas.report import (
+    ChartEntry,
     CollectionReport,
     CustomerReport,
     DashboardSummary,
     EmployeeReport,
     LoanPortfolioReport,
+    MonthlyTrends,
 )
 from app.services.report import (
     get_collection_report,
@@ -104,7 +106,11 @@ def employee_report(
 # --------------------------------------------------
 # CSV Exports
 # --------------------------------------------------
-@router.get("/customers/export")
+@router.get(
+    "/customers/export",
+    summary="Export customer report as CSV",
+    response_class=StreamingResponse,
+)
 def export_customers(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -142,7 +148,11 @@ def export_customers(
 # --------------------------------------------------
 # Charts
 # --------------------------------------------------
-@router.get("/charts/collections")
+@router.get(
+    "/charts/collections",
+    response_model=list[ChartEntry],
+    summary="Monthly collection totals for charting",
+)
 def chart_collections(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -153,7 +163,11 @@ def chart_collections(
 # --------------------------------------------------
 # Trends
 # --------------------------------------------------
-@router.get("/trends")
+@router.get(
+    "/trends",
+    response_model=MonthlyTrends,
+    summary="Month-by-month new customers, new loans, and collections",
+)
 def trends(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
