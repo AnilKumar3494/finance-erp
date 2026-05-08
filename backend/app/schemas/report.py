@@ -1,7 +1,4 @@
 from decimal import Decimal
-from typing import Optional
-from datetime import datetime
-
 from pydantic import BaseModel
 
 
@@ -83,6 +80,7 @@ class CustomerReport(BaseModel):
 class EmployeePerformance(BaseModel):
     employee_id: str
     employee_name: str
+    role: str
     assigned_customers: int
     total_collections: Decimal
     transaction_count: int
@@ -90,3 +88,30 @@ class EmployeePerformance(BaseModel):
 
 class EmployeeReport(BaseModel):
     results: list[EmployeePerformance]
+
+
+# --------------------------------------------------
+# CHARTS
+# --------------------------------------------------
+class ChartEntry(BaseModel):
+    month: str   # "YYYY-MM"
+    amount: Decimal
+
+
+# --------------------------------------------------
+# MONTHLY TRENDS
+# --------------------------------------------------
+class MonthlyCount(BaseModel):
+    month: str   # "YYYY-MM"
+    count: int
+
+
+class MonthlyAmount(BaseModel):
+    month: str   # "YYYY-MM"
+    amount: Decimal
+
+
+class MonthlyTrends(BaseModel):
+    new_customers: list[MonthlyCount]
+    new_loans: list[MonthlyCount]
+    collections: list[MonthlyAmount]

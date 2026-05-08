@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, case, and_
@@ -23,19 +22,6 @@ def get_dashboard_summary(db: Session) -> dict:
         db.query(func.count(Customer.id)).filter(Customer.is_deleted == False).scalar()
     )
 
-    # AKTODO: Improve this
-    # Loan counts by status
-    stats = (
-        db.query(
-            func.count(Loan.id),
-            func.sum(Loan.principal),
-            func.avg(Loan.interest_rate),
-            func.avg(Loan.tenure),
-        )
-        .filter(Loan.is_deleted == False)
-        .first()
-    )
-
     status_counts = dict(
         db.query(Loan.status, func.count(Loan.id))
         .filter(Loan.is_deleted == False)
@@ -51,18 +37,22 @@ def get_dashboard_summary(db: Session) -> dict:
         db.query(func.count(Document.id)).filter(Document.is_deleted == False).scalar()
     )
 
-    # Financial totals
-    total_principal = (
+    # Active loan principal (what has been lent and is still open)
+    active_principal = (
         db.query(func.coalesce(func.sum(Loan.principal), 0))
         .filter(Loan.is_deleted == False, Loan.status == LoanStatus.ACTIVE)
         .scalar()
-    )
+    ) or Decimal("0")
 
+    # Collections against active loans only
     total_collected = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
         .filter(
-            Transaction.is_deleted == False,
             Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+            Loan.status == LoanStatus.ACTIVE,
+            Loan.is_deleted == False,
         )
         .scalar()
     )
@@ -83,7 +73,7 @@ def get_dashboard_summary(db: Session) -> dict:
         "total_bad_debt_loans": status_counts.get(LoanStatus.BAD_DEBT, 0),
         "total_vehicles": total_vehicles,
         "total_documents": total_documents,
-        "total_principal_outstanding": Decimal(str(total_principal)),
+        "total_principal_outstanding": active_principal - Decimal(str(total_collected)),
         "total_amount_collected": Decimal(str(total_collected)),
         "total_pending_collections": Decimal(str(total_pending)),
     }
@@ -112,11 +102,22 @@ def get_loan_portfolio(db: Session) -> dict:
         .all()
     )
 
+    # Active loan principal (still open)
+    active_principal = (
+        db.query(func.coalesce(func.sum(Loan.principal), 0))
+        .filter(Loan.status == LoanStatus.ACTIVE, Loan.is_deleted == False)
+        .scalar()
+    ) or Decimal("0")
+
+    # Collections against ACTIVE loans only — makes outstanding meaningful
     total_collected = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
         .filter(
             Transaction.status == TransactionStatus.SUCCESS,
             Transaction.is_deleted == False,
+            Loan.status == LoanStatus.ACTIVE,
+            Loan.is_deleted == False,
         )
         .scalar()
     )
@@ -130,9 +131,9 @@ def get_loan_portfolio(db: Session) -> dict:
         "closed_loans": status_counts.get(LoanStatus.CLOSED, 0),
         "bad_debt_loans": status_counts.get(LoanStatus.BAD_DEBT, 0),
         "total_principal": total_principal,
-        "total_payable": total_principal,
-        "total_collected": total_collected,
-        "total_outstanding": total_principal - total_collected,
+        "total_payable": active_principal,
+        "total_collected": Decimal(str(total_collected)),
+        "total_outstanding": active_principal - Decimal(str(total_collected)),
         "average_interest_rate": round(stats[2] or 0, 2),
         "average_tenure": round(stats[3] or 0, 1),
     }
@@ -244,41 +245,51 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
 # --------------------------------------------------
 def get_customer_report(db: Session) -> dict:
 
+    loan_sub = (
+        db.query(
+            Loan.customer_id,
+            func.count(Loan.id).label("active_loans"),
+            func.coalesce(func.sum(Loan.principal), 0).label("principal"),
+        )
+        .filter(Loan.status == LoanStatus.ACTIVE, Loan.is_deleted == False)
+        .group_by(Loan.customer_id)
+        .subquery()
+    )
+
+    txn_sub = (
+        db.query(
+            Loan.customer_id,
+            func.coalesce(func.sum(Transaction.amount), 0).label("paid"),
+        )
+        .join(Transaction, Transaction.loan_id == Loan.id)
+        .filter(
+            Loan.status == LoanStatus.ACTIVE,
+            Loan.is_deleted == False,
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+        )
+        .group_by(Loan.customer_id)
+        .subquery()
+    )
+
     rows = (
         db.query(
             Customer.id,
             Customer.full_name,
             Customer.mobile_number,
-            func.count(Loan.id).label("active_loans"),
-            func.coalesce(func.sum(Loan.principal), 0).label("principal"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("paid"),
+            func.coalesce(loan_sub.c.active_loans, 0).label("active_loans"),
+            func.coalesce(loan_sub.c.principal, 0).label("principal"),
+            func.coalesce(txn_sub.c.paid, 0).label("paid"),
         )
-        .outerjoin(
-            Loan,
-            and_(
-                Loan.customer_id == Customer.id,
-                Loan.status == LoanStatus.ACTIVE,
-                Loan.is_deleted == False,
-            ),
-        )
-        .outerjoin(
-            Transaction,
-            and_(
-                Transaction.loan_id == Loan.id,
-                Transaction.status == TransactionStatus.SUCCESS,
-                Transaction.is_deleted == False,
-            ),
-        )
+        .outerjoin(loan_sub, loan_sub.c.customer_id == Customer.id)
+        .outerjoin(txn_sub, txn_sub.c.customer_id == Customer.id)
         .filter(Customer.is_deleted == False)
-        .group_by(Customer.id)
         .all()
     )
 
     results = []
-
     for r in rows:
         outstanding = Decimal(str(r.principal)) - Decimal(str(r.paid))
-
         results.append(
             {
                 "customer_id": str(r.id),
@@ -304,48 +315,61 @@ def get_customer_report(db: Session) -> dict:
 # EMPLOYEE PERFORMANCE
 # --------------------------------------------------
 def get_employee_report(db: Session) -> dict:
-    """Employee collection performance"""
 
-    employees = (
-        db.query(User).filter(User.is_deleted == False, User.is_active == True).all()
+    assigned_sub = (
+        db.query(
+            Customer.assigned_employee_id.label("emp_id"),
+            func.count(Customer.id).label("cnt"),
+        )
+        .filter(
+            Customer.is_deleted == False,
+            Customer.assigned_employee_id.isnot(None),
+        )
+        .group_by(Customer.assigned_employee_id)
+        .subquery()
     )
 
-    results = []
-
-    for emp in employees:
-        assigned = (
-            db.query(func.count(Customer.id))
-            .filter(
-                Customer.assigned_employee_id == emp.id, Customer.is_deleted == False
-            )
-            .scalar()
+    collections_sub = (
+        db.query(
+            Transaction.collected_by_id.label("emp_id"),
+            func.coalesce(func.sum(Transaction.amount), 0).label("total_amount"),
+            func.count(Transaction.id).label("txn_count"),
         )
-
-        collections = (
-            db.query(
-                func.coalesce(func.sum(Transaction.amount), 0),
-                func.count(Transaction.id),
-            )
-            .filter(
-                Transaction.collected_by_id == emp.id,
-                Transaction.status == TransactionStatus.SUCCESS,
-                Transaction.is_deleted == False,
-            )
-            .first()
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+            Transaction.collected_by_id.isnot(None),
         )
+        .group_by(Transaction.collected_by_id)
+        .subquery()
+    )
 
-        # AKTODO: Add employee type as well
-        results.append(
-            {
-                "employee_id": str(emp.id),
-                "employee_name": emp.username,
-                "assigned_customers": assigned,
-                "total_collections": Decimal(str(collections[0])),
-                "transaction_count": collections[1],
-            }
+    rows = (
+        db.query(
+            User.id,
+            User.username,
+            User.role,
+            func.coalesce(assigned_sub.c.cnt, 0).label("assigned_customers"),
+            func.coalesce(collections_sub.c.total_amount, 0).label("total_collections"),
+            func.coalesce(collections_sub.c.txn_count, 0).label("transaction_count"),
         )
+        .outerjoin(assigned_sub, assigned_sub.c.emp_id == User.id)
+        .outerjoin(collections_sub, collections_sub.c.emp_id == User.id)
+        .filter(User.is_deleted == False, User.is_active == True)
+        .all()
+    )
 
-    # Sort by collections descending
+    results = [
+        {
+            "employee_id": str(r.id),
+            "employee_name": r.username,
+            "role": r.role.value,
+            "assigned_customers": r.assigned_customers,
+            "total_collections": Decimal(str(r.total_collections)),
+            "transaction_count": r.transaction_count,
+        }
+        for r in rows
+    ]
     results.sort(key=lambda x: x["total_collections"], reverse=True)
 
     return {"results": results}
@@ -356,55 +380,70 @@ def get_employee_report(db: Session) -> dict:
 # --------------------------------------------------
 
 
-##AKTODO: Charts and Trends not working check later
-def get_collection_chart(db: Session):
+def get_collection_chart(db: Session) -> list:
 
     rows = (
         db.query(
             func.to_char(Transaction.created_at, "YYYY-MM").label("month"),
-            func.sum(Transaction.amount),
+            func.coalesce(func.sum(Transaction.amount), 0).label("amount"),
         )
         .filter(
             Transaction.status == TransactionStatus.SUCCESS,
             Transaction.is_deleted == False,
         )
-        .group_by("month")
-        .order_by("month")
+        .group_by(func.to_char(Transaction.created_at, "YYYY-MM"))
+        .order_by(func.to_char(Transaction.created_at, "YYYY-MM"))
         .all()
     )
 
-    return [{"month": r.month, "amount": r[1]} for r in rows]
+    return [{"month": r.month, "amount": Decimal(str(r.amount))} for r in rows]
 
 
 # --------------------------------------------------
 # Trends
 # --------------------------------------------------
-def get_monthly_trends(db: Session):
+def get_monthly_trends(db: Session) -> dict:
 
     customers = (
-        db.query(func.to_char(Customer.created_at, "YYYY-MM"), func.count(Customer.id))
-        .group_by(1)
+        db.query(
+            func.to_char(Customer.created_at, "YYYY-MM").label("month"),
+            func.count(Customer.id).label("count"),
+        )
+        .filter(Customer.is_deleted == False)
+        .group_by(func.to_char(Customer.created_at, "YYYY-MM"))
+        .order_by(func.to_char(Customer.created_at, "YYYY-MM"))
         .all()
     )
 
     loans = (
-        db.query(func.to_char(Loan.created_at, "YYYY-MM"), func.count(Loan.id))
-        .group_by(1)
+        db.query(
+            func.to_char(Loan.created_at, "YYYY-MM").label("month"),
+            func.count(Loan.id).label("count"),
+        )
+        .filter(Loan.is_deleted == False)
+        .group_by(func.to_char(Loan.created_at, "YYYY-MM"))
+        .order_by(func.to_char(Loan.created_at, "YYYY-MM"))
         .all()
     )
 
     collections = (
         db.query(
-            func.to_char(Transaction.created_at, "YYYY-MM"),
-            func.sum(Transaction.amount),
+            func.to_char(Transaction.created_at, "YYYY-MM").label("month"),
+            func.coalesce(func.sum(Transaction.amount), 0).label("amount"),
         )
-        .filter(Transaction.status == TransactionStatus.SUCCESS)
-        .group_by(1)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+        )
+        .group_by(func.to_char(Transaction.created_at, "YYYY-MM"))
+        .order_by(func.to_char(Transaction.created_at, "YYYY-MM"))
         .all()
     )
 
     return {
-        "new_customers": customers,
-        "new_loans": loans,
-        "collections": collections,
+        "new_customers": [{"month": r.month, "count": r.count} for r in customers],
+        "new_loans": [{"month": r.month, "count": r.count} for r in loans],
+        "collections": [
+            {"month": r.month, "amount": Decimal(str(r.amount))} for r in collections
+        ],
     }
