@@ -21,6 +21,11 @@ class DocCategory(str, enum.Enum):
     LOAN_AGREEMENT = "LOAN_AGREEMENT"
     RECEIPT = "RECEIPT"
     VEHICLE_IMAGE = "VEHICLE_IMAGE"
+    IDENTITY_PROOF = "IDENTITY_PROOF"
+    STABILITY_DOC = "STABILITY_DOC"
+    RC_COPY = "RC_COPY"
+    INSURANCE_POLICY = "INSURANCE_POLICY"
+    VEHICLE_PHOTO = "VEHICLE_PHOTO"
 
 
 # AKTODO: when antivirus is wired, add a ScanStatus enum here.
@@ -33,10 +38,15 @@ class Document(AuditBase):
     __table_args__ = (
         CheckConstraint(
             """
-            (doc_type = 'KYC'            AND loan_id IS NULL AND transaction_id IS NULL AND vehicle_id IS NULL) OR
-            (doc_type = 'LOAN_AGREEMENT' AND loan_id IS NOT NULL) OR
-            (doc_type = 'RECEIPT'        AND transaction_id IS NOT NULL) OR
-            (doc_type = 'VEHICLE_IMAGE'  AND vehicle_id IS NOT NULL) OR
+            (doc_type = 'KYC'              AND loan_id IS NULL AND transaction_id IS NULL AND vehicle_id IS NULL) OR
+            (doc_type = 'IDENTITY_PROOF'   AND loan_id IS NULL AND transaction_id IS NULL AND vehicle_id IS NULL) OR
+            (doc_type = 'LOAN_AGREEMENT'   AND loan_id IS NOT NULL) OR
+            (doc_type = 'RECEIPT'          AND transaction_id IS NOT NULL) OR
+            (doc_type = 'VEHICLE_IMAGE'    AND vehicle_id IS NOT NULL) OR
+            (doc_type = 'RC_COPY'          AND vehicle_id IS NOT NULL) OR
+            (doc_type = 'INSURANCE_POLICY' AND vehicle_id IS NOT NULL) OR
+            (doc_type = 'VEHICLE_PHOTO'    AND vehicle_id IS NOT NULL) OR
+            (doc_type = 'STABILITY_DOC'    AND loan_id IS NOT NULL) OR
             (doc_type = 'ARCHIVE')
             """,
             name="ck_documents_type_link_consistency",

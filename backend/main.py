@@ -12,6 +12,8 @@ from app.api.v1.routes import (
     documents,
     reports,
 )
+from app.api.v1.routes.personnel import personnel_router, loan_personnel_router
+from app.api.v1.routes.identity_proofs import router as identity_proofs_router
 
 
 # --------------------------------------------------
@@ -41,8 +43,8 @@ setup_swagger_ui_theme(app, docs_path="/docs")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",   # Frontend
-        "http://localhost:8000",   # Swagger UI via localhost
+        "http://localhost:3000",  # Frontend
+        "http://localhost:8000",  # Swagger UI via localhost
         "http://127.0.0.1:8000",  # Swagger UI via 127.0.0.1
     ],
     allow_credentials=True,
@@ -55,6 +57,9 @@ app.add_middleware(
 # --------------------------------------------------
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(customers.router, prefix="/api/v1")
+app.include_router(personnel_router, prefix="/api/v1")
+app.include_router(loan_personnel_router, prefix="/api/v1")
+app.include_router(identity_proofs_router, prefix="/api/v1")
 app.include_router(vehicles.router, prefix="/api/v1")
 app.include_router(loans.router, prefix="/api/v1")
 app.include_router(transactions.router, prefix="/api/v1")
