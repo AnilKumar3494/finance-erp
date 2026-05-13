@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.transaction import PaymentMethod, TransactionStatus
+from app.models.transaction import PaymentMethod, TransactionStatus, TransactionType
 
 
 # --------------------------------------------------
@@ -51,6 +51,7 @@ class TransactionUpdate(BaseModel):
 class TransactionResponse(TransactionBase):
     id: uuid.UUID
     status: TransactionStatus
+    transaction_type: TransactionType
     collected_by_id: Optional[uuid.UUID]
     is_deleted: bool
     created_by_id: Optional[uuid.UUID]

@@ -14,6 +14,7 @@ from app.api.v1.routes import (
 )
 from app.api.v1.routes.personnel import personnel_router, loan_personnel_router
 from app.api.v1.routes.identity_proofs import router as identity_proofs_router
+from app.api.v1.routes.stability_documents import router as stability_documents_router
 
 
 # --------------------------------------------------
@@ -60,6 +61,7 @@ app.include_router(customers.router, prefix="/api/v1")
 app.include_router(personnel_router, prefix="/api/v1")
 app.include_router(loan_personnel_router, prefix="/api/v1")
 app.include_router(identity_proofs_router, prefix="/api/v1")
+app.include_router(stability_documents_router, prefix="/api/v1")
 app.include_router(vehicles.router, prefix="/api/v1")
 app.include_router(loans.router, prefix="/api/v1")
 app.include_router(transactions.router, prefix="/api/v1")
