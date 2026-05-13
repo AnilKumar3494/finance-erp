@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -14,11 +15,24 @@ class CustomerBase(BaseModel):
     aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
     pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
     assigned_employee_id: Optional[uuid.UUID] = None
+    date_of_birth: Optional[date] = None
+    alt_mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
+    address_line_1: Optional[str] = Field(None, max_length=500)
+    address_line_2: Optional[str] = Field(None, max_length=500)
+    mandal_village: Optional[str] = Field(None, max_length=100)
+    remarks: Optional[str] = None
 
     @field_validator("mobile_number")
     @classmethod
     def validate_mobile(cls, v: str) -> str:
         if not re.match(r"^[6-9]\d{9}$", v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("alt_mobile_number")
+    @classmethod
+    def validate_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[6-9]\d{9}$", v):
             raise ValueError("Invalid Indian mobile number")
         return v
 
@@ -53,6 +67,19 @@ class CustomerUpdate(BaseModel):
     aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
     pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
     assigned_employee_id: Optional[uuid.UUID] = None
+    date_of_birth: Optional[date] = None
+    alt_mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
+    address_line_1: Optional[str] = Field(None, max_length=500)
+    address_line_2: Optional[str] = Field(None, max_length=500)
+    mandal_village: Optional[str] = Field(None, max_length=100)
+    remarks: Optional[str] = None
+
+    @field_validator("alt_mobile_number")
+    @classmethod
+    def validate_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[6-9]\d{9}$", v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
 
 
 # --------------------------------------------------
