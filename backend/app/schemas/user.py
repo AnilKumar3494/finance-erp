@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -16,9 +17,9 @@ class UserBase(BaseModel):
 
 
 # --------------------------------------------------
-# CREATE — role auto-assigned by service
+# PASSWORD MIX-IN
 # --------------------------------------------------
-class UserCreate(UserBase):
+class _PasswordMixin(BaseModel):
     password: str = Field(..., min_length=8, max_length=64)
 
     @field_validator("password")
@@ -32,15 +33,30 @@ class UserCreate(UserBase):
 
 
 # --------------------------------------------------
-# ADMIN CREATE — allows explicit role assignment
-# Only used by admin-only routes
+# CREATE — Public registration. Service forces role=EMPLOYEE.
 # --------------------------------------------------
-class AdminUserCreate(UserCreate):
-    role: UserRole = UserRole.EMPLOYEE
+class UserCreate(UserBase, _PasswordMixin):
+    pass
+
+
+# --------------------------------------------------
+# ADMIN CREATE — Used by admin-only employee/admin creation routes.
+#
+# SECURITY: `role` is INTENTIONALLY NOT a field here. The role is decided
+# server-side by the route based on which endpoint was hit and who the
+# caller is. This prevents any client from smuggling `role=SUPER_ADMIN`
+# (or `role=ADMIN` via the /employee endpoint) in the request body.
+# --------------------------------------------------
+class AdminUserCreate(UserBase, _PasswordMixin):
+    pass
 
 
 # --------------------------------------------------
 # LOGIN
+#
+# Kept for documentation / typed clients. The /login route itself consumes
+# OAuth2PasswordRequestForm so that Swagger's "Authorize" flow works.
+# Login accepts username OR email in the `login` field.
 # --------------------------------------------------
 class UserLogin(BaseModel):
     login: str = Field(..., description="Username or Email")
@@ -49,12 +65,14 @@ class UserLogin(BaseModel):
 
 # --------------------------------------------------
 # RESPONSE
+#
+# `is_deleted` is intentionally NOT exposed. Soft-deleted users are filtered
+# out before they ever reach the response layer, so callers don't need it.
 # --------------------------------------------------
 class UserResponse(UserBase):
     id: uuid.UUID
     role: UserRole
     is_active: bool
-    is_deleted: bool
 
     model_config = {"from_attributes": True}
 
@@ -73,8 +91,10 @@ class TokenData(BaseModel):
 
 
 # --------------------------------------------------
-# LIST RESPONSE
+# LIST RESPONSE (Paginated)
 # --------------------------------------------------
 class UserListResponse(BaseModel):
     total: int
+    page: int
+    page_size: int
     results: list[UserResponse]

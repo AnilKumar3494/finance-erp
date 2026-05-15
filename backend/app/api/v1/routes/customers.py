@@ -1,9 +1,8 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
@@ -23,6 +22,7 @@ from app.services.customer import (
     soft_delete_customer,
     update_customer,
 )
+from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -37,11 +37,11 @@ router = APIRouter(prefix="/customers", tags=["Customers"])
     summary="Create a new customer",
 )
 def create(
+    request: Request,
     payload: CustomerCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Check mobile duplicate
     if get_customer_by_mobile(db, payload.mobile_number):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -49,16 +49,13 @@ def create(
         )
 
     try:
-        return create_customer(db=db, data=payload, created_by=current_user.id)
+        return create_customer(
+            db=db, data=payload, created_by=current_user.id, request=request
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),  # Catches duplicate aadhaar/pan from DB
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create customer",
         )
 
 
@@ -80,7 +77,6 @@ def list_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-
     if current_user.role == UserRole.EMPLOYEE:
         assigned_employee_id = current_user.id
 
@@ -120,14 +116,15 @@ def get_one(
         and customer.assigned_employee_id != current_user.id
     ):
         raise HTTPException(
-            status_code=403, detail="Access denied. Customer not assigned to you."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Customer not assigned to you.",
         )
 
     return customer
 
 
 # --------------------------------------------------
-# UNMASK PII (Admin Only)
+# UNMASK PII (Admin Only) — audited
 # --------------------------------------------------
 @router.get(
     "/{customer_id}/unmask",
@@ -135,12 +132,14 @@ def get_one(
     summary="Get unmasked PII data (Admin Only)",
 )
 def get_unmasked_pii(
+    request: Request,
     customer_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # SECURITY: Admins only
 ):
     """
-    Called by the frontend when the Admin clicks the 'Eye' icon to unmask data.
+    Called by the frontend when an Admin clicks the 'eye' icon to unmask PII.
+    Every unmask is recorded in audit_logs (NBFC compliance requirement).
     """
     customer = get_customer(db, customer_id)
     if not customer:
@@ -148,7 +147,17 @@ def get_unmasked_pii(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
         )
 
-    # FUTURE AUDIT TRIGGER: Log this action in the audit_logs table here.
+    write_audit(
+        db,
+        action_type="PII_UNMASK",
+        target_table="customers",
+        record_id=customer.id,
+        user_id=current_user.id,
+        # Do NOT log the actual PII — record which fields were unmasked.
+        new_data={"fields": ["aadhaar_number", "pan_number"]},
+        request=request,
+    )
+    db.commit()
 
     return CustomerUnmaskedPII(
         aadhaar_number=customer.aadhaar_number, pan_number=customer.pan_number
@@ -159,9 +168,12 @@ def get_unmasked_pii(
 # UPDATE
 # --------------------------------------------------
 @router.patch(
-    "/{customer_id}", response_model=CustomerResponse, summary="Update customer details"
+    "/{customer_id}",
+    response_model=CustomerResponse,
+    summary="Update customer details",
 )
 def update(
+    request: Request,
     customer_id: uuid.UUID,
     payload: CustomerUpdate,
     db: Session = Depends(get_db),
@@ -178,11 +190,16 @@ def update(
         and customer.assigned_employee_id != current_user.id
     ):
         raise HTTPException(
-            status_code=403, detail="Access denied. Customer not assigned to you."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Customer not assigned to you.",
         )
 
     return update_customer(
-        db=db, customer=customer, data=payload, updated_by=current_user.id
+        db=db,
+        customer=customer,
+        data=payload,
+        updated_by=current_user.id,
+        request=request,
     )
 
 
@@ -195,6 +212,7 @@ def update(
     summary="Soft delete a customer",
 )
 def delete(
+    request: Request,
     customer_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # Admin only
@@ -204,4 +222,6 @@ def delete(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
         )
-    soft_delete_customer(db=db, customer=customer, deleted_by=current_user.id)
+    soft_delete_customer(
+        db=db, customer=customer, deleted_by=current_user.id, request=request
+    )

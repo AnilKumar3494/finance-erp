@@ -1,7 +1,8 @@
 import enum
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Enum, String, text
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import AuditBase
@@ -37,4 +38,20 @@ class User(AuditBase):
 
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
+    )
+
+    # --------------------------------------------------
+    # LOGIN SECURITY
+    # --------------------------------------------------
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+
+    # When set + in the future → account is locked until then.
+    locked_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

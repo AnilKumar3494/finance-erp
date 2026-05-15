@@ -1,60 +1,56 @@
-import uuid
+"""
+Auth dependencies.
+
+`get_current_user` is the single gate every protected route flows through.
+JWT decode delegates to `services.auth.decode_access_token` so verification
+logic lives in exactly one place.
+"""
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User, UserRole
 from app.services.auth import decode_access_token, get_user_by_id
 
 # --------------------------------------------------
-# TOKEN EXTRACTOR
-# Pulls Bearer token from Authorization header
+# TOKEN EXTRACTOR — pulls Bearer token from Authorization header.
 # --------------------------------------------------
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 # --------------------------------------------------
-# CORE DEPENDENCY — get_current_user
-# Every protected route uses this
+# CORE DEPENDENCY
 # --------------------------------------------------
 def get_current_user(
     token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> User:
-    """Decodes the JWT and fetches the active user."""
-    try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        user_id_str = payload.get("sub")
-        if user_id_str is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-            )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-        )
+    """Decode the JWT, then fetch the matching active user from DB."""
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
-    user = get_user_by_id(db, uuid.UUID(user_id_str))
+    token_data = decode_access_token(token)
+    if token_data is None or token_data.user_id is None:
+        raise credentials_exc
+
+    user = get_user_by_id(db, token_data.user_id)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found or inactive"
-        )
+        # User was deactivated/deleted after the token was issued.
+        raise credentials_exc
+
     return user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """
-    Guard 1: Standard Admin Level
-    Allows BOTH Standard ADMIN and SUPER_ADMIN.
-    Used for: Creating/Removing Employees, Creating Admins.
+    Allows ADMIN and SUPER_ADMIN.
+    Used for: creating Employees, creating Admins, listing Employees,
+    soft-deleting Employees, unmasking customer PII.
     """
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough privileges. Admin access required.",
@@ -64,9 +60,9 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
     """
-    Guard 2: Super Admin Level
     Allows ONLY SUPER_ADMIN.
-    Used for: Removing Standard Admins.
+    Used for: removing Admins, removing Employees (per policy: only the
+    super admin can remove users from the system).
     """
     if current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(

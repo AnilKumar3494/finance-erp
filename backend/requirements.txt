@@ -38,6 +38,7 @@ python-multipart==0.0.27
 rsa==4.9.1
 s3transfer==0.16.1
 six==1.17.0
+slowapi==0.1.9
 SQLAlchemy==2.0.49
 starlette==1.0.0
 tomlkit==0.14.0

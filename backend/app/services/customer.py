@@ -1,29 +1,56 @@
+"""
+Customer service layer.
+
+Every mutating call writes an audit_logs row before commit. Lookups intentionally
+exclude soft-deleted rows; uniqueness checks against soft-deleted rows live in
+the route layer (not done here) to keep this module side-effect-free for reads.
+"""
 import uuid
 from typing import Optional
 
+from fastapi import Request
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
 from app.models.user import User
 from app.schemas.customer import CustomerCreate, CustomerUpdate
+from app.utils.audit import write_audit
+from app.utils.time import utcnow
+
+
+# Fields safe to surface in audit logs (no raw PII like aadhaar/pan).
+_AUDIT_SAFE_FIELDS = (
+    "full_name",
+    "mobile_number",
+    "alt_mobile_number",
+    "assigned_employee_id",
+    "address_line_1",
+    "address_line_2",
+    "mandal_village",
+    "date_of_birth",
+)
+
+
+def _audit_snapshot(customer: Customer) -> dict:
+    return {f: getattr(customer, f, None) for f in _AUDIT_SAFE_FIELDS}
 
 
 def get_customer(db: Session, customer_id: uuid.UUID) -> Optional[Customer]:
-    """Fetch single active customer by ID"""
+    """Fetch single active customer by ID."""
     return (
         db.query(Customer)
-        .filter(Customer.id == customer_id, Customer.is_deleted == False)
+        .filter(Customer.id == customer_id, Customer.is_deleted == False)  # noqa: E712
         .first()
     )
 
 
 def get_customer_by_mobile(db: Session, mobile: str) -> Optional[Customer]:
-    """Check for duplicate mobile on create"""
+    """Check for duplicate mobile on create (active customers only)."""
     return (
         db.query(Customer)
-        .filter(Customer.mobile_number == mobile, Customer.is_deleted == False)
+        .filter(Customer.mobile_number == mobile, Customer.is_deleted == False)  # noqa: E712
         .first()
     )
 
@@ -35,27 +62,25 @@ def list_customers(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Customer], int]:
-    """
-    List customers with optional search + filter.
-    Returns (results, total_count)
-    """
+    """List customers with optional search + filter. Returns (results, total)."""
     query = (
         db.query(Customer, User.full_name)
         .outerjoin(User, Customer.assigned_employee_id == User.id)
-        .filter(Customer.is_deleted == False)
+        .filter(Customer.is_deleted == False)  # noqa: E712
     )
 
-    # Search by name or mobile
     if search:
+        # Escape LIKE wildcards in user input so users can't accidentally
+        # (or deliberately) probe the index with '%'/'_'.
+        s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(
             or_(
-                Customer.full_name.ilike(f"%{search}%"),
-                Customer.mobile_number.ilike(f"%{search}%"),
-                User.full_name.ilike(f"%{search}%"),
+                Customer.full_name.ilike(f"%{s}%", escape="\\"),
+                Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
+                User.full_name.ilike(f"%{s}%", escape="\\"),
             )
         )
 
-    # Filter by assigned employee
     if assigned_employee_id:
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
 
@@ -71,9 +96,11 @@ def list_customers(
 
 
 def create_customer(
-    db: Session, data: CustomerCreate, created_by: uuid.UUID
+    db: Session,
+    data: CustomerCreate,
+    created_by: uuid.UUID,
+    request: Optional[Request] = None,
 ) -> Customer:
-    """Create a new customer"""
     customer = Customer(
         full_name=data.full_name,
         mobile_number=data.mobile_number,
@@ -90,35 +117,76 @@ def create_customer(
     )
     db.add(customer)
     try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="CUSTOMER_CREATE",
+            target_table="customers",
+            record_id=customer.id,
+            user_id=created_by,
+            new_data=_audit_snapshot(customer),
+            request=request,
+        )
         db.commit()
         db.refresh(customer)
-        return get_customer(db, customer.id)
+        return customer
     except IntegrityError as e:
         db.rollback()
         raise ValueError(f"Duplicate value — {str(e.orig)}")
 
 
 def update_customer(
-    db: Session, customer: Customer, data: CustomerUpdate, updated_by: uuid.UUID
+    db: Session,
+    customer: Customer,
+    data: CustomerUpdate,
+    updated_by: uuid.UUID,
+    request: Optional[Request] = None,
 ) -> Customer:
-    """Update only the fields that were provided"""
+    """Update only the fields that were provided."""
+    before = _audit_snapshot(customer)
+
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(customer, field, value)
 
     customer.updated_by_id = updated_by
+
+    write_audit(
+        db,
+        action_type="CUSTOMER_UPDATE",
+        target_table="customers",
+        record_id=customer.id,
+        user_id=updated_by,
+        old_data=before,
+        new_data=_audit_snapshot(customer),
+        request=request,
+    )
     db.commit()
     db.refresh(customer)
-    return get_customer(db, customer.id)
+    return customer
 
 
 def soft_delete_customer(
-    db: Session, customer: Customer, deleted_by: uuid.UUID
+    db: Session,
+    customer: Customer,
+    deleted_by: uuid.UUID,
+    request: Optional[Request] = None,
 ) -> Customer:
-    """Soft delete — never hard delete"""
-    from datetime import datetime, timezone
+    """Soft delete — never hard delete. Sets deleted_by_id correctly."""
+    before = _audit_snapshot(customer)
 
     customer.is_deleted = True
-    customer.deleted_at = datetime.now(timezone.utc)
+    customer.deleted_at = utcnow()
+    customer.deleted_by_id = deleted_by
     customer.updated_by_id = deleted_by
+
+    write_audit(
+        db,
+        action_type="CUSTOMER_DELETE",
+        target_table="customers",
+        record_id=customer.id,
+        user_id=deleted_by,
+        old_data=before,
+        request=request,
+    )
     db.commit()
     return customer
