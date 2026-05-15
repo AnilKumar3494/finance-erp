@@ -15,8 +15,9 @@ Authorization matrix:
 """
 
 import uuid
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -28,6 +29,7 @@ from app.dependencies.auth import get_current_user, require_admin, require_super
 from app.models.user import User, UserRole
 from app.schemas.user import (
     AdminUserCreate,
+    RoleChangeRequest,
     Token,
     UserCreate,
     UserListResponse,
@@ -35,6 +37,7 @@ from app.schemas.user import (
 )
 from app.services.auth import (
     authenticate_user,
+    change_user_role,
     create_access_token,
     create_user,
     get_user_by_id,
@@ -42,7 +45,6 @@ from app.services.auth import (
     login_identity_exists,
 )
 from app.utils.audit import write_audit
-from app.utils.time import utcnow
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -155,18 +157,23 @@ def get_me(current_user: User = Depends(get_current_user)):
     summary="List active employees (paginated)",
 )
 def get_all_employees(
+    search: Optional[str] = Query(
+        None, description="Case-insensitive match on name, username, or email"
+    ),
     page: int = 1,
     page_size: int = 50,
     db: Session = Depends(get_db),
     current_admin: User = Depends(require_admin),
 ):
-    """Used by admin UIs to populate assignment dropdowns + employee tables."""
+    """Used by admin UIs to populate searchable assignment dropdowns + tables."""
     if page < 1:
         page = 1
     if page_size < 1 or page_size > 200:
         page_size = 50
 
-    results, total = list_employees(db, page=page, page_size=page_size)
+    results, total = list_employees(
+        db, page=page, page_size=page_size, search=search
+    )
     return UserListResponse(
         total=total, page=page, page_size=page_size, results=results
     )
@@ -233,11 +240,9 @@ def remove_employee_account(
             status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found"
         )
 
-    user_to_delete.is_deleted = True
-    user_to_delete.is_active = False
-    user_to_delete.deleted_by_id = current_admin.id
-    user_to_delete.deleted_at = utcnow()
-    user_to_delete.updated_by_id = current_admin.id
+    # Centralized soft-delete (#20) — also flips is_active=False (User override)
+    # and keeps the is_deleted/deleted_at CHECK invariant.
+    user_to_delete.soft_delete(current_admin.id)
 
     write_audit(
         db,
@@ -318,11 +323,7 @@ def remove_admin_account(
             status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found"
         )
 
-    user_to_delete.is_deleted = True
-    user_to_delete.is_active = False
-    user_to_delete.deleted_by_id = current_super_admin.id
-    user_to_delete.deleted_at = utcnow()
-    user_to_delete.updated_by_id = current_super_admin.id
+    user_to_delete.soft_delete(current_super_admin.id)
 
     write_audit(
         db,
@@ -339,3 +340,59 @@ def remove_admin_account(
     )
     db.commit()
     return None
+
+
+# --------------------------------------------------
+# ROLE CHANGE (#13) — SUPER_ADMIN only; EMPLOYEE <-> ADMIN
+# --------------------------------------------------
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Change a user's role (SUPER ADMIN only)",
+)
+def change_role(
+    request: Request,
+    user_id: uuid.UUID,
+    payload: RoleChangeRequest,
+    db: Session = Depends(get_db),
+    current_super_admin: User = Depends(require_super_admin),
+):
+    """
+    Only SUPER_ADMIN may change roles, and only between EMPLOYEE and ADMIN.
+
+    Hard rules (defense-in-depth; schema already blocks SUPER_ADMIN as a
+    target role):
+      - Cannot change your own role.
+      - Cannot modify a SUPER_ADMIN account.
+      - Target must be an existing active user.
+    """
+    if user_id == current_super_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot change your own role.",
+        )
+
+    target = get_user_by_id(db, user_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if target.role == UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A SUPER_ADMIN account cannot be modified.",
+        )
+
+    if target.role == payload.role:
+        # No-op: nothing to change, nothing to audit.
+        return target
+
+    return change_user_role(
+        db,
+        target,
+        payload.role,
+        actor_id=current_super_admin.id,
+        request=request,
+    )

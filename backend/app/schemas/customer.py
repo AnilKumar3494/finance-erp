@@ -1,15 +1,70 @@
+import re
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
-import re
+
+# Indian formats
+_MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
+_PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+_PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
+
+
+# --------------------------------------------------
+# SHARED VALIDATORS
+#
+# Defined ONCE here and mixed into BOTH create and update schemas so PATCH
+# can never bypass mobile/aadhaar/PAN/pincode validation (this was the #5
+# bug — CustomerUpdate previously only validated alt_mobile).
+#
+# All validators tolerate None so partial updates work; required-ness is
+# still enforced by the field definitions on the create schema.
+# --------------------------------------------------
+class _CustomerValidatorsMixin(BaseModel):
+    @field_validator("mobile_number", check_fields=False)
+    @classmethod
+    def _v_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _MOBILE_RE.match(v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("alt_mobile_number", check_fields=False)
+    @classmethod
+    def _v_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v and not _MOBILE_RE.match(v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("aadhaar_number", check_fields=False)
+    @classmethod
+    def _v_aadhaar(cls, v: Optional[str]) -> Optional[str]:
+        if v and (not v.isdigit() or len(v) != 12):
+            raise ValueError("Aadhaar must be exactly 12 digits")
+        return v
+
+    @field_validator("pan_number", check_fields=False)
+    @classmethod
+    def _v_pan(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.upper()
+        if not _PAN_RE.match(v):
+            raise ValueError("Invalid PAN format e.g. ABCDE1234F")
+        return v
+
+    @field_validator("pincode", check_fields=False)
+    @classmethod
+    def _v_pincode(cls, v: Optional[str]) -> Optional[str]:
+        if v and not _PINCODE_RE.match(v):
+            raise ValueError("Invalid Indian PIN code (6 digits, no leading 0)")
+        return v
 
 
 # --------------------------------------------------
 # BASE
 # --------------------------------------------------
-class CustomerBase(BaseModel):
+class CustomerBase(_CustomerValidatorsMixin):
     full_name: str = Field(..., min_length=2, max_length=255)
     mobile_number: str = Field(..., min_length=10, max_length=15)
     aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
@@ -20,35 +75,8 @@ class CustomerBase(BaseModel):
     address_line_1: Optional[str] = Field(None, max_length=500)
     address_line_2: Optional[str] = Field(None, max_length=500)
     mandal_village: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, min_length=6, max_length=6)
     remarks: Optional[str] = None
-
-    @field_validator("mobile_number")
-    @classmethod
-    def validate_mobile(cls, v: str) -> str:
-        if not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
-
-    @field_validator("alt_mobile_number")
-    @classmethod
-    def validate_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
-
-    @field_validator("aadhaar_number")
-    @classmethod
-    def validate_aadhaar(cls, v: Optional[str]) -> Optional[str]:
-        if v and not v.isdigit():
-            raise ValueError("Aadhaar must be 12 digits")
-        return v
-
-    @field_validator("pan_number")
-    @classmethod
-    def validate_pan(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", v):
-            raise ValueError("Invalid PAN format e.g. ABCDE1234F")
-        return v.upper() if v else v
 
 
 # --------------------------------------------------
@@ -59,9 +87,9 @@ class CustomerCreate(CustomerBase):
 
 
 # --------------------------------------------------
-# UPDATE (All fields optional)
+# UPDATE (all fields optional; SAME validators as create via the mixin)
 # --------------------------------------------------
-class CustomerUpdate(BaseModel):
+class CustomerUpdate(_CustomerValidatorsMixin):
     full_name: Optional[str] = Field(None, min_length=2, max_length=255)
     mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
     aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
@@ -72,18 +100,12 @@ class CustomerUpdate(BaseModel):
     address_line_1: Optional[str] = Field(None, max_length=500)
     address_line_2: Optional[str] = Field(None, max_length=500)
     mandal_village: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, min_length=6, max_length=6)
     remarks: Optional[str] = None
-
-    @field_validator("alt_mobile_number")
-    @classmethod
-    def validate_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
 
 
 # --------------------------------------------------
-# RESPONSE
+# RESPONSE (Aadhaar/PAN masked on the wire)
 # --------------------------------------------------
 class CustomerResponse(CustomerBase):
     id: uuid.UUID
@@ -91,6 +113,8 @@ class CustomerResponse(CustomerBase):
     created_by_id: Optional[uuid.UUID]
     assigned_employee_id: Optional[uuid.UUID]
     assigned_employee_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -120,7 +144,7 @@ class CustomerListResponse(BaseModel):
 
 
 # --------------------------------------------------
-# UNMASKED RESPONSE (For Admin View Only)
+# UNMASKED RESPONSE (Admin view only — audited at the route)
 # --------------------------------------------------
 class CustomerUnmaskedPII(BaseModel):
     aadhaar_number: Optional[str] = None

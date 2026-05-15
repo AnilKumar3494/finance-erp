@@ -1,10 +1,18 @@
 """
 Customer service layer.
 
-Every mutating call writes an audit_logs row before commit. Lookups intentionally
-exclude soft-deleted rows; uniqueness checks against soft-deleted rows live in
-the route layer (not done here) to keep this module side-effect-free for reads.
+Responsibilities:
+  - Reads exclude soft-deleted rows.
+  - Every mutating call writes an audit_logs row before commit.
+  - assigned_employee_id is validated (must be an active, non-deleted EMPLOYEE).
+  - Soft-delete goes through the centralized AuditBase.soft_delete().
+  - Customer soft-delete is BLOCKED while the customer has an ACTIVE loan.
+  - POST is idempotent when an Idempotency-Key is supplied.
+
+RBAC (who may set assigned_employee_id) is enforced in the route layer,
+which knows the caller's role; this layer only validates the *target*.
 """
+
 import uuid
 from typing import Optional
 
@@ -14,13 +22,29 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
-from app.models.user import User
+from app.models.loan import Loan, LoanStatus
+from app.models.user import User, UserRole
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.utils.audit import write_audit
 from app.utils.time import utcnow
 
+_MUTABLE_FIELDS = frozenset(
+    {
+        "full_name",
+        "mobile_number",
+        "aadhaar_number",
+        "pan_number",
+        "assigned_employee_id",
+        "date_of_birth",
+        "alt_mobile_number",
+        "address_line_1",
+        "address_line_2",
+        "mandal_village",
+        "pincode",
+        "remarks",
+    }
+)
 
-# Fields safe to surface in audit logs (no raw PII like aadhaar/pan).
 _AUDIT_SAFE_FIELDS = (
     "full_name",
     "mobile_number",
@@ -29,7 +53,7 @@ _AUDIT_SAFE_FIELDS = (
     "address_line_1",
     "address_line_2",
     "mandal_village",
-    "date_of_birth",
+    "pincode",
 )
 
 
@@ -37,8 +61,46 @@ def _audit_snapshot(customer: Customer) -> dict:
     return {f: getattr(customer, f, None) for f in _AUDIT_SAFE_FIELDS}
 
 
+# --------------------------------------------------
+# VALIDATION HELPERS
+# --------------------------------------------------
+def validate_assignable_employee(db: Session, user_id: uuid.UUID) -> None:
+    """
+    #7 — A customer may only be assigned to a user who is an active,
+    non-deleted EMPLOYEE. Raises ValueError otherwise (route → 422).
+    """
+    target = (
+        db.query(User)
+        .filter(
+            User.id == user_id,
+            User.is_active == True,  # noqa: E712
+            User.is_deleted == False,  # noqa: E712
+        )
+        .first()
+    )
+    if target is None:
+        raise ValueError("Assigned employee not found or inactive")
+    if target.role != UserRole.EMPLOYEE:
+        raise ValueError("Customers can only be assigned to an EMPLOYEE")
+
+
+def _customer_has_active_loan(db: Session, customer_id: uuid.UUID) -> bool:
+    return (
+        db.query(Loan.id)
+        .filter(
+            Loan.customer_id == customer_id,
+            Loan.status == LoanStatus.ACTIVE,
+            Loan.is_deleted == False,  # noqa: E712
+        )
+        .first()
+        is not None
+    )
+
+
+# --------------------------------------------------
+# READS
+# --------------------------------------------------
 def get_customer(db: Session, customer_id: uuid.UUID) -> Optional[Customer]:
-    """Fetch single active customer by ID."""
     return (
         db.query(Customer)
         .filter(Customer.id == customer_id, Customer.is_deleted == False)  # noqa: E712
@@ -47,10 +109,22 @@ def get_customer(db: Session, customer_id: uuid.UUID) -> Optional[Customer]:
 
 
 def get_customer_by_mobile(db: Session, mobile: str) -> Optional[Customer]:
-    """Check for duplicate mobile on create (active customers only)."""
     return (
         db.query(Customer)
-        .filter(Customer.mobile_number == mobile, Customer.is_deleted == False)  # noqa: E712
+        .filter(
+            Customer.mobile_number == mobile, Customer.is_deleted == False
+        )  # noqa: E712
+        .first()
+    )
+
+
+def get_customer_by_idempotency_key(db: Session, key: str) -> Optional[Customer]:
+    return (
+        db.query(Customer)
+        .filter(
+            Customer.idempotency_key == key,
+            Customer.is_deleted == False,  # noqa: E712
+        )
         .first()
     )
 
@@ -62,7 +136,6 @@ def list_customers(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Customer], int]:
-    """List customers with optional search + filter. Returns (results, total)."""
     query = (
         db.query(Customer, User.full_name)
         .outerjoin(User, Customer.assigned_employee_id == User.id)
@@ -70,8 +143,6 @@ def list_customers(
     )
 
     if search:
-        # Escape LIKE wildcards in user input so users can't accidentally
-        # (or deliberately) probe the index with '%'/'_'.
         s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(
             or_(
@@ -95,24 +166,38 @@ def list_customers(
     return results, total
 
 
+# --------------------------------------------------
+# CREATE
+# --------------------------------------------------
 def create_customer(
     db: Session,
     data: CustomerCreate,
     created_by: uuid.UUID,
+    *,
+    assigned_employee_id: Optional[uuid.UUID],
+    idempotency_key: Optional[str] = None,
     request: Optional[Request] = None,
 ) -> Customer:
+    """
+    Create a customer.
+
+    `assigned_employee_id` is passed explicitly by the route (it has already
+    been RBAC-resolved: forced to self for EMPLOYEEs, validated for admins).
+    """
     customer = Customer(
         full_name=data.full_name,
         mobile_number=data.mobile_number,
         aadhaar_number=data.aadhaar_number,
         pan_number=data.pan_number,
-        assigned_employee_id=data.assigned_employee_id,
+        assigned_employee_id=assigned_employee_id,
         date_of_birth=data.date_of_birth,
         alt_mobile_number=data.alt_mobile_number,
         address_line_1=data.address_line_1,
         address_line_2=data.address_line_2,
         mandal_village=data.mandal_village,
+        pincode=data.pincode,
         remarks=data.remarks,
+        idempotency_key=idempotency_key,
         created_by_id=created_by,
     )
     db.add(customer)
@@ -132,9 +217,16 @@ def create_customer(
         return customer
     except IntegrityError as e:
         db.rollback()
+        if idempotency_key:
+            existing = get_customer_by_idempotency_key(db, idempotency_key)
+            if existing is not None:
+                return existing
         raise ValueError(f"Duplicate value — {str(e.orig)}")
 
 
+# --------------------------------------------------
+# UPDATE
+# --------------------------------------------------
 def update_customer(
     db: Session,
     customer: Customer,
@@ -142,42 +234,62 @@ def update_customer(
     updated_by: uuid.UUID,
     request: Optional[Request] = None,
 ) -> Customer:
-    """Update only the fields that were provided."""
+    """
+    Apply only supplied fields. Mass-assignment is constrained to
+    _MUTABLE_FIELDS (#3). assigned_employee_id RBAC is done in the route.
+    """
+    changes = data.model_dump(exclude_unset=True)
+
+    illegal = set(changes) - _MUTABLE_FIELDS
+    if illegal:
+        raise ValueError(f"Fields not allowed: {sorted(illegal)}")
+
     before = _audit_snapshot(customer)
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    for field, value in changes.items():
         setattr(customer, field, value)
 
     customer.updated_by_id = updated_by
 
-    write_audit(
-        db,
-        action_type="CUSTOMER_UPDATE",
-        target_table="customers",
-        record_id=customer.id,
-        user_id=updated_by,
-        old_data=before,
-        new_data=_audit_snapshot(customer),
-        request=request,
-    )
-    db.commit()
-    db.refresh(customer)
-    return customer
+    try:
+        write_audit(
+            db,
+            action_type="CUSTOMER_UPDATE",
+            target_table="customers",
+            record_id=customer.id,
+            user_id=updated_by,
+            old_data=before,
+            new_data=_audit_snapshot(customer),
+            request=request,
+        )
+        db.commit()
+        db.refresh(customer)
+        return customer
+    except IntegrityError as e:
+        db.rollback()
+        raise ValueError(f"Duplicate value — {str(e.orig)}")
 
 
+# --------------------------------------------------
+# SOFT DELETE
+# --------------------------------------------------
 def soft_delete_customer(
     db: Session,
     customer: Customer,
     deleted_by: uuid.UUID,
     request: Optional[Request] = None,
 ) -> Customer:
-    """Soft delete — never hard delete. Sets deleted_by_id correctly."""
-    before = _audit_snapshot(customer)
+    """
+    Block soft-delete while the customer has any ACTIVE loan.
+    """
+    if _customer_has_active_loan(db, customer.id):
+        raise ValueError(
+            "Cannot delete a customer with an active loan. "
+            "Close or settle the loan first."
+        )
 
-    customer.is_deleted = True
-    customer.deleted_at = utcnow()
-    customer.deleted_by_id = deleted_by
-    customer.updated_by_id = deleted_by
+    before = _audit_snapshot(customer)
+    customer.soft_delete(deleted_by)
 
     write_audit(
         db,

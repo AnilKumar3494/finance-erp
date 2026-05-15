@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -17,14 +17,18 @@ from app.schemas.customer import (
 from app.services.customer import (
     create_customer,
     get_customer,
+    get_customer_by_idempotency_key,
     get_customer_by_mobile,
     list_customers,
     soft_delete_customer,
     update_customer,
+    validate_assignable_employee,
 )
 from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
+
+_PRIVILEGED = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
 
 # --------------------------------------------------
@@ -41,7 +45,45 @@ def create(
     payload: CustomerCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(
+        None,
+        alias="Idempotency-Key",
+        max_length=64,
+        description="Optional. Retried POSTs with the same key return the "
+        "originally-created customer instead of creating a duplicate.",
+    ),
 ):
+    # --- Idempotency: short-circuit on a known key (#21) ---
+    if idempotency_key:
+        existing = get_customer_by_idempotency_key(db, idempotency_key)
+        if existing is not None:
+            existing.assigned_employee_name = None
+            return existing
+
+    if current_user.role == UserRole.EMPLOYEE:
+        # An employee may ONLY create customers assigned to themselves.
+        if (
+            payload.assigned_employee_id is not None
+            and payload.assigned_employee_id != current_user.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Employees can only create customers assigned to themselves.",
+            )
+        assigned_employee_id: Optional[uuid.UUID] = current_user.id
+    else:
+        # ADMIN / SUPER_ADMIN: may leave it unassigned (NULL) or assign it
+        # to a valid, active EMPLOYEE.
+        assigned_employee_id = payload.assigned_employee_id
+        if assigned_employee_id is not None:
+            try:
+                validate_assignable_employee(db, assigned_employee_id)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(e),
+                )
+
     if get_customer_by_mobile(db, payload.mobile_number):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -50,12 +92,17 @@ def create(
 
     try:
         return create_customer(
-            db=db, data=payload, created_by=current_user.id, request=request
+            db=db,
+            data=payload,
+            created_by=current_user.id,
+            assigned_employee_id=assigned_employee_id,
+            idempotency_key=idempotency_key,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),  # Catches duplicate aadhaar/pan from DB
+            detail=str(e),  # duplicate aadhaar/pan surfaced from the DB
         )
 
 
@@ -137,10 +184,7 @@ def get_unmasked_pii(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # SECURITY: Admins only
 ):
-    """
-    Called by the frontend when an Admin clicks the 'eye' icon to unmask PII.
-    Every unmask is recorded in audit_logs (NBFC compliance requirement).
-    """
+    """Every unmask is recorded in audit_logs (NBFC compliance)."""
     customer = get_customer(db, customer_id)
     if not customer:
         raise HTTPException(
@@ -153,7 +197,6 @@ def get_unmasked_pii(
         target_table="customers",
         record_id=customer.id,
         user_id=current_user.id,
-        # Do NOT log the actual PII — record which fields were unmasked.
         new_data={"fields": ["aadhaar_number", "pan_number"]},
         request=request,
     )
@@ -185,22 +228,49 @@ def update(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
         )
 
-    if (
-        current_user.role == UserRole.EMPLOYEE
-        and customer.assigned_employee_id != current_user.id
-    ):
+    is_employee = current_user.role == UserRole.EMPLOYEE
+
+    if is_employee and customer.assigned_employee_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. Customer not assigned to you.",
         )
 
-    return update_customer(
-        db=db,
-        customer=customer,
-        data=payload,
-        updated_by=current_user.id,
-        request=request,
-    )
+    sent = payload.model_dump(exclude_unset=True)
+
+    # --- RBAC on assigned_employee_id (#2 / #3 / #7) ---
+    if "assigned_employee_id" in sent:
+        new_assignee = sent["assigned_employee_id"]
+        if is_employee:
+            # Employees may NOT reassign — not even to themselves explicitly
+            # if it differs from the current owner.
+            if new_assignee != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Employees cannot reassign customers.",
+                )
+        else:
+            # ADMIN / SUPER_ADMIN: NULL clears assignment; non-NULL must be
+            # a valid active EMPLOYEE.
+            if new_assignee is not None:
+                try:
+                    validate_assignable_employee(db, new_assignee)
+                except ValueError as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=str(e),
+                    )
+
+    try:
+        return update_customer(
+            db=db,
+            customer=customer,
+            data=payload,
+            updated_by=current_user.id,
+            request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
 # --------------------------------------------------
@@ -222,6 +292,9 @@ def delete(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
         )
-    soft_delete_customer(
-        db=db, customer=customer, deleted_by=current_user.id, request=request
-    )
+    try:
+        soft_delete_customer(
+            db=db, customer=customer, deleted_by=current_user.id, request=request
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

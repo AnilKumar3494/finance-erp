@@ -1,4 +1,5 @@
 import enum
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -55,3 +56,16 @@ class User(AuditBase):
     locked_until: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # --------------------------------------------------
+    # SOFT-DELETE OVERRIDE
+    # A deleted user must also be deactivated so they can never authenticate
+    # or be returned by get_user_by_id (which filters is_active == True).
+    # --------------------------------------------------
+    def soft_delete(self, by_id: Optional[uuid.UUID]) -> None:
+        super().soft_delete(by_id)
+        self.is_active = False
+
+    def restore(self, by_id: Optional[uuid.UUID]) -> None:
+        super().restore(by_id)
+        self.is_active = True

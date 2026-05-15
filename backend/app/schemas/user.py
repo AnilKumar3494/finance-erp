@@ -8,6 +8,20 @@ from app.models.user import UserRole
 
 
 # --------------------------------------------------
+# ROLE CHANGE (SUPER_ADMIN only; EMPLOYEE <-> ADMIN)
+# --------------------------------------------------
+class RoleChangeRequest(BaseModel):
+    role: UserRole
+
+    @field_validator("role")
+    @classmethod
+    def _no_super_admin(cls, v: UserRole) -> UserRole:
+        if v == UserRole.SUPER_ADMIN:
+            raise ValueError("Role can only be set to ADMIN or EMPLOYEE")
+        return v
+
+
+# --------------------------------------------------
 # BASE
 # --------------------------------------------------
 class UserBase(BaseModel):

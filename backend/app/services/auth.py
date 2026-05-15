@@ -59,6 +59,9 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(_bcrypt_safe(plain), hashed)
 
 
+_DUMMY_HASH = pwd_context.hash(_bcrypt_safe("timing-equalizer-not-a-real-pw"))
+
+
 # --------------------------------------------------
 # JWT TOKENS
 # --------------------------------------------------
@@ -159,14 +162,34 @@ def login_identity_exists(db: Session, username: str, email: str) -> bool:
 
 
 def list_employees(
-    db: Session, page: int = 1, page_size: int = 50
+    db: Session,
+    page: int = 1,
+    page_size: int = 50,
+    search: Optional[str] = None,
 ) -> tuple[list[User], int]:
-    """Paginated list of active employees. Used for assignment dropdowns."""
+    """
+    Paginated list of active employees. Used for assignment dropdowns.
+
+    `search` does a case-insensitive match across full_name / username /
+    email. LIKE wildcards in the input are escaped so '%' / '_' are treated
+    literally (consistent with customer search).
+    """
     query = db.query(User).filter(
         User.role == UserRole.EMPLOYEE,
         User.is_active == True,  # noqa: E712
         User.is_deleted == False,  # noqa: E712
     )
+
+    if search:
+        s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.filter(
+            or_(
+                User.full_name.ilike(f"%{s}%", escape="\\"),
+                User.username.ilike(f"%{s}%", escape="\\"),
+                User.email.ilike(f"%{s}%", escape="\\"),
+            )
+        )
+
     total = query.count()
     results = (
         query.order_by(User.full_name.asc())
@@ -231,6 +254,13 @@ def _is_locked(user: User) -> bool:
     return user.locked_until is not None and user.locked_until > utcnow()
 
 
+def _clear_expired_lockout(user: User) -> None:
+    """Reset the failed-attempt counter once a timed lockout has elapsed."""
+    if user.locked_until is not None and user.locked_until <= utcnow():
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
+
 def authenticate_user(
     db: Session,
     login: str,
@@ -256,6 +286,7 @@ def authenticate_user(
     user = get_user_by_login(db, login)
 
     if not user:
+        verify_password(password, _DUMMY_HASH)
         write_audit(
             db,
             action_type="LOGIN_FAIL",
@@ -266,6 +297,10 @@ def authenticate_user(
         )
         db.commit()
         return None, "invalid"
+
+    # A previously-expired lockout window resets the failed counter so the
+    # user starts fresh after waiting it out.
+    _clear_expired_lockout(user)
 
     # Account state checks BEFORE password verification — but we still record
     # an audit row. We don't leak the distinction in the HTTP response.
@@ -349,3 +384,41 @@ def authenticate_user(
     )
     db.commit()
     return user, None
+
+
+# --------------------------------------------------
+# ROLE CHANGE (#13)
+# --------------------------------------------------
+def change_user_role(
+    db: Session,
+    target: User,
+    new_role: UserRole,
+    *,
+    actor_id: uuid.UUID,
+    request: Optional[Request] = None,
+) -> User:
+    """
+    Apply a role change and audit it. All authorization (SUPER_ADMIN-only,
+    no self-change, target is not a SUPER_ADMIN, new_role != SUPER_ADMIN)
+    is enforced by the route before this is called.
+    """
+    if new_role == UserRole.SUPER_ADMIN:
+        raise ValueError("SUPER_ADMIN cannot be assigned via the API.")
+
+    old_role = target.role
+    target.role = new_role
+    target.updated_by_id = actor_id
+
+    write_audit(
+        db,
+        action_type="ROLE_CHANGE",
+        target_table="users",
+        record_id=target.id,
+        user_id=actor_id,
+        old_data={"role": old_role.value},
+        new_data={"role": new_role.value},
+        request=request,
+    )
+    db.commit()
+    db.refresh(target)
+    return target
