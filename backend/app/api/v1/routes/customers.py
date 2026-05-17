@@ -53,13 +53,7 @@ def create(
         "originally-created customer instead of creating a duplicate.",
     ),
 ):
-    # --- Idempotency: short-circuit on a known key (#21) ---
-    if idempotency_key:
-        existing = get_customer_by_idempotency_key(db, idempotency_key)
-        if existing is not None:
-            existing.assigned_employee_name = None
-            return existing
-
+    # --- RBAC: resolve assigned_employee_id BEFORE any idempotency check ---
     if current_user.role == UserRole.EMPLOYEE:
         # An employee may ONLY create customers assigned to themselves.
         if (
@@ -83,6 +77,36 @@ def create(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=str(e),
                 )
+
+    if idempotency_key:
+        existing = get_customer_by_idempotency_key(db, idempotency_key, current_user.id)
+        if existing is not None:
+            mismatch = existing.assigned_employee_id != assigned_employee_id or any(
+                getattr(existing, f) != getattr(payload, f)
+                for f in (
+                    "full_name",
+                    "mobile_number",
+                    "aadhaar_number",
+                    "pan_number",
+                    "date_of_birth",
+                    "alt_mobile_number",
+                    "address_line_1",
+                    "address_line_2",
+                    "mandal_village",
+                    "pincode",
+                    "remarks",
+                )
+            )
+            if mismatch:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Idempotency-Key already used with a different "
+                        "request payload."
+                    ),
+                )
+            existing.assigned_employee_name = None
+            return existing
 
     if get_customer_by_mobile(db, payload.mobile_number):
         raise HTTPException(

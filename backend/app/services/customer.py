@@ -118,11 +118,14 @@ def get_customer_by_mobile(db: Session, mobile: str) -> Optional[Customer]:
     )
 
 
-def get_customer_by_idempotency_key(db: Session, key: str) -> Optional[Customer]:
+def get_customer_by_idempotency_key(
+    db: Session, key: str, created_by: uuid.UUID
+) -> Optional[Customer]:
     return (
         db.query(Customer)
         .filter(
             Customer.idempotency_key == key,
+            Customer.created_by_id == created_by,
             Customer.is_deleted == False,  # noqa: E712
         )
         .first()
@@ -180,9 +183,6 @@ def create_customer(
 ) -> Customer:
     """
     Create a customer.
-
-    `assigned_employee_id` is passed explicitly by the route (it has already
-    been RBAC-resolved: forced to self for EMPLOYEEs, validated for admins).
     """
     customer = Customer(
         full_name=data.full_name,
@@ -218,7 +218,7 @@ def create_customer(
     except IntegrityError as e:
         db.rollback()
         if idempotency_key:
-            existing = get_customer_by_idempotency_key(db, idempotency_key)
+            existing = get_customer_by_idempotency_key(db, idempotency_key, created_by)
             if existing is not None:
                 return existing
         raise ValueError(f"Duplicate value — {str(e.orig)}")
