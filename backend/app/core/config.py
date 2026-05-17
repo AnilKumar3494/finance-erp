@@ -1,6 +1,6 @@
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import computed_field, field_validator
+from pydantic import Field, computed_field, field_validator
 from functools import lru_cache
 
 
@@ -24,14 +24,26 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     # LOGIN SECURITY (Lockout + Rate Limit)
     # --------------------------------------------------
-    LOGIN_MAX_FAILED_ATTEMPTS: int = 5
-    LOGIN_LOCKOUT_MINUTES: int = 15
+    LOGIN_MAX_FAILED_ATTEMPTS: int = Field(default=5, ge=1)
+    LOGIN_LOCKOUT_MINUTES: int = Field(default=15, ge=1)
     # slowapi-compatible strings. IP-keyed.
     RATE_LIMIT_LOGIN: str = "10/minute"
     RATE_LIMIT_REGISTER: str = "3/minute"
     # Throttle identity lookups (Aadhaar/PAN/mobile probes) to blunt
     # PII-enumeration attempts. IP-keyed.
     RATE_LIMIT_LOOKUP: str = "30/minute"
+
+    # --------------------------------------------------
+    # PROXY / CLIENT IP
+    # X-Forwarded-For is client-spoofable. Only honor it when the app is
+    # actually deployed behind a trusted proxy/ALB that appends the real
+    # client IP. Default OFF → audit logs record the spoof-proof
+    # request.client.host. Set TRUST_FORWARDED_FOR=true ONLY when an ALB /
+    # reverse proxy fronts the app, and set TRUSTED_PROXY_HOPS to the number
+    # of trusted proxies in the chain (1 for a single ALB).
+    # --------------------------------------------------
+    TRUST_FORWARDED_FOR: bool = False
+    TRUSTED_PROXY_HOPS: int = Field(default=1, ge=1)
 
     # --------------------------------------------------
     # AWS

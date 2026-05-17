@@ -11,6 +11,7 @@ choke point for NBFC compliance. The writer:
 
 The `payload` dicts are coerced to JSON-safe form (UUIDs/dates → strings).
 """
+
 from __future__ import annotations
 
 import json
@@ -21,6 +22,7 @@ from typing import Any, Optional
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.audit_log import AuditLog
 
 logger = logging.getLogger(__name__)
@@ -36,16 +38,22 @@ def _json_safe(value: Any) -> Any:
 
 
 def client_ip(request: Optional[Request]) -> Optional[str]:
-    """Extract best-effort client IP from a Starlette/FastAPI request."""
     if request is None:
         return None
-    # Honor X-Forwarded-For if behind a trusted proxy/ALB.
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()[:45]
-    if request.client and request.client.host:
-        return request.client.host[:45]
-    return None
+
+    direct_ip = (
+        request.client.host[:45] if request.client and request.client.host else None
+    )
+
+    if settings.TRUST_FORWARDED_FOR:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            parts = [p.strip() for p in xff.split(",") if p.strip()]
+            if parts:
+                idx = max(0, len(parts) - settings.TRUSTED_PROXY_HOPS)
+                return parts[idx][:45]
+
+    return direct_ip
 
 
 def write_audit(

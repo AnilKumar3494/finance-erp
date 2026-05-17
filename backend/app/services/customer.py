@@ -14,6 +14,35 @@ from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
 from app.utils.time import utcnow
 
+
+_IDEMPOTENCY_COMPARE_FIELDS = (
+    "full_name",
+    "mobile_number",
+    "aadhaar_number",
+    "pan_number",
+    "date_of_birth",
+    "alt_mobile_number",
+    "address_line_1",
+    "address_line_2",
+    "mandal_village",
+    "pincode",
+    "remarks",
+)
+
+
+def _request_matches_customer(
+    existing: Customer,
+    data: CustomerCreate,
+    assigned_employee_id: Optional[uuid.UUID],
+) -> bool:
+    """True only if `existing` was created from this exact request payload."""
+    if existing.assigned_employee_id != assigned_employee_id:
+        return False
+    return all(
+        getattr(existing, f) == getattr(data, f) for f in _IDEMPOTENCY_COMPARE_FIELDS
+    )
+
+
 _MUTABLE_FIELDS = frozenset(
     {
         "full_name",
@@ -104,11 +133,14 @@ def get_customer_by_mobile(db: Session, mobile: str) -> Optional[Customer]:
     )
 
 
-def get_customer_by_idempotency_key(db: Session, key: str) -> Optional[Customer]:
+def get_customer_by_idempotency_key(
+    db: Session, key: str, created_by: uuid.UUID
+) -> Optional[Customer]:
     return (
         db.query(Customer)
         .filter(
             Customer.idempotency_key == key,
+            Customer.created_by_id == created_by,
             Customer.is_deleted == False,  # noqa: E712
         )
         .first()
@@ -166,10 +198,10 @@ def create_customer(
 ) -> Customer:
     """
     Create a customer.
-
-    `assigned_employee_id` is passed explicitly by the route (it has already
-    been RBAC-resolved: forced to self for EMPLOYEEs, validated for admins).
     """
+    if assigned_employee_id is not None:
+        validate_assignable_employee(db, assigned_employee_id)
+
     customer = Customer(
         full_name=data.full_name,
         mobile_number=data.mobile_number,
@@ -204,10 +236,15 @@ def create_customer(
     except IntegrityError as e:
         db.rollback()
         if idempotency_key:
-            existing = get_customer_by_idempotency_key(db, idempotency_key)
+            existing = get_customer_by_idempotency_key(db, idempotency_key, created_by)
             if existing is not None:
-                return existing
-        raise ValueError(safe_integrity_message(e))
+                if _request_matches_customer(existing, data, assigned_employee_id):
+                    return existing
+                raise ValueError(
+                    "Idempotency-Key already used with a different request payload."
+                ) from e
+        # Unrelated unique violation (mobile/aadhaar/pan) — generic, non-leaking.
+        raise ValueError(safe_integrity_message(e)) from e
 
 
 # --------------------------------------------------
@@ -229,6 +266,9 @@ def update_customer(
     illegal = set(changes) - _MUTABLE_FIELDS
     if illegal:
         raise ValueError(f"Fields not allowed: {sorted(illegal)}")
+
+    if changes.get("assigned_employee_id") is not None:
+        validate_assignable_employee(db, changes["assigned_employee_id"])
 
     before = _audit_snapshot(customer)
 
@@ -253,7 +293,7 @@ def update_customer(
         return customer
     except IntegrityError as e:
         db.rollback()
-        raise ValueError(safe_integrity_message(e))
+        raise ValueError(safe_integrity_message(e)) from e
 
 
 # --------------------------------------------------
