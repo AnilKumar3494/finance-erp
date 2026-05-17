@@ -1,7 +1,9 @@
 import enum
+import uuid
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Enum, String, text
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import AuditBase
@@ -38,3 +40,32 @@ class User(AuditBase):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+
+    # --------------------------------------------------
+    # LOGIN SECURITY
+    # --------------------------------------------------
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+
+    # When set + in the future → account is locked until then.
+    locked_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # --------------------------------------------------
+    # SOFT-DELETE OVERRIDE
+    # A deleted user must also be deactivated so they can never authenticate
+    # or be returned by get_user_by_id (which filters is_active == True).
+    # --------------------------------------------------
+    def soft_delete(self, by_id: Optional[uuid.UUID]) -> None:
+        super().soft_delete(by_id)
+        self.is_active = False
+
+    def restore(self, by_id: Optional[uuid.UUID]) -> None:
+        super().restore(by_id)
+        self.is_active = True

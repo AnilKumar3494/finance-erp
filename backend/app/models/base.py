@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.utils.time import utcnow
 
 
 class AuditBase(Base):
@@ -46,8 +47,6 @@ class AuditBase(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=text("now()"),
-        # Works for ORM updates
-        onupdate=func.now(),
     )
 
     # --------------------------------------------------
@@ -67,3 +66,20 @@ class AuditBase(Base):
     deleted_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+    # --------------------------------------------------
+    # SOFT-DELETE HELPERS (single, centralized implementation)
+    # --------------------------------------------------
+    def soft_delete(self, by_id: Optional[uuid.UUID]) -> None:
+        """Mark this row deleted. Atomically keeps is_deleted/deleted_at in sync."""
+        self.is_deleted = True
+        self.deleted_at = utcnow()
+        self.deleted_by_id = by_id
+        self.updated_by_id = by_id
+
+    def restore(self, by_id: Optional[uuid.UUID]) -> None:
+        """Reverse a soft delete. Clears deleted_at to satisfy the CHECK."""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.deleted_by_id = None
+        self.updated_by_id = by_id

@@ -31,6 +31,7 @@ class Personnel(AuditBase):
     address_line_1: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     address_line_2: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mandal_village: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    pincode: Mapped[Optional[str]] = mapped_column(String(6), nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     loan_associations: Mapped[list["LoanPersonnel"]] = relationship(

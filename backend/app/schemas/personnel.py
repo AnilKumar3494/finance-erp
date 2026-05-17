@@ -21,6 +21,7 @@ class PersonnelBase(BaseModel):
     address_line_1: Optional[str] = Field(None, max_length=500)
     address_line_2: Optional[str] = Field(None, max_length=500)
     mandal_village: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, min_length=6, max_length=6)
     remarks: Optional[str] = None
 
     @field_validator("mobile_number")
@@ -28,6 +29,13 @@ class PersonnelBase(BaseModel):
     def validate_mobile(cls, v: str) -> str:
         if not re.match(r"^[6-9]\d{9}$", v):
             raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("pincode")
+    @classmethod
+    def validate_pincode(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[1-9]\d{5}$", v):
+            raise ValueError("Invalid Indian PIN code (6 digits, no leading 0)")
         return v
 
     @field_validator("alt_mobile_number")
@@ -72,6 +80,7 @@ class PersonnelUpdate(BaseModel):
     address_line_1: Optional[str] = Field(None, max_length=500)
     address_line_2: Optional[str] = Field(None, max_length=500)
     mandal_village: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, min_length=6, max_length=6)
     remarks: Optional[str] = None
 
     @field_validator("mobile_number")
@@ -79,6 +88,13 @@ class PersonnelUpdate(BaseModel):
     def validate_mobile(cls, v: Optional[str]) -> Optional[str]:
         if v and not re.match(r"^[6-9]\d{9}$", v):
             raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("pincode")
+    @classmethod
+    def validate_pincode(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[1-9]\d{5}$", v):
+            raise ValueError("Invalid Indian PIN code (6 digits, no leading 0)")
         return v
 
     @field_validator("alt_mobile_number")

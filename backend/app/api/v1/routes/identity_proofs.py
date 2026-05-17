@@ -74,12 +74,20 @@ def list_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not customer_id and not personnel_id:
+    # Exactly one filter required. An identity proof is owned by exactly one
+    # entity (DB CHECK ck_identity_proof_owner), so accepting both is both
+    # meaningless (AND-filter → always empty) and a fragile auth boundary
+    # (only the customer branch is access-checked). Collapse "neither" and
+    # "both" into one clear 400.
+    if bool(customer_id) == bool(personnel_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provide either customer_id or personnel_id",
+            detail="Provide exactly one of customer_id or personnel_id",
         )
 
+    # NOTE: listing by personnel_id is intentionally open to any
+    # authenticated user — personnel (guarantors/co-hirers) are shared
+    # across loans, so no per-user scoping is applied on that branch.
     if customer_id and current_user.role == UserRole.EMPLOYEE:
         customer = (
             db.query(Customer)

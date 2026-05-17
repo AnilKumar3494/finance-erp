@@ -22,17 +22,11 @@ class Customer(AuditBase):
     # --------------------------------------------------
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    mobile_number: Mapped[str] = mapped_column(
-        String(15), unique=True, nullable=False, index=True
-    )
+    mobile_number: Mapped[str] = mapped_column(String(15), nullable=False, index=True)
 
-    aadhaar_number: Mapped[Optional[str]] = mapped_column(
-        String(12), unique=True, nullable=True
-    )
+    aadhaar_number: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
 
-    pan_number: Mapped[Optional[str]] = mapped_column(
-        String(10), unique=True, nullable=True
-    )
+    pan_number: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
     date_of_birth: Mapped[Optional[datetime.date]] = mapped_column(nullable=True)
 
@@ -44,9 +38,14 @@ class Customer(AuditBase):
 
     mandal_village: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    ##AKTODO: Add Pin Code as well
+    pincode: Mapped[Optional[str]] = mapped_column(String(6), nullable=True)
 
     remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --------------------------------------------------
+    # IDEMPOTENCY
+    # --------------------------------------------------
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # --------------------------------------------------
     # ASSIGNMENT
@@ -65,11 +64,13 @@ class Customer(AuditBase):
     loans: Mapped[list["Loan"]] = relationship(
         "Loan",
         back_populates="customer",
+        lazy="selectin",
         primaryjoin="and_(Customer.id == Loan.customer_id, Loan.is_deleted == False)",
     )
 
     documents: Mapped[list["Document"]] = relationship(
         "Document",
         back_populates="customer",
+        lazy="selectin",
         primaryjoin="and_(Customer.id == Document.customer_id, Document.is_deleted == False)",
     )

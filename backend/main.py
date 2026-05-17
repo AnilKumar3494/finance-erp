@@ -1,8 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_swagger_ui_theme import setup_swagger_ui_theme
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.logging_config import configure_logging
+from app.core.rate_limit import limiter
 from app.api.v1.routes import (
     auth,
     customers,
@@ -15,6 +19,9 @@ from app.api.v1.routes import (
 from app.api.v1.routes.personnel import personnel_router, loan_personnel_router
 from app.api.v1.routes.identity_proofs import router as identity_proofs_router
 from app.api.v1.routes.stability_documents import router as stability_documents_router
+
+# Import AuditLog so SQLAlchemy registers the mapper.
+from app.models.audit_log import AuditLog  # noqa: F401
 
 
 # --------------------------------------------------
@@ -29,17 +36,26 @@ app = FastAPI(
     title="FinERP API TESTING",
     description="Loan Management System API",
     version="1.0.0",
-    docs_url=None,  # Swagger UI
+    docs_url=None,  # Swagger UI (theme replaces it)
     redoc_url="/redoc",  # ReDoc UI
 )
 
 
 setup_swagger_ui_theme(app, docs_path="/docs")
 
+# --------------------------------------------------
+# RATE LIMITING (slowapi)
+#   - Limiter is IP-keyed (see app/core/rate_limit.py).
+#   - Per-route limits are applied via @limiter.limit(...) decorators
+#     in the route modules. Routes decorated this way MUST declare
+#     `request: Request` as a parameter.
+# --------------------------------------------------
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # --------------------------------------------------
-# CORS (Cross Origin Resource Sharing)
-# Controls which frontends can talk to this API
+# CORS
 # --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
