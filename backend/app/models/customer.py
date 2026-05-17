@@ -1,7 +1,8 @@
 import uuid
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+import datetime
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
@@ -32,6 +33,20 @@ class Customer(AuditBase):
     pan_number: Mapped[Optional[str]] = mapped_column(
         String(10), unique=True, nullable=True
     )
+
+    date_of_birth: Mapped[Optional[datetime.date]] = mapped_column(nullable=True)
+
+    alt_mobile_number: Mapped[Optional[str]] = mapped_column(String(15), nullable=True)
+
+    address_line_1: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    address_line_2: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    mandal_village: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    ##AKTODO: Add Pin Code as well
+
+    remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # --------------------------------------------------
     # ASSIGNMENT

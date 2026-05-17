@@ -1,22 +1,23 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 import re
 
+from app.models.personnel import PersonnelRole
+
 
 # --------------------------------------------------
-# BASE
+# PERSONNEL BASE
 # --------------------------------------------------
-class CustomerBase(BaseModel):
+class PersonnelBase(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=255)
     mobile_number: str = Field(..., min_length=10, max_length=15)
-    aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
-    pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
-    assigned_employee_id: Optional[uuid.UUID] = None
     date_of_birth: Optional[date] = None
     alt_mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
+    aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
+    pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
     address_line_1: Optional[str] = Field(None, max_length=500)
     address_line_2: Optional[str] = Field(None, max_length=500)
     mandal_village: Optional[str] = Field(None, max_length=100)
@@ -54,25 +55,31 @@ class CustomerBase(BaseModel):
 # --------------------------------------------------
 # CREATE
 # --------------------------------------------------
-class CustomerCreate(CustomerBase):
+class PersonnelCreate(PersonnelBase):
     pass
 
 
 # --------------------------------------------------
-# UPDATE (All fields optional)
+# UPDATE (all optional)
 # --------------------------------------------------
-class CustomerUpdate(BaseModel):
+class PersonnelUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=255)
     mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
-    aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
-    pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
-    assigned_employee_id: Optional[uuid.UUID] = None
     date_of_birth: Optional[date] = None
     alt_mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
+    aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
+    pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
     address_line_1: Optional[str] = Field(None, max_length=500)
     address_line_2: Optional[str] = Field(None, max_length=500)
     mandal_village: Optional[str] = Field(None, max_length=100)
     remarks: Optional[str] = None
+
+    @field_validator("mobile_number")
+    @classmethod
+    def validate_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[6-9]\d{9}$", v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
 
     @field_validator("alt_mobile_number")
     @classmethod
@@ -81,16 +88,29 @@ class CustomerUpdate(BaseModel):
             raise ValueError("Invalid Indian mobile number")
         return v
 
+    @field_validator("aadhaar_number")
+    @classmethod
+    def validate_aadhaar(cls, v: Optional[str]) -> Optional[str]:
+        if v and not v.isdigit():
+            raise ValueError("Aadhaar must be 12 digits")
+        return v
+
+    @field_validator("pan_number")
+    @classmethod
+    def validate_pan(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", v):
+            raise ValueError("Invalid PAN format e.g. ABCDE1234F")
+        return v.upper() if v else v
+
 
 # --------------------------------------------------
-# RESPONSE
+# RESPONSE (with masked Aadhaar/PAN)
 # --------------------------------------------------
-class CustomerResponse(CustomerBase):
+class PersonnelResponse(PersonnelBase):
     id: uuid.UUID
     is_deleted: bool
-    created_by_id: Optional[uuid.UUID]
-    assigned_employee_id: Optional[uuid.UUID]
-    assigned_employee_name: Optional[str] = None
+    created_at: datetime
+    created_by_id: Optional[uuid.UUID] = None
 
     model_config = {"from_attributes": True}
 
@@ -110,20 +130,47 @@ class CustomerResponse(CustomerBase):
 
 
 # --------------------------------------------------
-# LIST RESPONSE (Paginated)
+# LOAN PERSONNEL — Add to loan
 # --------------------------------------------------
-class CustomerListResponse(BaseModel):
-    total: int
-    page: int
-    page_size: int
-    results: list[CustomerResponse]
+class LoanPersonnelCreate(BaseModel):
+    personnel_id: uuid.UUID
+    role: PersonnelRole
+    relationship_to_hirer: Optional[str] = Field(None, max_length=100)
 
 
 # --------------------------------------------------
-# UNMASKED RESPONSE (For Admin View Only)
+# LOAN PERSONNEL — Response (embeds PersonnelResponse)
 # --------------------------------------------------
-class CustomerUnmaskedPII(BaseModel):
-    aadhaar_number: Optional[str] = None
-    pan_number: Optional[str] = None
+class LoanPersonnelResponse(BaseModel):
+    id: uuid.UUID
+    loan_id: uuid.UUID
+    personnel_id: uuid.UUID
+    role: PersonnelRole
+    relationship_to_hirer: Optional[str] = None
+    created_at: datetime
+    personnel: PersonnelResponse
 
     model_config = {"from_attributes": True}
+
+
+class LoanPersonnelListResponse(BaseModel):
+    total: int
+    results: list[LoanPersonnelResponse]
+
+
+# --------------------------------------------------
+# LOOKUP — used for "already exists" notification
+# --------------------------------------------------
+class LoanAssociationSummary(BaseModel):
+    loan_personnel_id: uuid.UUID
+    loan_id: uuid.UUID
+    loan_number: str
+    role: PersonnelRole
+    relationship_to_hirer: Optional[str] = None
+    customer_name: str
+
+
+class PersonnelLookupResult(BaseModel):
+    found: bool
+    personnel: Optional[PersonnelResponse] = None
+    existing_loan_associations: list[LoanAssociationSummary] = []

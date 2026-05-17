@@ -48,6 +48,16 @@ class Loan(AuditBase):
 
     tenure: Mapped[int] = mapped_column(Integer, nullable=False)  # In months
 
+    down_payment: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    processing_fee: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    documentation_fee: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+
     status: Mapped[LoanStatus] = mapped_column(
         Enum(LoanStatus, name="loan_status", create_type=False),
         default=LoanStatus.ACTIVE,

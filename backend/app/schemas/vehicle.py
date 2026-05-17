@@ -20,6 +20,7 @@ class VehicleBase(BaseModel):
     year: Optional[int] = Field(None, ge=1900, le=2100)
     color: Optional[str] = Field(None, max_length=30)
     chassis_number: Optional[str] = Field(None, max_length=50)
+    engine_number: Optional[str] = Field(None, max_length=50)
     market_value: Decimal = Field(default=Decimal("0.00"), ge=0)
     purchase_cost: Decimal = Field(default=Decimal("0.00"), ge=0)
     status: AssetStatus = AssetStatus.IN_YARD
@@ -48,6 +49,7 @@ class VehicleUpdate(BaseModel):
     year: Optional[int] = Field(None, ge=1900, le=2100)
     color: Optional[str] = Field(None, max_length=30)
     chassis_number: Optional[str] = Field(None, max_length=50)
+    engine_number: Optional[str] = Field(None, max_length=50)
     market_value: Optional[Decimal] = Field(None, ge=0)
     purchase_cost: Optional[Decimal] = Field(None, ge=0)
     status: Optional[AssetStatus] = None

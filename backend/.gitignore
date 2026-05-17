@@ -20,3 +20,5 @@ Thumbs.db
 
 pyrightconfig.json
 seed.py
+
+migrations

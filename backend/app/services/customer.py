@@ -80,6 +80,12 @@ def create_customer(
         aadhaar_number=data.aadhaar_number,
         pan_number=data.pan_number,
         assigned_employee_id=data.assigned_employee_id,
+        date_of_birth=data.date_of_birth,
+        alt_mobile_number=data.alt_mobile_number,
+        address_line_1=data.address_line_1,
+        address_line_2=data.address_line_2,
+        mandal_village=data.mandal_village,
+        remarks=data.remarks,
         created_by_id=created_by,
     )
     db.add(customer)

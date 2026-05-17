@@ -53,6 +53,10 @@ def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
     response.total_payable = calculate_total_payable(
         loan.principal, loan.interest_rate, loan.tenure
     )
+    response.net_loan_principal = loan.principal - loan.down_payment
+    response.net_disbursed_amount = (
+        loan.principal - loan.down_payment - loan.processing_fee - loan.documentation_fee
+    )
 
     if includes:
         if "customer" in includes and loan.customer:

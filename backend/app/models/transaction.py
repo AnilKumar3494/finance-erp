@@ -26,6 +26,11 @@ class TransactionStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class TransactionType(str, enum.Enum):
+    REGULAR = "REGULAR"
+    DOWN_PAYMENT = "DOWN_PAYMENT"
+
+
 class Transaction(AuditBase):
     __tablename__ = "transactions"
 
@@ -61,6 +66,13 @@ class Transaction(AuditBase):
     )
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    transaction_type: Mapped[TransactionType] = mapped_column(
+        Enum(TransactionType, name="transaction_type", create_type=False),
+        default=TransactionType.REGULAR,
+        server_default="REGULAR",
+        nullable=False,
+    )
 
     idempotency_key: Mapped[Optional[str]] = mapped_column(
         String(64), unique=True, nullable=True, index=True

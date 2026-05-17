@@ -10,6 +10,7 @@ from app.schemas.loan import LoanCreate, LoanUpdate
 from app.models.loan import Loan, LoanStatus
 from app.models.customer import Customer
 from app.models.vehicle import Vehicle
+from app.models.transaction import Transaction, TransactionStatus, TransactionType
 
 
 # --------------------------------------------------
@@ -161,11 +162,28 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         principal=data.principal,
         interest_rate=data.interest_rate,
         tenure=data.tenure,
+        down_payment=data.down_payment,
+        processing_fee=data.processing_fee,
+        documentation_fee=data.documentation_fee,
         status=LoanStatus.ACTIVE,
         created_by_id=created_by,
     )
     db.add(loan)
     try:
+        db.flush()
+
+        if data.down_payment and data.down_payment > 0:
+            db.add(
+                Transaction(
+                    loan_id=loan.id,
+                    amount=data.down_payment,
+                    payment_mode=data.down_payment_mode,
+                    transaction_type=TransactionType.DOWN_PAYMENT,
+                    status=TransactionStatus.SUCCESS,
+                    created_by_id=created_by,
+                )
+            )
+
         db.commit()
         db.refresh(loan)
         return loan

@@ -43,6 +43,8 @@ class Vehicle(AuditBase):
     ##AKCHECK: Check if this is must required or if this can be optional
     chassis_number: Mapped[Optional[str]] = mapped_column(String(50), unique=True)
 
+    engine_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
     market_value: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), default=Decimal("0.00"), server_default="0.00", nullable=False
     )

@@ -2,9 +2,10 @@ import uuid
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.loan import LoanStatus
+from app.models.transaction import PaymentMethod
 from app.models.user import UserRole
 
 
@@ -56,6 +57,9 @@ class LoanBase(BaseModel):
         ..., gt=0, le=100, description="Annual interest rate"
     )
     tenure: int = Field(..., gt=0, le=360, description="Tenure in months")
+    down_payment: Decimal = Field(default=Decimal("0.00"), ge=0)
+    processing_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
+    documentation_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
 
     @field_validator("principal")
     @classmethod
@@ -76,7 +80,13 @@ class LoanBase(BaseModel):
 # CREATE
 # --------------------------------------------------
 class LoanCreate(LoanBase):
-    pass
+    down_payment_mode: Optional[PaymentMethod] = None
+
+    @model_validator(mode="after")
+    def validate_down_payment_mode(self) -> "LoanCreate":
+        if self.down_payment and self.down_payment > 0 and not self.down_payment_mode:
+            raise ValueError("down_payment_mode is required when down_payment > 0")
+        return self
 
 
 # --------------------------------------------------
@@ -88,6 +98,9 @@ class LoanUpdate(BaseModel):
     principal: Optional[Decimal] = Field(None, gt=0)
     interest_rate: Optional[Decimal] = Field(None, gt=0, le=100)
     tenure: Optional[int] = Field(None, gt=0, le=360)
+    down_payment: Optional[Decimal] = Field(None, ge=0)
+    processing_fee: Optional[Decimal] = Field(None, ge=0)
+    documentation_fee: Optional[Decimal] = Field(None, ge=0)
 
     model_config = {"extra": "forbid"}
 
@@ -106,6 +119,8 @@ class LoanResponse(LoanBase):
     # Computed fields
     monthly_interest: Optional[Decimal] = None
     total_payable: Optional[Decimal] = None
+    net_loan_principal: Optional[Decimal] = None
+    net_disbursed_amount: Optional[Decimal] = None
 
     # Nested objects (populated only when ?include= is used)
     customer: Optional[CustomerNested] = None
