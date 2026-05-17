@@ -257,9 +257,9 @@ def create_customer(
                     return existing
                 raise ValueError(
                     "Idempotency-Key already used with a different request payload."
-                )
+                ) from e
         # Unrelated unique violation (mobile/aadhaar/pan) — generic, non-leaking.
-        raise ValueError(safe_integrity_message(e))
+        raise ValueError(safe_integrity_message(e)) from e
 
 
 # --------------------------------------------------
@@ -308,7 +308,7 @@ def update_customer(
         return customer
     except IntegrityError as e:
         db.rollback()
-        raise ValueError(safe_integrity_message(e))
+        raise ValueError(safe_integrity_message(e)) from e
 
 
 # --------------------------------------------------
