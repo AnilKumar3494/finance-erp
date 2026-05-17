@@ -1,18 +1,3 @@
-"""
-Customer service layer.
-
-Responsibilities:
-  - Reads exclude soft-deleted rows.
-  - Every mutating call writes an audit_logs row before commit.
-  - assigned_employee_id is validated (must be an active, non-deleted EMPLOYEE).
-  - Soft-delete goes through the centralized AuditBase.soft_delete().
-  - Customer soft-delete is BLOCKED while the customer has an ACTIVE loan.
-  - POST is idempotent when an Idempotency-Key is supplied.
-
-RBAC (who may set assigned_employee_id) is enforced in the route layer,
-which knows the caller's role; this layer only validates the *target*.
-"""
-
 import uuid
 from typing import Optional
 
@@ -26,6 +11,7 @@ from app.models.loan import Loan, LoanStatus
 from app.models.user import User, UserRole
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.utils.audit import write_audit
+from app.utils.db_errors import safe_integrity_message
 from app.utils.time import utcnow
 
 _MUTABLE_FIELDS = frozenset(
@@ -221,7 +207,7 @@ def create_customer(
             existing = get_customer_by_idempotency_key(db, idempotency_key)
             if existing is not None:
                 return existing
-        raise ValueError(f"Duplicate value — {str(e.orig)}")
+        raise ValueError(safe_integrity_message(e))
 
 
 # --------------------------------------------------
@@ -267,7 +253,7 @@ def update_customer(
         return customer
     except IntegrityError as e:
         db.rollback()
-        raise ValueError(f"Duplicate value — {str(e.orig)}")
+        raise ValueError(safe_integrity_message(e))
 
 
 # --------------------------------------------------

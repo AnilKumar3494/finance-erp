@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # slowapi-compatible strings. IP-keyed.
     RATE_LIMIT_LOGIN: str = "10/minute"
     RATE_LIMIT_REGISTER: str = "3/minute"
+    # Throttle identity lookups (Aadhaar/PAN/mobile probes) to blunt
+    # PII-enumeration attempts. IP-keyed.
+    RATE_LIMIT_LOOKUP: str = "30/minute"
 
     # --------------------------------------------------
     # AWS
