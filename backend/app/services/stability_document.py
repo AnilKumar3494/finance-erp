@@ -1,11 +1,12 @@
 import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.stability_document import StabilityDocument
 from app.schemas.stability_document import StabilityDocumentCreate
+from app.utils.db_errors import safe_integrity_message
 
 
 def create_stability_document(
@@ -23,9 +24,13 @@ def create_stability_document(
         created_by_id=created_by,
     )
     db.add(doc)
-    db.commit()
-    db.refresh(doc)
-    return doc
+    try:
+        db.commit()
+        db.refresh(doc)
+        return doc
+    except IntegrityError as e:
+        db.rollback()
+        raise ValueError(safe_integrity_message(e))
 
 
 def get_stability_document(
@@ -55,7 +60,7 @@ def list_stability_documents(
 def delete_stability_document(
     db: Session, doc: StabilityDocument, deleted_by: uuid.UUID
 ) -> None:
-    doc.is_deleted = True
-    doc.deleted_at = datetime.now(timezone.utc)
-    doc.deleted_by_id = deleted_by
+    # Centralized soft-delete: keeps is_deleted/deleted_at in sync (satisfies
+    # the check_soft_delete_stability_docs CHECK) and also sets updated_by_id.
+    doc.soft_delete(deleted_by)
     db.commit()

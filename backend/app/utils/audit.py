@@ -22,7 +22,7 @@ from typing import Any, Optional
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.utils.client_ip import resolve_client_ip
 from app.models.audit_log import AuditLog
 
 logger = logging.getLogger(__name__)
@@ -38,22 +38,9 @@ def _json_safe(value: Any) -> Any:
 
 
 def client_ip(request: Optional[Request]) -> Optional[str]:
-    if request is None:
-        return None
-
-    direct_ip = (
-        request.client.host[:45] if request.client and request.client.host else None
-    )
-
-    if settings.TRUST_FORWARDED_FOR:
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            parts = [p.strip() for p in xff.split(",") if p.strip()]
-            if parts:
-                idx = max(0, len(parts) - settings.TRUSTED_PROXY_HOPS)
-                return parts[idx][:45]
-
-    return direct_ip
+    """Thin wrapper kept for existing callers; logic lives in the shared
+    trusted-proxy resolver so audit IPs and rate-limit keys never diverge."""
+    return resolve_client_ip(request)
 
 
 def write_audit(
@@ -77,7 +64,11 @@ def write_audit(
     try:
         entry = AuditLog(
             user_id=user_id,
-            action_type=action_type[:20],
+            # No slicing: an over-length action_type must fail loudly (caught
+            # below, logged, audit row dropped) rather than be silently
+            # truncated into a corrupted/ambiguous compliance record. Column
+            # is varchar(50); all current action types fit.
+            action_type=action_type,
             target_table=target_table[:50],
             record_id=record_id or NO_RECORD,
             old_data=_json_safe(old_data) if old_data is not None else None,
@@ -87,9 +78,14 @@ def write_audit(
         # SAVEPOINT — if audit write fails, the outer txn survives.
         with db.begin_nested():
             db.add(entry)
-    except Exception:  # noqa: BLE001 — never propagate audit errors
-        logger.exception(
-            "audit_write_failed action=%s target=%s record=%s",
+    except Exception as exc:  # noqa: BLE001 — never propagate audit errors
+        # No exc_info / no exception message: a DB driver error can embed
+        # bound parameters (potentially sensitive) in both its text and its
+        # traceback frames-chain repr. The exception *type* plus the action
+        # context is enough to alert and triage an audit-write failure.
+        logger.error(
+            "audit_write_failed error=%s action=%s target=%s record=%s",
+            type(exc).__name__,
             action_type,
             target_table,
             record_id,

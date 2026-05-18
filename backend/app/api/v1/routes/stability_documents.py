@@ -54,9 +54,12 @@ def create(
     current_user: User = Depends(get_current_user),
 ):
     _get_loan_with_access_check(loan_id, db, current_user)
-    return create_stability_document(
-        db=db, loan_id=loan_id, data=payload, created_by=current_user.id
-    )
+    try:
+        return create_stability_document(
+            db=db, loan_id=loan_id, data=payload, created_by=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
 # --------------------------------------------------

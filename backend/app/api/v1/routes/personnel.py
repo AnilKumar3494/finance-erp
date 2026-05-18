@@ -42,7 +42,14 @@ def _ensure_loan_access(db: Session, loan: Loan, current_user: User) -> None:
     """EMPLOYEEs may only touch loans whose customer is assigned to them."""
     if current_user.role != UserRole.EMPLOYEE:
         return
-    customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+    customer = (
+        db.query(Customer)
+        .filter(
+            Customer.id == loan.customer_id,
+            Customer.is_deleted == False,  # noqa: E712
+        )
+        .first()
+    )
     if not customer or customer.assigned_employee_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 

@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, Integer, Text
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
@@ -22,6 +22,15 @@ class StabilityDocType(str, enum.Enum):
 
 class StabilityDocument(AuditBase):
     __tablename__ = "stability_documents"
+
+    # Mirrors the DB CHECK created in migration (same name → no ORM drift /
+    # no spurious Alembic autogenerate diff). cheque_count is nullable;
+    # NULL passes the CHECK by SQL semantics.
+    __table_args__ = (
+        CheckConstraint(
+            "cheque_count >= 0", name="stability_documents_cheque_count_check"
+        ),
+    )
 
     loan_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("loans.id", ondelete="RESTRICT"), nullable=False, index=True
