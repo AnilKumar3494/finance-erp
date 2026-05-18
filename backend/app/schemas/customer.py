@@ -5,6 +5,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.utils.pii import mask_aadhaar, mask_pan
+
 # Indian formats
 _MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
 _PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
@@ -13,13 +15,6 @@ _PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
 
 # --------------------------------------------------
 # SHARED VALIDATORS
-#
-# Defined ONCE here and mixed into BOTH create and update schemas so PATCH
-# can never bypass mobile/aadhaar/PAN/pincode validation (this was the #5
-# bug — CustomerUpdate previously only validated alt_mobile).
-#
-# All validators tolerate None so partial updates work; required-ness is
-# still enforced by the field definitions on the create schema.
 # --------------------------------------------------
 class _CustomerValidatorsMixin(BaseModel):
     @field_validator("mobile_number", check_fields=False)
@@ -120,17 +115,13 @@ class CustomerResponse(CustomerBase):
 
     @field_validator("aadhaar_number", mode="after")
     @classmethod
-    def mask_aadhaar(cls, v: Optional[str]) -> Optional[str]:
-        if v and len(v) == 12:
-            return f"********{v[-4:]}"
-        return v
+    def _mask_aadhaar(cls, v: Optional[str]) -> Optional[str]:
+        return mask_aadhaar(v)
 
     @field_validator("pan_number", mode="after")
     @classmethod
-    def mask_pan(cls, v: Optional[str]) -> Optional[str]:
-        if v and len(v) == 10:
-            return f"{v[:2]}******{v[-2:]}"
-        return v
+    def _mask_pan(cls, v: Optional[str]) -> Optional[str]:
+        return mask_pan(v)
 
 
 # --------------------------------------------------

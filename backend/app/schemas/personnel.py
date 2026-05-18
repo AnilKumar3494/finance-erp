@@ -1,17 +1,66 @@
+import re
 import uuid
 from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
-import re
 
 from app.models.personnel import PersonnelRole
+from app.utils.pii import mask_aadhaar, mask_pan
+
+# Indian formats
+_MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
+_PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+_PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
 
 
 # --------------------------------------------------
-# PERSONNEL BASE
+# SHARED VALIDATORS
 # --------------------------------------------------
-class PersonnelBase(BaseModel):
+class _PersonnelValidatorsMixin(BaseModel):
+    @field_validator("mobile_number", check_fields=False)
+    @classmethod
+    def _v_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _MOBILE_RE.match(v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("alt_mobile_number", check_fields=False)
+    @classmethod
+    def _v_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
+        if v and not _MOBILE_RE.match(v):
+            raise ValueError("Invalid Indian mobile number")
+        return v
+
+    @field_validator("aadhaar_number", check_fields=False)
+    @classmethod
+    def _v_aadhaar(cls, v: Optional[str]) -> Optional[str]:
+        if v and (not v.isdigit() or len(v) != 12):
+            raise ValueError("Aadhaar must be exactly 12 digits")
+        return v
+
+    @field_validator("pan_number", check_fields=False)
+    @classmethod
+    def _v_pan(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.upper()
+        if not _PAN_RE.match(v):
+            raise ValueError("Invalid PAN format e.g. ABCDE1234F")
+        return v
+
+    @field_validator("pincode", check_fields=False)
+    @classmethod
+    def _v_pincode(cls, v: Optional[str]) -> Optional[str]:
+        if v and not _PINCODE_RE.match(v):
+            raise ValueError("Invalid Indian PIN code (6 digits, no leading 0)")
+        return v
+
+
+# --------------------------------------------------
+# BASE
+# --------------------------------------------------
+class PersonnelBase(_PersonnelValidatorsMixin):
     full_name: str = Field(..., min_length=2, max_length=255)
     mobile_number: str = Field(..., min_length=10, max_length=15)
     date_of_birth: Optional[date] = None
@@ -24,41 +73,6 @@ class PersonnelBase(BaseModel):
     pincode: Optional[str] = Field(None, min_length=6, max_length=6)
     remarks: Optional[str] = None
 
-    @field_validator("mobile_number")
-    @classmethod
-    def validate_mobile(cls, v: str) -> str:
-        if not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
-
-    @field_validator("pincode")
-    @classmethod
-    def validate_pincode(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[1-9]\d{5}$", v):
-            raise ValueError("Invalid Indian PIN code (6 digits, no leading 0)")
-        return v
-
-    @field_validator("alt_mobile_number")
-    @classmethod
-    def validate_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
-
-    @field_validator("aadhaar_number")
-    @classmethod
-    def validate_aadhaar(cls, v: Optional[str]) -> Optional[str]:
-        if v and not v.isdigit():
-            raise ValueError("Aadhaar must be 12 digits")
-        return v
-
-    @field_validator("pan_number")
-    @classmethod
-    def validate_pan(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", v):
-            raise ValueError("Invalid PAN format e.g. ABCDE1234F")
-        return v.upper() if v else v
-
 
 # --------------------------------------------------
 # CREATE
@@ -68,9 +82,9 @@ class PersonnelCreate(PersonnelBase):
 
 
 # --------------------------------------------------
-# UPDATE (all optional)
+# UPDATE (all fields optional; SAME validators as create via the mixin)
 # --------------------------------------------------
-class PersonnelUpdate(BaseModel):
+class PersonnelUpdate(_PersonnelValidatorsMixin):
     full_name: Optional[str] = Field(None, min_length=2, max_length=255)
     mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
     date_of_birth: Optional[date] = None
@@ -83,66 +97,38 @@ class PersonnelUpdate(BaseModel):
     pincode: Optional[str] = Field(None, min_length=6, max_length=6)
     remarks: Optional[str] = None
 
-    @field_validator("mobile_number")
-    @classmethod
-    def validate_mobile(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
-
-    @field_validator("pincode")
-    @classmethod
-    def validate_pincode(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[1-9]\d{5}$", v):
-            raise ValueError("Invalid Indian PIN code (6 digits, no leading 0)")
-        return v
-
-    @field_validator("alt_mobile_number")
-    @classmethod
-    def validate_alt_mobile(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[6-9]\d{9}$", v):
-            raise ValueError("Invalid Indian mobile number")
-        return v
-
-    @field_validator("aadhaar_number")
-    @classmethod
-    def validate_aadhaar(cls, v: Optional[str]) -> Optional[str]:
-        if v and not v.isdigit():
-            raise ValueError("Aadhaar must be 12 digits")
-        return v
-
-    @field_validator("pan_number")
-    @classmethod
-    def validate_pan(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", v):
-            raise ValueError("Invalid PAN format e.g. ABCDE1234F")
-        return v.upper() if v else v
-
 
 # --------------------------------------------------
-# RESPONSE (with masked Aadhaar/PAN)
+# RESPONSE (Aadhaar/PAN masked on the wire)
 # --------------------------------------------------
 class PersonnelResponse(PersonnelBase):
     id: uuid.UUID
     is_deleted: bool
     created_at: datetime
+    updated_at: datetime
     created_by_id: Optional[uuid.UUID] = None
 
     model_config = {"from_attributes": True}
 
     @field_validator("aadhaar_number", mode="after")
     @classmethod
-    def mask_aadhaar(cls, v: Optional[str]) -> Optional[str]:
-        if v and len(v) == 12:
-            return f"********{v[-4:]}"
-        return v
+    def _mask_aadhaar(cls, v: Optional[str]) -> Optional[str]:
+        return mask_aadhaar(v)
 
     @field_validator("pan_number", mode="after")
     @classmethod
-    def mask_pan(cls, v: Optional[str]) -> Optional[str]:
-        if v and len(v) == 10:
-            return f"{v[:2]}******{v[-2:]}"
-        return v
+    def _mask_pan(cls, v: Optional[str]) -> Optional[str]:
+        return mask_pan(v)
+
+
+# --------------------------------------------------
+# UNMASKED RESPONSE (Admin view only — audited at the route)
+# --------------------------------------------------
+class PersonnelUnmaskedPII(BaseModel):
+    aadhaar_number: Optional[str] = None
+    pan_number: Optional[str] = None
+
+    model_config = {"from_attributes": True}
 
 
 # --------------------------------------------------

@@ -36,8 +36,11 @@ class AuditLog(Base):
     )
 
     # e.g. LOGIN_SUCCESS, LOGIN_FAIL, LOGIN_LOCKED, USER_CREATE, USER_DELETE,
-    # ROLE_CHANGE, CUSTOMER_CREATE, CUSTOMER_UPDATE, CUSTOMER_DELETE, PII_UNMASK.
-    action_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # ROLE_CHANGE, CUSTOMER_CREATE/UPDATE/DELETE, PERSONNEL_CREATE/UPDATE/
+    # DELETE/LOOKUP, LOAN_PERSONNEL_ADD/REMOVE, PII_UNMASK.
+    # Width matches target_table (50); long names like LOAN_PERSONNEL_REMOVE
+    # (21) previously overflowed the old varchar(20) and were truncated.
+    action_type: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Logical table name the action targets (e.g. "users", "customers").
     target_table: Mapped[str] = mapped_column(String(50), nullable=False)

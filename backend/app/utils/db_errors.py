@@ -1,9 +1,5 @@
 """
 Safe translation of DB integrity errors into client-facing messages.
-
-Raw DB errors (constraint names, column names, SQL fragments) must never
-reach the client — they leak schema internals. Everything funnels through
-one generic message.
 """
 
 from __future__ import annotations

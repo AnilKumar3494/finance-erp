@@ -1,11 +1,12 @@
 import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.identity_proof import IdentityProof, IdentityProofType
 from app.schemas.identity_proof import IdentityProofCreate
+from app.utils.db_errors import safe_integrity_message
 
 
 def create_identity_proof(
@@ -23,9 +24,13 @@ def create_identity_proof(
         created_by_id=created_by,
     )
     db.add(proof)
-    db.commit()
-    db.refresh(proof)
-    return proof
+    try:
+        db.commit()
+        db.refresh(proof)
+        return proof
+    except IntegrityError as e:
+        db.rollback()
+        raise ValueError(safe_integrity_message(e)) from None
 
 
 def get_identity_proof(db: Session, proof_id: uuid.UUID) -> Optional[IdentityProof]:
@@ -52,7 +57,7 @@ def list_identity_proofs(
 def delete_identity_proof(
     db: Session, proof: IdentityProof, deleted_by: uuid.UUID
 ) -> None:
-    proof.is_deleted = True
-    proof.deleted_at = datetime.now(timezone.utc)
-    proof.deleted_by_id = deleted_by
+    # Centralized soft-delete: keeps is_deleted/deleted_at in sync (satisfies
+    # the check_soft_delete_identity_proofs CHECK) and also sets updated_by_id.
+    proof.soft_delete(deleted_by)
     db.commit()
