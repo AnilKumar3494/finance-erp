@@ -30,7 +30,7 @@ def create_stability_document(
         return doc
     except IntegrityError as e:
         db.rollback()
-        raise ValueError(safe_integrity_message(e))
+        raise ValueError(safe_integrity_message(e)) from None
 
 
 def get_stability_document(

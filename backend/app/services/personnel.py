@@ -18,8 +18,6 @@ from app.schemas.personnel import (
 from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
 
-# Update is constrained to these (mirrors customer _MUTABLE_FIELDS). Anything
-# outside this set in a PATCH body is rejected rather than silently applied.
 _MUTABLE_FIELDS = frozenset(
     {
         "full_name",
@@ -36,8 +34,7 @@ _MUTABLE_FIELDS = frozenset(
     }
 )
 
-# Non-sensitive fields only — Aadhaar/PAN/DOB/remarks are deliberately
-# excluded from audit snapshots (same policy as the customer module).
+
 _AUDIT_SAFE_FIELDS = (
     "full_name",
     "mobile_number",
@@ -81,7 +78,7 @@ def _same_identity(person: Personnel, customer: Customer) -> bool:
 def get_personnel(db: Session, personnel_id: uuid.UUID) -> Optional[Personnel]:
     return (
         db.query(Personnel)
-        .filter(Personnel.id == personnel_id, Personnel.is_deleted == False)  # noqa: E712
+        .filter(Personnel.id == personnel_id, Personnel.is_deleted == False)
         .first()
     )
 
@@ -93,7 +90,7 @@ def get_loan_personnel_record(
         db.query(LoanPersonnel)
         .filter(
             LoanPersonnel.id == loan_personnel_id,
-            LoanPersonnel.is_deleted == False,  # noqa: E712
+            LoanPersonnel.is_deleted == False,
         )
         .first()
     )
@@ -106,8 +103,8 @@ def _has_active_loan_link(db: Session, personnel_id: uuid.UUID) -> bool:
         .join(Loan, LoanPersonnel.loan_id == Loan.id)
         .filter(
             LoanPersonnel.personnel_id == personnel_id,
-            LoanPersonnel.is_deleted == False,  # noqa: E712
-            Loan.is_deleted == False,  # noqa: E712
+            LoanPersonnel.is_deleted == False,
+            Loan.is_deleted == False,
         )
         .first()
         is not None
@@ -257,7 +254,7 @@ def lookup_personnel(
 
     person = (
         db.query(Personnel)
-        .filter(or_(*conditions), Personnel.is_deleted == False)  # noqa: E712
+        .filter(or_(*conditions), Personnel.is_deleted == False)
         .order_by(Personnel.created_at)
         .first()
     )
@@ -271,8 +268,8 @@ def lookup_personnel(
         .join(Customer, Loan.customer_id == Customer.id)
         .filter(
             LoanPersonnel.personnel_id == person.id,
-            LoanPersonnel.is_deleted == False,  # noqa: E712
-            Loan.is_deleted == False,  # noqa: E712
+            LoanPersonnel.is_deleted == False,
+            Loan.is_deleted == False,
         )
         .order_by(Loan.loan_number)
         .all()
@@ -315,8 +312,7 @@ def add_to_loan(
     )
     if customer is not None and _same_identity(person, customer):
         raise ValueError(
-            "A customer cannot be their own guarantor or co-hirer on their "
-            "own loan."
+            "A customer cannot be their own guarantor or co-hirer on their own loan."
         )
 
     record = LoanPersonnel(
@@ -362,7 +358,7 @@ def list_loan_personnel(db: Session, loan_id: uuid.UUID) -> list[LoanPersonnel]:
         .options(joinedload(LoanPersonnel.personnel))
         .filter(
             LoanPersonnel.loan_id == loan_id,
-            LoanPersonnel.is_deleted == False,  # noqa: E712
+            LoanPersonnel.is_deleted == False,
         )
         .all()
     )

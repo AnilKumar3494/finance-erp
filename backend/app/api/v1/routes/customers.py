@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
+from app.dependencies.cache import no_store
 from app.models.user import User, UserRole
 from app.schemas.customer import (
     CustomerCreate,
@@ -201,6 +202,7 @@ def get_one(
     "/{customer_id}/unmask",
     response_model=CustomerUnmaskedPII,
     summary="Get unmasked PII data (Admin Only)",
+    dependencies=[Depends(no_store)],
 )
 def get_unmasked_pii(
     request: Request,

@@ -53,6 +53,13 @@ def resolve_client_ip(request: Optional[Request]) -> Optional[str]:
     parts = [p.strip() for p in xff.split(",") if p.strip()]
     hops = settings.TRUSTED_PROXY_HOPS
 
+    # Defense-in-depth: config enforces ge=1 at load, but this is a security
+    # primitive and must not depend on a distant validator. A non-positive
+    # hop count would make parts[-hops] (e.g. parts[0]) select an
+    # attacker-controlled XFF entry — fail closed to the peer IP instead.
+    if hops < 1:
+        return peer_ip
+
     # Header has fewer entries than the trusted proxy chain → malformed or
     # forged. Trust none of it; use the spoof-proof peer IP.
     if len(parts) < hops:

@@ -8,6 +8,7 @@ from app.core.db import get_db
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.dependencies.auth import get_current_user, require_admin
+from app.dependencies.cache import no_store
 from app.models.customer import Customer
 from app.models.loan import Loan
 from app.models.user import User, UserRole
@@ -166,6 +167,7 @@ def get_one(
     "/{personnel_id}/unmask",
     response_model=PersonnelUnmaskedPII,
     summary="Get unmasked Aadhaar/PAN for a person (Admin Only)",
+    dependencies=[Depends(no_store)],
 )
 def get_unmasked_pii(
     request: Request,

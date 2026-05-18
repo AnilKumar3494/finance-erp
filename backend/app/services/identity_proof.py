@@ -30,7 +30,7 @@ def create_identity_proof(
         return proof
     except IntegrityError as e:
         db.rollback()
-        raise ValueError(safe_integrity_message(e))
+        raise ValueError(safe_integrity_message(e)) from None
 
 
 def get_identity_proof(db: Session, proof_id: uuid.UUID) -> Optional[IdentityProof]:
