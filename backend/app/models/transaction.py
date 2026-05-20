@@ -1,14 +1,16 @@
 import enum
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import CheckConstraint, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
 
 if TYPE_CHECKING:
+    from app.models.due_cycle import DueCycle
     from app.models.loan import Loan
     from app.models.user import User
 
@@ -31,6 +33,12 @@ class TransactionType(str, enum.Enum):
     DOWN_PAYMENT = "DOWN_PAYMENT"
 
 
+class PunctualityStatus(str, enum.Enum):
+    AWAITING_REVIEW = "AWAITING_REVIEW"  # default; admin has not classified yet
+    PAID_ON_TIME = "PAID_ON_TIME"        # only allowed when the cycle's shortfall = 0
+    LATE_PAYMENT = "LATE_PAYMENT"        # admin marks late; effective_payment_date drives penalty
+
+
 class Transaction(AuditBase):
     __tablename__ = "transactions"
 
@@ -47,6 +55,12 @@ class Transaction(AuditBase):
 
     collected_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+    # Which due-cycle this payment counts toward. Auto-set from
+    # effective_payment_date vs each cycle's due_date; admin may override.
+    due_cycle_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("due_cycles.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     # --------------------------------------------------
@@ -79,6 +93,20 @@ class Transaction(AuditBase):
     )
 
     # --------------------------------------------------
+    # LIFECYCLE — effective date + punctuality classification
+    # --------------------------------------------------
+    # The "true" payment date. Admin can edit it (e.g. cash received earlier
+    # than entered in the system). Drives cycle allocation and penalty calc.
+    effective_payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    punctuality_status: Mapped[PunctualityStatus] = mapped_column(
+        Enum(PunctualityStatus, name="punctuality_status", create_type=False),
+        default=PunctualityStatus.AWAITING_REVIEW,
+        server_default="AWAITING_REVIEW",
+        nullable=False,
+    )
+
+    # --------------------------------------------------
     # RELATIONSHIPS
     # --------------------------------------------------
     loan: Mapped["Loan"] = relationship(
@@ -87,4 +115,8 @@ class Transaction(AuditBase):
 
     collected_by: Mapped[Optional["User"]] = relationship(
         "User", foreign_keys=[collected_by_id]
+    )
+
+    due_cycle: Mapped[Optional["DueCycle"]] = relationship(
+        "DueCycle", foreign_keys=[due_cycle_id], lazy="noload"
     )

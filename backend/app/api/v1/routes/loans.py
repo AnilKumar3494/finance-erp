@@ -14,6 +14,7 @@ from app.models.loan import Loan, LoanStatus
 
 from app.schemas.loan import (
     CustomerNested,
+    LoanApproveRequest,
     LoanCreate,
     LoanListResponse,
     LoanResponse,
@@ -22,6 +23,7 @@ from app.schemas.loan import (
     VehicleNested,
 )
 from app.services.loan import (
+    approve_loan,
     calculate_monthly_interest,
     calculate_total_payable,
     close_loan,
@@ -111,7 +113,48 @@ def create_loan_route(
         loan = create_loan(db=db, data=payload, created_by=current_user.id)
         return enrich_loan(loan)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        # 400 for input/validation failures (e.g. DP >= principal, customer not found).
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# --------------------------------------------------
+# APPROVE (DRAFT → ACTIVE)
+# Admin/Super-Admin only. Generates the due-cycle schedule and the
+# DOWN_PAYMENT transaction (if any) atomically.
+# --------------------------------------------------
+@router.post(
+    "/{loan_id}/approve",
+    response_model=LoanResponse,
+    summary="Approve a DRAFT loan: generate schedule, record down payment",
+)
+def approve_loan_route(
+    loan_id: uuid.UUID,
+    payload: LoanApproveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    loan = get_loan(db, loan_id)
+    if not loan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
+        )
+    if loan.status != LoanStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only DRAFT loans can be approved; this loan is {loan.status.value}",
+        )
+    try:
+        approved = approve_loan(
+            db=db,
+            loan=loan,
+            approved_by=current_user.id,
+            down_payment_mode=(
+                payload.down_payment_mode.value if payload.down_payment_mode else None
+            ),
+        )
+        return enrich_loan(approved)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # --------------------------------------------------

@@ -1,11 +1,16 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.transaction import PaymentMethod, TransactionStatus, TransactionType
+from app.models.transaction import (
+    PaymentMethod,
+    PunctualityStatus,
+    TransactionStatus,
+    TransactionType,
+)
 
 
 # --------------------------------------------------
@@ -37,6 +42,20 @@ class TransactionCreate(TransactionBase):
         description="Client-generated key to prevent duplicate submissions",
     )
 
+    # When the customer actually paid. Used to allocate the payment to the
+    # correct due-cycle and (later) compute days_late. Defaults to today.
+    effective_payment_date: Optional[date] = Field(
+        None,
+        description="Actual payment date; defaults to today. Drives cycle allocation.",
+    )
+
+    # Optional admin override for cycle allocation. If omitted, the system
+    # picks the earliest cycle whose due_date >= effective_payment_date.
+    due_cycle_id: Optional[uuid.UUID] = Field(
+        None,
+        description="Admin-only override. Force the payment to a specific cycle.",
+    )
+
 
 # --------------------------------------------------
 # UPDATE (Notes only — status changes via /confirm or /fail)
@@ -57,6 +76,12 @@ class TransactionResponse(TransactionBase):
     created_by_id: Optional[uuid.UUID]
     updated_by_id: Optional[uuid.UUID]
     idempotency_key: Optional[str] = None
+
+    # Lifecycle fields (NEW)
+    effective_payment_date: date
+    punctuality_status: PunctualityStatus
+    due_cycle_id: Optional[uuid.UUID] = None
+
     created_at: datetime
     updated_at: datetime
 

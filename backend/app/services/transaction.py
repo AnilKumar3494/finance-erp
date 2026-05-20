@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -8,11 +8,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
+from app.models.due_cycle import DueCycle
 from app.models.loan import Loan, LoanStatus
-from app.models.transaction import Transaction, TransactionStatus
+from app.models.transaction import (
+    PunctualityStatus,
+    Transaction,
+    TransactionStatus,
+)
 from app.models.user import UserRole
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
-from app.services.loan import calculate_total_payable
+from app.services.due_cycle import find_target_cycle_for_payment
+from app.services.finance import total_payable as calc_total_payable
 
 
 # --------------------------------------------------
@@ -112,9 +118,17 @@ def get_loan_transaction_summary(db: Session, loan: Loan) -> dict:
 
     total_paid = Decimal(str(total_paid)).quantize(Decimal("0.01"))
     total_pending = Decimal(str(total_pending)).quantize(Decimal("0.01"))
-    total_payable = calculate_total_payable(
+
+    # base_total_payable = original schedule's total.
+    # Active penalty events from late-payment classifications add on top.
+    # Local import keeps the loan ↔ penalty ↔ transaction module load order safe.
+    from app.services.penalty import sum_active_penalties_for_loan
+
+    base_total_payable = calc_total_payable(
         loan.principal, loan.interest_rate, loan.tenure
     )
+    active_penalty = sum_active_penalties_for_loan(db, loan.id)
+    total_payable = (base_total_payable + active_penalty).quantize(Decimal("0.01"))
     outstanding = max(total_payable - total_paid, Decimal("0.00"))
 
     return {
@@ -131,6 +145,65 @@ def get_loan_transaction_summary(db: Session, loan: Loan) -> dict:
 
 
 # --------------------------------------------------
+# CYCLE TOTALS HELPER
+# --------------------------------------------------
+def recompute_cycle_totals(db: Session, cycle: DueCycle) -> None:
+    """
+    Recompute cycle.total_received from the active SUCCESS transactions
+    currently allocated to this cycle.
+
+    Call this whenever a transaction's status, amount, or due_cycle_id
+    changes in a way that affects this cycle.
+    """
+    total = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.due_cycle_id == cycle.id,
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted.is_(False),
+        )
+        .scalar()
+    )
+    cycle.total_received = Decimal(str(total))
+
+
+def resolve_due_cycle_for_payment(
+    db: Session,
+    loan: Loan,
+    effective_payment_date: date,
+    override_cycle_id: Optional[uuid.UUID],
+) -> Optional[DueCycle]:
+    """
+    Decide which due-cycle a payment goes to.
+
+    Order of precedence:
+      1. Admin override — `override_cycle_id` must belong to this loan and not be deleted.
+      2. Default rule — earliest cycle whose due_date >= effective_payment_date.
+         If all due dates have passed, allocate to the last cycle.
+
+    Returns the DueCycle row, or None if the loan has no cycles (e.g.
+    legacy data — caller should treat as "unallocated").
+    """
+    if override_cycle_id is not None:
+        cycle = (
+            db.query(DueCycle)
+            .filter(
+                DueCycle.id == override_cycle_id,
+                DueCycle.loan_id == loan.id,
+                DueCycle.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if cycle is None:
+            raise ValueError(
+                "due_cycle_id does not belong to this loan or is deleted"
+            )
+        return cycle
+
+    return find_target_cycle_for_payment(db, loan.id, effective_payment_date)
+
+
+# --------------------------------------------------
 # CREATE
 # --------------------------------------------------
 def create_transaction(
@@ -142,6 +215,7 @@ def create_transaction(
     - Locks loan row to prevent concurrent overpayment
     - Counts PENDING toward reserved amount
     - Supports idempotency_key to prevent duplicates
+    - Allocates to a due-cycle based on effective_payment_date (or admin override)
     """
     # --- Idempotency check ---
     if data.idempotency_key:
@@ -181,6 +255,15 @@ def create_transaction(
             f"Pending: {summary['total_pending']}"
         )
 
+    # --- Resolve effective date and target due-cycle ---
+    eff_date = data.effective_payment_date or date.today()
+    target_cycle = resolve_due_cycle_for_payment(
+        db=db,
+        loan=loan,
+        effective_payment_date=eff_date,
+        override_cycle_id=data.due_cycle_id,
+    )
+
     transaction = Transaction(
         loan_id=data.loan_id,
         amount=data.amount,
@@ -190,11 +273,16 @@ def create_transaction(
         collected_by_id=data.collected_by_id or created_by,
         created_by_id=created_by,
         idempotency_key=data.idempotency_key,
+        effective_payment_date=eff_date,
+        punctuality_status=PunctualityStatus.AWAITING_REVIEW,
+        due_cycle_id=target_cycle.id if target_cycle else None,
     )
     db.add(transaction)
     try:
         db.commit()
         db.refresh(transaction)
+        # PENDING transactions don't change cycle.total_received yet — that
+        # happens at admin confirmation in step 5.
         return transaction
     except IntegrityError as e:
         db.rollback()
@@ -244,10 +332,26 @@ def confirm_transaction(
 
     transaction.status = TransactionStatus.SUCCESS
     transaction.updated_by_id = updated_by
+
+    # Keep the allocated cycle's running total in sync.
+    # autoflush is OFF on this session, so explicitly flush the status
+    # change before the recompute query reads it.
+    if transaction.due_cycle_id is not None:
+        db.flush()
+        cycle = (
+            db.query(DueCycle)
+            .filter(DueCycle.id == transaction.due_cycle_id)
+            .with_for_update()
+            .first()
+        )
+        if cycle is not None:
+            recompute_cycle_totals(db, cycle)
+
     db.commit()
     db.refresh(transaction)
 
     # --- Auto-close loan if fully paid ---
+    # NOTE: step 7 replaces this with AWAITING_CLOSURE + manual admin close.
     refreshed_summary = get_loan_transaction_summary(db, loan)
     if refreshed_summary["outstanding"] <= Decimal("0.00"):
         loan.status = LoanStatus.CLOSED

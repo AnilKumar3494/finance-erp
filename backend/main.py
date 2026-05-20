@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     transactions,
     documents,
     reports,
+    due_cycles,
 )
 from app.api.v1.routes.personnel import personnel_router, loan_personnel_router
 from app.api.v1.routes.identity_proofs import router as identity_proofs_router
@@ -22,6 +23,10 @@ from app.api.v1.routes.stability_documents import router as stability_documents_
 
 # Import AuditLog so SQLAlchemy registers the mapper.
 from app.models.audit_log import AuditLog  # noqa: F401
+
+# Import DueCycle so SQLAlchemy registers the mapper for the new lifecycle tables.
+from app.models.due_cycle import DueCycle  # noqa: F401
+from app.models.penalty_event import PenaltyEvent  # noqa: F401
 
 
 # --------------------------------------------------
@@ -81,6 +86,7 @@ app.include_router(stability_documents_router, prefix="/api/v1")
 app.include_router(vehicles.router, prefix="/api/v1")
 app.include_router(loans.router, prefix="/api/v1")
 app.include_router(transactions.router, prefix="/api/v1")
+app.include_router(due_cycles.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 

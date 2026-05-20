@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
@@ -80,13 +81,43 @@ class LoanBase(BaseModel):
 # CREATE
 # --------------------------------------------------
 class LoanCreate(LoanBase):
+    # Kept for backwards compatibility with the existing frontend. The mode
+    # is now actually consumed at the approval step, not at create — but if
+    # the caller provides it here we accept and persist it (it gets passed
+    # to /approve via the UI flow).
     down_payment_mode: Optional[PaymentMethod] = None
+
+    # Per-loan penalty rate override (default 36% from DB). Admin/Super-Admin.
+    penalty_rate: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        le=1000,
+        description="Per-month penalty rate. Defaults to 36%.",
+    )
 
     @model_validator(mode="after")
     def validate_down_payment_mode(self) -> "LoanCreate":
         if self.down_payment and self.down_payment > 0 and not self.down_payment_mode:
             raise ValueError("down_payment_mode is required when down_payment > 0")
         return self
+
+    @model_validator(mode="after")
+    def validate_down_payment_below_principal(self) -> "LoanCreate":
+        if self.down_payment is not None and self.down_payment >= self.principal:
+            raise ValueError("Down payment must be strictly less than principal")
+        return self
+
+
+# --------------------------------------------------
+# APPROVE
+# --------------------------------------------------
+class LoanApproveRequest(BaseModel):
+    """
+    Body for POST /loans/{id}/approve.
+    `down_payment_mode` is required only if the loan has a down_payment > 0.
+    """
+
+    down_payment_mode: Optional[PaymentMethod] = None
 
 
 # --------------------------------------------------
@@ -115,6 +146,11 @@ class LoanResponse(LoanBase):
     is_deleted: bool
     created_by_id: Optional[uuid.UUID] = None
     updated_by_id: Optional[uuid.UUID] = None
+
+    # Lifecycle (populated after approval)
+    penalty_rate: Optional[Decimal] = None
+    approval_date: Optional[date] = None
+    due_day_of_month: Optional[int] = None
 
     # Computed fields
     monthly_interest: Optional[Decimal] = None
