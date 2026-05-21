@@ -48,7 +48,7 @@ def apply_penalty(
     cycle: DueCycle,
     loan: Loan,
     classified_as_of_date: date,
-    classified_by: uuid.UUID,
+    classified_by: Optional[uuid.UUID],
     classification_note: Optional[str] = None,
 ) -> PenaltyEvent:
     """
@@ -86,7 +86,7 @@ def apply_penalty(
     # Reading B math + cap.
     penalty = daily_penalty(
         late_amount=shortfall,
-        annual_penalty_rate=loan.penalty_rate,
+        penalty_rate=loan.penalty_rate,
         days_late=days_late,
         due_date=cycle.due_date,
     )
@@ -152,6 +152,22 @@ def apply_penalty(
     )
     db.add(event)
     db.flush()
+
+    # Auto-propose bad debt when the penalty cap is hit (100% of late_amount).
+    # Local import keeps the penalty <-> bad_debt module load order safe.
+    if cap_hit:
+        from app.services.bad_debt import auto_propose_bad_debt
+
+        auto_propose_bad_debt(
+            db,
+            loan=loan,
+            reason=(
+                f"Penalty cap reached on cycle #{cycle.cycle_number} "
+                f"(due {cycle.due_date}, {days_late} days late). "
+                "Auto-proposed for admin review."
+            ),
+            system_actor_id=classified_by,
+        )
 
     return event
 

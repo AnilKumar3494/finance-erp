@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -6,6 +7,8 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.models.customer import Customer
 from app.models.due_cycle import DueCycle
@@ -217,11 +220,12 @@ def create_transaction(
     - Supports idempotency_key to prevent duplicates
     - Allocates to a due-cycle based on effective_payment_date (or admin override)
     """
-    # --- Idempotency check ---
+    # --- Idempotency check (loan-scoped per migration 005) ---
     if data.idempotency_key:
         existing = (
             db.query(Transaction)
             .filter(
+                Transaction.loan_id == data.loan_id,
                 Transaction.idempotency_key == data.idempotency_key,
                 Transaction.is_deleted.is_(False),
             )
@@ -244,16 +248,19 @@ def create_transaction(
     if loan.status != LoanStatus.ACTIVE:
         raise ValueError(f"Cannot record payment — loan is {loan.status.value}")
 
-    # --- Overpayment check (includes PENDING as reserved) ---
+    # --- Overpayment handling ---
+    # Per the agreed spec (Case 16): accept overpayments instead of rejecting
+    # them. Annotate the transaction's notes so the admin can see and decide
+    # how to handle the excess (refund / fee / leave as credit).
     summary = get_loan_transaction_summary(db, loan)
     effective_outstanding = summary["outstanding"] - summary["total_pending"]
 
-    if data.amount > effective_outstanding:
-        raise ValueError(
-            f"Payment of {data.amount} exceeds available balance "
-            f"({effective_outstanding}). Outstanding: {summary['outstanding']}, "
-            f"Pending: {summary['total_pending']}"
-        )
+    overpayment_excess = Decimal("0.00")
+    if data.amount > effective_outstanding and effective_outstanding > 0:
+        overpayment_excess = (data.amount - effective_outstanding).quantize(Decimal("0.01"))
+    elif effective_outstanding <= 0:
+        # No room for ANY further payment (already paid in full or pending-reserved fully)
+        overpayment_excess = data.amount
 
     # --- Resolve effective date and target due-cycle ---
     eff_date = data.effective_payment_date or date.today()
@@ -264,11 +271,22 @@ def create_transaction(
         override_cycle_id=data.due_cycle_id,
     )
 
+    # Auto-tag the notes when this payment exceeds outstanding so the admin
+    # sees the flag the next time they open the transaction.
+    base_notes = data.notes or ""
+    if overpayment_excess > 0:
+        flag_line = (
+            f"[ADMIN NOTE] Overpayment by {overpayment_excess} "
+            f"(outstanding was {summary['outstanding']}, pending "
+            f"{summary['total_pending']}). Admin should review (refund / fee / leave as credit)."
+        )
+        base_notes = (base_notes + ("\n" if base_notes else "") + flag_line).strip()
+
     transaction = Transaction(
         loan_id=data.loan_id,
         amount=data.amount,
         payment_mode=data.payment_mode,
-        notes=data.notes,
+        notes=base_notes or None,
         status=TransactionStatus.PENDING,
         collected_by_id=data.collected_by_id or created_by,
         created_by_id=created_by,
@@ -286,11 +304,14 @@ def create_transaction(
         return transaction
     except IntegrityError as e:
         db.rollback()
-        # Idempotency key collision from concurrent request
+        # Idempotency key collision from concurrent request (loan-scoped now)
         if "idempotency_key" in str(e.orig):
             existing = (
                 db.query(Transaction)
-                .filter(Transaction.idempotency_key == data.idempotency_key)
+                .filter(
+                    Transaction.loan_id == data.loan_id,
+                    Transaction.idempotency_key == data.idempotency_key,
+                )
                 .first()
             )
             if existing:
@@ -321,13 +342,15 @@ def confirm_transaction(
 
     summary = get_loan_transaction_summary(db, loan)
 
-    # After confirming, total_paid would increase by this amount
+    # Confirmation may push the loan into overpayment territory; per the
+    # accept-overpayment policy (Case 16) we let it through. The note set at
+    # create time already flags the excess for the admin.
     new_total_paid = summary["total_paid"] + transaction.amount
     if new_total_paid > summary["total_payable"]:
-        raise ValueError(
-            f"Confirming this would exceed total payable. "
-            f"Total payable: {summary['total_payable']}, "
-            f"Would become: {new_total_paid}"
+        logger.warning(
+            "confirm_transaction allowing overpayment: loan=%s "
+            "total_payable=%s new_total_paid=%s",
+            loan.id, summary["total_payable"], new_total_paid,
         )
 
     transaction.status = TransactionStatus.SUCCESS
@@ -347,17 +370,16 @@ def confirm_transaction(
         if cycle is not None:
             recompute_cycle_totals(db, cycle)
 
+    # --- Move to AWAITING_CLOSURE when fully paid ---
+    # No more auto-close: the admin must finalise via /loans/{id}/close,
+    # which records closure_type, charges, NOC, etc.
+    refreshed_summary = get_loan_transaction_summary(db, loan)
+    if refreshed_summary["outstanding"] <= Decimal("0.00") and loan.status == LoanStatus.ACTIVE:
+        loan.status = LoanStatus.AWAITING_CLOSURE
+        loan.updated_by_id = updated_by
+
     db.commit()
     db.refresh(transaction)
-
-    # --- Auto-close loan if fully paid ---
-    # NOTE: step 7 replaces this with AWAITING_CLOSURE + manual admin close.
-    refreshed_summary = get_loan_transaction_summary(db, loan)
-    if refreshed_summary["outstanding"] <= Decimal("0.00"):
-        loan.status = LoanStatus.CLOSED
-        loan.updated_by_id = updated_by
-        db.commit()
-        db.refresh(loan)
 
     return transaction
 
@@ -424,8 +446,7 @@ def soft_delete_transaction(
             "Mark it as failed first, then delete."
         )
 
-    transaction.is_deleted = True
-    transaction.deleted_at = datetime.now(timezone.utc)
-    transaction.updated_by_id = deleted_by
+    # Use AuditBase.soft_delete so deleted_by_id is also set (review item T5).
+    transaction.soft_delete(deleted_by)
     db.commit()
     return transaction

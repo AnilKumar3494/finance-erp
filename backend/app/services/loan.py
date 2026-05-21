@@ -282,34 +282,23 @@ def approve_loan(
 def update_loan(
     db: Session, loan: Loan, data: LoanUpdate, updated_by: uuid.UUID
 ) -> Loan:
-    """Update loan — status, vehicle, rate, tenure only"""
+    """
+    Update a loan. Defense-in-depth: the service refuses edits on loans that
+    are not in DRAFT or ACTIVE — even if a caller skips the route's guard
+    (review items L1/L2). Approval-date is never settable here.
+    """
+    if loan.status not in (LoanStatus.DRAFT, LoanStatus.ACTIVE):
+        raise ValueError(
+            f"Loan in status {loan.status.value} is immutable. "
+            "Edits are only permitted in DRAFT or ACTIVE."
+        )
+
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(loan, field, value)
 
     loan.updated_by_id = updated_by
     db.commit()
     db.refresh(loan)
-    return loan
-
-
-def close_loan(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
-    """Mark loan as CLOSED"""
-
-    from app.services.transaction import get_loan_transaction_summary
-
-    summary = get_loan_transaction_summary(db, loan)
-
-    if summary["outstanding"] > Decimal("0.00"):
-        raise ValueError(
-            f"Cannot close loan. Outstanding balance: {summary['outstanding']}"
-        )
-
-    loan.status = LoanStatus.CLOSED
-    loan.updated_by_id = updated_by
-
-    db.commit()
-    db.refresh(loan)
-
     return loan
 
 
@@ -323,8 +312,7 @@ def mark_bad_debt(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
 
 
 def soft_delete_loan(db: Session, loan: Loan, deleted_by: uuid.UUID) -> Loan:
-    loan.is_deleted = True
-    loan.deleted_at = datetime.now(timezone.utc)
-    loan.updated_by_id = deleted_by
+    # Use AuditBase.soft_delete so deleted_by_id is also set (review item L3).
+    loan.soft_delete(deleted_by)
     db.commit()
     return loan

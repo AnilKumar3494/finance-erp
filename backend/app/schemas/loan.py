@@ -132,6 +132,7 @@ class LoanUpdate(BaseModel):
     down_payment: Optional[Decimal] = Field(None, ge=0)
     processing_fee: Optional[Decimal] = Field(None, ge=0)
     documentation_fee: Optional[Decimal] = Field(None, ge=0)
+    penalty_rate: Optional[Decimal] = Field(None, ge=0, le=1000)
 
     model_config = {"extra": "forbid"}
 

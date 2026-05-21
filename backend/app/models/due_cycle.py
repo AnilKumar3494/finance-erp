@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     SmallInteger,
     Text,
@@ -41,6 +42,18 @@ class DueCycle(Base):
     """
 
     __tablename__ = "due_cycles"
+
+    # Partial unique index — also created in migration 004; mirrored here
+    # so the ORM is consistent with the DB and tooling sees the invariant.
+    __table_args__ = (
+        Index(
+            "uq_due_cycles_loan_cycle_active",
+            "loan_id",
+            "cycle_number",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+    )
 
     # --------------------------------------------------
     # PRIMARY KEY

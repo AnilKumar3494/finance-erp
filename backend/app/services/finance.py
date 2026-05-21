@@ -61,7 +61,7 @@ def days_in_month_of(reference: date) -> int:
 
 def daily_penalty(
     late_amount: Decimal,
-    annual_penalty_rate: Decimal,
+    penalty_rate: Decimal,
     days_late: int,
     due_date: date,
 ) -> Decimal:
@@ -69,15 +69,20 @@ def daily_penalty(
     Reading B — month-length aware penalty:
         penalty = late_amount * (penalty_rate / 100) * (days_late / days_in_due_month)
 
-    Capped at 100% of late_amount (the cap is enforced here for safety; the DB
-    also has a CHECK constraint).
+    `penalty_rate` is the **per-month** rate (matches `Loan.penalty_rate`).
+    For the default 36% rate, a full-month-late shortfall produces exactly
+    36% of `late_amount`; 5 days late produces ~6%; etc. The formula does
+    NOT divide by 12 — passing an annual rate here would silently produce
+    penalties 12× too low. Pass per-month, like the loan field.
+
+    Capped at 100% of late_amount (also enforced by a DB CHECK constraint).
     """
     if days_late <= 0 or late_amount <= 0:
         return Decimal("0.00")
 
     raw = (
         late_amount
-        * (annual_penalty_rate / Decimal(100))
+        * (penalty_rate / Decimal(100))
         * (Decimal(days_late) / Decimal(days_in_month_of(due_date)))
     )
     penalty = _q(raw)

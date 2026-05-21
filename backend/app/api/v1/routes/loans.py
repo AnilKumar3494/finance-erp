@@ -22,20 +22,20 @@ from app.schemas.loan import (
     UserNested,
     VehicleNested,
 )
+from app.schemas.loan_closure import LoanCloseRequest, LoanClosureResponse
 from app.services.loan import (
     approve_loan,
     calculate_monthly_interest,
     calculate_total_payable,
-    close_loan,
     create_loan,
     get_active_loans_by_customer,
     get_loan,
     list_loans,
-    mark_bad_debt,
     parse_includes,
     soft_delete_loan,
     update_loan,
 )
+from app.services.loan_closure import close_loan as close_loan_with_closure
 
 router = APIRouter(prefix="/loans", tags=["Loans"])
 
@@ -260,22 +260,32 @@ def get_customer_active_loans(
 
 
 # --------------------------------------------------
-# UPDATE (Any logged-in user — status, vehicle, tenure)
+# UPDATE — ADMIN / SUPER_ADMIN only
+#
+# Locked to a small set of source statuses:
+#   - DRAFT  : full edit (loan hasn't been approved yet)
+#   - ACTIVE : edit allowed, but financially heavy (the schedule does NOT
+#              auto-regenerate; an admin who changes principal/rate/tenure
+#              on an active loan is taking responsibility for the divergence
+#              with the existing due_cycles).
+# CLOSED / BAD_DEBT_PROPOSED / BAD_DEBT / AWAITING_CLOSURE are immutable —
+# preserves audit and prevents the "edit-after-settled" defect (review L1/L2).
 # --------------------------------------------------
+_EDITABLE_LOAN_STATUSES = {LoanStatus.DRAFT, LoanStatus.ACTIVE}
+
+
 @router.patch("/{loan_id}", response_model=LoanResponse, summary="Update loan details")
 def update_loan_route(
     loan_id: uuid.UUID,
     payload: LoanUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),  # admin / super-admin only
 ):
     loan = get_loan(db, loan_id)
     if not loan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
-
-    _assert_loan_access(loan, current_user, db)
 
     if not payload.model_dump(exclude_unset=True):
         raise HTTPException(
@@ -283,22 +293,38 @@ def update_loan_route(
             detail="No fields provided to update",
         )
 
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
-        if payload.principal is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins can update the principal amount",
-            )
-        if payload.interest_rate is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins can update the interest rate",
-            )
-        if payload.status is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins can change loan status",
-            )
+    if loan.status not in _EDITABLE_LOAN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Loan in status {loan.status.value} is immutable. "
+                "Edits are only permitted in DRAFT or ACTIVE."
+            ),
+        )
+
+    # SUPER_ADMIN-only fields (extra-sensitive on an ACTIVE loan, since changing
+    # them after the schedule was generated invalidates outstanding math). On a
+    # DRAFT loan they're fine for any admin; on an ACTIVE loan, require super-admin.
+    sensitive_fields_on_active = {
+        "principal",
+        "interest_rate",
+        "tenure",
+        "down_payment",
+    }
+    requested = set(payload.model_dump(exclude_unset=True).keys())
+    if (
+        loan.status == LoanStatus.ACTIVE
+        and requested & sensitive_fields_on_active
+        and current_user.role != UserRole.SUPER_ADMIN
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Editing principal / interest_rate / tenure / down_payment on "
+                "an ACTIVE loan requires SUPER_ADMIN — these changes do not "
+                "regenerate the schedule and affect outstanding balance."
+            ),
+        )
 
     return enrich_loan(
         update_loan(db=db, loan=loan, data=payload, updated_by=current_user.id)
@@ -306,55 +332,54 @@ def update_loan_route(
 
 
 # --------------------------------------------------
-# CLOSE LOAN
+# CLOSE LOAN (admin-controlled, with closure form)
+# Captures closure_type, charges, NOC, etc. Writes a `loan_closures` row.
+# Replaces the old auto-close behaviour from confirm_transaction.
 # --------------------------------------------------
 @router.post(
-    "/{loan_id}/close", response_model=LoanResponse, summary="Mark loan as closed"
+    "/{loan_id}/close",
+    response_model=LoanClosureResponse,
+    summary="Close a loan with full closure form (admin)",
 )
 def close_loan_route(
     loan_id: uuid.UUID,
+    payload: LoanCloseRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    loan = get_loan(db, loan_id)
+    # Lock the loan to serialise concurrent close attempts / confirmations.
+    loan = (
+        db.query(Loan)
+        .filter(Loan.id == loan_id, Loan.is_deleted.is_(False))
+        .with_for_update()
+        .first()
+    )
     if not loan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
-    if loan.status != LoanStatus.ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Loan is already {loan.status.value}",
-        )
-    try:
-        return enrich_loan(close_loan(db=db, loan=loan, updated_by=current_user.id))
 
+    try:
+        closure = close_loan_with_closure(
+            db=db, loan=loan, data=payload, closed_by=current_user.id
+        )
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    db.commit()
+    db.refresh(closure)
+    return closure
+
 
 # --------------------------------------------------
-# MARK BAD DEBT
+# (REMOVED) Direct mark-bad-debt route.
+# Bad-debt is now a two-step propose / review flow:
+#   POST /api/v1/loans/{id}/bad-debt/propose   (any authenticated user)
+#   POST /api/v1/bad-debt-proposals/{id}/review (admin/super-admin)
+# To formally write-off an approved proposal, admin uses:
+#   POST /api/v1/loans/{id}/close  with closure_type=WRITE_OFF
 # --------------------------------------------------
-@router.post(
-    "/{loan_id}/bad-debt", response_model=LoanResponse, summary="Mark loan as bad debt"
-)
-def mark_bad_debt_route(
-    loan_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # Admin only
-):
-    loan = get_loan(db, loan_id)
-    if not loan:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
-        )
-    if loan.status != LoanStatus.ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Loan is already {loan.status.value}",
-        )
-    return enrich_loan(mark_bad_debt(db=db, loan=loan, updated_by=current_user.id))
 
 
 # --------------------------------------------------
