@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -10,7 +10,14 @@ from app.schemas.loan import LoanCreate, LoanUpdate
 from app.models.loan import Loan, LoanStatus
 from app.models.customer import Customer
 from app.models.vehicle import Vehicle
-from app.models.transaction import Transaction, TransactionStatus, TransactionType
+from app.models.transaction import (
+    PunctualityStatus,
+    Transaction,
+    TransactionStatus,
+    TransactionType,
+)
+from app.services.due_cycle import generate_cycles_for_loan
+from app.services.finance import monthly_interest, total_payable as calc_total_payable
 
 
 # --------------------------------------------------
@@ -42,16 +49,17 @@ def _apply_eager_loading(query, includes: set[str]):
 
 # --------------------------------------------------
 # CALCULATIONS
+# Thin wrappers around the canonical finance helpers so existing callers
+# (routes, transaction service) keep working without import churn.
 # --------------------------------------------------
 def calculate_monthly_interest(principal: Decimal, rate: Decimal) -> Decimal:
-    """Simple interest per month"""
-    return round(((principal * rate) / 100) / 12, 2)
+    """Simple flat interest per month (banker's rounding to paise)."""
+    return monthly_interest(principal, rate)
 
 
 def calculate_total_payable(principal: Decimal, rate: Decimal, tenure: int) -> Decimal:
-    """Total amount payable over tenure"""
-    monthly = calculate_monthly_interest(principal, rate)
-    return round(principal + (monthly * tenure), 2)
+    """Principal + (monthly_interest * tenure) — both quantised to paise."""
+    return calc_total_payable(principal, rate, tenure)
 
 
 # --------------------------------------------------
@@ -131,7 +139,17 @@ def list_loans(
 
 
 def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
-    """Create a new loan — validates customer and vehicle exist first"""
+    """
+    Create a new loan in DRAFT state.
+
+    DRAFT loans:
+      - Have no due cycles yet (generated at approval).
+      - Have no down-payment transaction yet (created at approval).
+      - Carry no approval_date / due_day_of_month yet.
+
+    The dedicated `approve_loan` step transitions DRAFT → ACTIVE and
+    produces the schedule + DP transaction atomically.
+    """
     # --------------------------------------------------
     # CHECK CUSTOMER EXISTS
     # --------------------------------------------------
@@ -155,6 +173,15 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         if not vehicle:
             raise ValueError("Vehicle not found")
 
+    # --------------------------------------------------
+    # GUARD: down payment cannot meet or exceed principal
+    # (review item — produces negative net values otherwise)
+    # --------------------------------------------------
+    if data.down_payment is not None and data.down_payment >= data.principal:
+        raise ValueError(
+            "Down payment must be strictly less than principal"
+        )
+
     loan = Loan(
         loan_number=generate_loan_number(),
         customer_id=data.customer_id,
@@ -165,25 +192,12 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         down_payment=data.down_payment,
         processing_fee=data.processing_fee,
         documentation_fee=data.documentation_fee,
-        status=LoanStatus.ACTIVE,
+        # penalty_rate defaults to 36.00 from the DB; admin can override via update.
+        status=LoanStatus.DRAFT,
         created_by_id=created_by,
     )
     db.add(loan)
     try:
-        db.flush()
-
-        if data.down_payment and data.down_payment > 0:
-            db.add(
-                Transaction(
-                    loan_id=loan.id,
-                    amount=data.down_payment,
-                    payment_mode=data.down_payment_mode,
-                    transaction_type=TransactionType.DOWN_PAYMENT,
-                    status=TransactionStatus.SUCCESS,
-                    created_by_id=created_by,
-                )
-            )
-
         db.commit()
         db.refresh(loan)
         return loan
@@ -194,37 +208,97 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         raise ValueError("Invalid customer or vehicle reference")
 
 
+def approve_loan(
+    db: Session,
+    loan: Loan,
+    approved_by: uuid.UUID,
+    down_payment_mode: Optional[str] = None,
+) -> Loan:
+    """
+    Transition a DRAFT loan to ACTIVE.
+
+    Atomically:
+      - Stamps approval_date = today, due_day_of_month = today.day.
+      - Generates 1..tenure DueCycle rows with the agreed last-day-of-month
+        fallback for short months.
+      - If the loan has a down payment, creates a DOWN_PAYMENT transaction
+        with status=SUCCESS, punctuality=PAID_ON_TIME, effective_date=today,
+        allocated to cycle 1 (which is automatically "ahead" by the DP amount).
+
+    Raises:
+      ValueError if loan is not in DRAFT or if down payment is set but
+      `down_payment_mode` is missing.
+    """
+    if loan.status != LoanStatus.DRAFT:
+        raise ValueError(
+            f"Only DRAFT loans can be approved; this loan is {loan.status.value}"
+        )
+
+    if loan.down_payment and loan.down_payment > 0 and not down_payment_mode:
+        raise ValueError("down_payment_mode is required when down_payment > 0")
+
+    today = date.today()
+    loan.approval_date = today
+    loan.due_day_of_month = today.day
+    loan.status = LoanStatus.ACTIVE
+    loan.updated_by_id = approved_by
+
+    # Generate due cycles (cycles are added to session, not yet committed).
+    cycles = generate_cycles_for_loan(db, loan, approved_by=approved_by)
+
+    # Flush so the cycles have IDs we can reference in the DP transaction.
+    db.flush()
+
+    if loan.down_payment and loan.down_payment > 0:
+        first_cycle = cycles[0] if cycles else None
+        db.add(
+            Transaction(
+                loan_id=loan.id,
+                amount=loan.down_payment,
+                payment_mode=down_payment_mode,
+                transaction_type=TransactionType.DOWN_PAYMENT,
+                status=TransactionStatus.SUCCESS,
+                punctuality_status=PunctualityStatus.PAID_ON_TIME,
+                effective_payment_date=today,
+                due_cycle_id=first_cycle.id if first_cycle else None,
+                collected_by_id=approved_by,
+                created_by_id=approved_by,
+            )
+        )
+        # The DP is a SUCCESS payment that lands on cycle 1 (or rolls forward
+        # as credit). Keep the cycle's running total in sync from the start.
+        if first_cycle is not None:
+            db.flush()
+            # Local import avoids loan ↔ transaction circular import at module load.
+            from app.services.transaction import recompute_cycle_totals
+
+            recompute_cycle_totals(db, first_cycle)
+
+    db.commit()
+    db.refresh(loan)
+    return loan
+
+
 def update_loan(
     db: Session, loan: Loan, data: LoanUpdate, updated_by: uuid.UUID
 ) -> Loan:
-    """Update loan — status, vehicle, rate, tenure only"""
+    """
+    Update a loan. Defense-in-depth: the service refuses edits on loans that
+    are not in DRAFT or ACTIVE — even if a caller skips the route's guard
+    (review items L1/L2). Approval-date is never settable here.
+    """
+    if loan.status not in (LoanStatus.DRAFT, LoanStatus.ACTIVE):
+        raise ValueError(
+            f"Loan in status {loan.status.value} is immutable. "
+            "Edits are only permitted in DRAFT or ACTIVE."
+        )
+
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(loan, field, value)
 
     loan.updated_by_id = updated_by
     db.commit()
     db.refresh(loan)
-    return loan
-
-
-def close_loan(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
-    """Mark loan as CLOSED"""
-
-    from app.services.transaction import get_loan_transaction_summary
-
-    summary = get_loan_transaction_summary(db, loan)
-
-    if summary["outstanding"] > Decimal("0.00"):
-        raise ValueError(
-            f"Cannot close loan. Outstanding balance: {summary['outstanding']}"
-        )
-
-    loan.status = LoanStatus.CLOSED
-    loan.updated_by_id = updated_by
-
-    db.commit()
-    db.refresh(loan)
-
     return loan
 
 
@@ -238,8 +312,7 @@ def mark_bad_debt(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
 
 
 def soft_delete_loan(db: Session, loan: Loan, deleted_by: uuid.UUID) -> Loan:
-    loan.is_deleted = True
-    loan.deleted_at = datetime.now(timezone.utc)
-    loan.updated_by_id = deleted_by
+    # Use AuditBase.soft_delete so deleted_by_id is also set (review item L3).
+    loan.soft_delete(deleted_by)
     db.commit()
     return loan

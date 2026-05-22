@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.transaction import TransactionStatus
-from app.models.user import User
+from app.models.customer import Customer
+from app.models.loan import Loan
+from app.models.transaction import Transaction, TransactionStatus
+from app.models.user import User, UserRole
 from app.schemas.transaction import (
     LoanTransactionSummary,
     TransactionCreate,
@@ -31,6 +33,50 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
 
 # --------------------------------------------------
+# RBAC helper — fixes review item T1 (employees seeing/editing other employees' transactions)
+# --------------------------------------------------
+def _assert_loan_in_user_scope(
+    db: Session, loan_id: uuid.UUID, current_user: User
+) -> Loan:
+    """
+    Returns the loan if the current user is allowed to touch it, else 403.
+    EMPLOYEE users may only act on loans whose customer is assigned to them.
+    """
+    loan = (
+        db.query(Loan)
+        .filter(Loan.id == loan_id, Loan.is_deleted.is_(False))
+        .first()
+    )
+    if loan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
+        )
+    if current_user.role == UserRole.EMPLOYEE:
+        cust = (
+            db.query(Customer)
+            .filter(
+                Customer.id == loan.customer_id,
+                Customer.assigned_employee_id == current_user.id,
+                Customer.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if cust is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this loan",
+            )
+    return loan
+
+
+def _assert_transaction_in_user_scope(
+    db: Session, transaction: Transaction, current_user: User
+) -> None:
+    """Block employees from reading/touching transactions outside their scope."""
+    _assert_loan_in_user_scope(db, transaction.loan_id, current_user)
+
+
+# --------------------------------------------------
 # CREATE
 # --------------------------------------------------
 @router.post(
@@ -44,6 +90,8 @@ def create_transaction_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # T1 fix: employees can only create transactions for their assigned customers' loans.
+    _assert_loan_in_user_scope(db, payload.loan_id, current_user)
     try:
         return create_transaction(db=db, data=payload, created_by=current_user.id)
     except ValueError as e:
@@ -104,6 +152,8 @@ def get_one(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
+    # T1 fix: 403 for employees reading transactions outside their scope.
+    _assert_transaction_in_user_scope(db, transaction, current_user)
     return transaction
 
 
@@ -120,11 +170,8 @@ def loan_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    loan = get_loan(db, loan_id)
-    if not loan:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
-        )
+    # T1 fix: 403 for employees reading summaries outside their scope.
+    loan = _assert_loan_in_user_scope(db, loan_id, current_user)
     return get_loan_transaction_summary(db, loan)
 
 
