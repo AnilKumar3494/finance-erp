@@ -173,7 +173,8 @@ try:
         effective_payment_date=c1d.due_date + timedelta(days=5),  # late → default M2
     ), created_by=user.id)
     confirm_transaction(DB, t2, updated_by=user.id)
-    DB.refresh(c1d); DB.refresh(cycles_d[1])
+    DB.refresh(c1d)
+    DB.refresh(cycles_d[1])
     print(f"  M1 shortfall before classify: {c1d.total_due - c1d.total_received}")
     print(f"  M2 allocated late credit: {cycles_d[1].total_received}")
 
@@ -185,11 +186,12 @@ try:
         ),
         db=DB, current_user=user,
     )
-    DB.refresh(c1d); [DB.refresh(c) for c in cycles_d]
+    DB.refresh(c1d)
+    [DB.refresh(c) for c in cycles_d]
     summary_d = get_loan_transaction_summary(DB, loan_d)
     print(f"  M1 penalty={resp.penalty_event.penalty_amount}  spread/month={resp.penalty_event.spread_per_month}")
     print(f"  M2 new total_due={cycles_d[1].total_due}  loan total_payable={summary_d['total_payable']}")
-    check("Penalty (2000 × 36% × 5/30)", resp.penalty_event.penalty_amount, Decimal("120.00"))
+    check("Penalty (2000 * 36% * 5/30)", resp.penalty_event.penalty_amount, Decimal("120.00"))
     check("Spread per month (2120/11)", resp.penalty_event.spread_per_month, Decimal("192.73"))
     check("M2 new total_due", cycles_d[1].total_due, Decimal("5192.73"))
     check("Sum of addons over M2..M12", sum(c.addon_from_penalties for c in cycles_d), Decimal("2120.00"))
@@ -210,9 +212,10 @@ try:
         ),
         db=DB, current_user=user,
     )
-    DB.refresh(cycles_f[1]); summary_f = get_loan_transaction_summary(DB, loan_f)
+    DB.refresh(cycles_f[1])
+    summary_f = get_loan_transaction_summary(DB, loan_f)
     print(f"  penalty={resp_f.penalty_event.penalty_amount}  spread={resp_f.penalty_event.spread_per_month}  M2 total_due={cycles_f[1].total_due}")
-    check("Penalty (5000 × 36% × 20/30)", resp_f.penalty_event.penalty_amount, Decimal("1200.00"))
+    check("Penalty (5000 * 36% * 20/30)", resp_f.penalty_event.penalty_amount, Decimal("1200.00"))
     check("Spread per month (6200/11)", resp_f.penalty_event.spread_per_month, Decimal("563.64"))
     check("M2 new total_due", cycles_f[1].total_due, Decimal("5563.64"))
     check("Loan total_payable", summary_f["total_payable"], Decimal("61200.00"))
@@ -235,9 +238,9 @@ try:
     )
     print(f"  due={feb_cycle.due_date}  days_in_due_month={resp_i.penalty_event.days_in_due_month}  penalty={resp_i.penalty_event.penalty_amount}")
     if resp_i.penalty_event.days_in_due_month == 28:
-        check("Feb non-leap penalty (5000 × 36% × 5/28)", resp_i.penalty_event.penalty_amount, Decimal("321.43"))
+        check("Feb non-leap penalty (5000 * 36% * 5/28)", resp_i.penalty_event.penalty_amount, Decimal("321.43"))
     elif resp_i.penalty_event.days_in_due_month == 29:
-        check("Feb leap penalty (5000 × 36% × 5/29)", resp_i.penalty_event.penalty_amount, Decimal("310.34"), tol=Decimal("0.01"))
+        check("Feb leap penalty (5000 * 36% * 5/29)", resp_i.penalty_event.penalty_amount, Decimal("310.34"), tol=Decimal("0.01"))
 
     # ======================================================================
     section("EXAMPLE — cap hit (100 days late on 30-day month)")
@@ -286,12 +289,13 @@ try:
         ),
         db=DB, current_user=user,
     )
-    DB.refresh(c1j); [DB.refresh(c) for c in cycles_j]
+    DB.refresh(c1j)
+    [DB.refresh(c) for c in cycles_j]
     summary_j = get_loan_transaction_summary(DB, loan_j)
     events = DB.query(PenaltyEvent).filter(PenaltyEvent.loan_id == loan_j.id).order_by(PenaltyEvent.created_at).all()
     audit = DB.query(AuditLog).filter(AuditLog.action_type == 'CYCLE_RECLASSIFY', AuditLog.record_id == c1j.id).first()
     print(f"  After reclassify (10 days): penalty={c1j.penalty_amount}  M2 total_due={cycles_j[1].total_due}  total_payable={summary_j['total_payable']}")
-    check("Penalty 240 (2000 × 36% × 10/30)", c1j.penalty_amount, Decimal("240.00"))
+    check("Penalty 240 (2000 * 36% * 10/30)", c1j.penalty_amount, Decimal("240.00"))
     check("M2 new total_due (5000 + 2240/11)", cycles_j[1].total_due, Decimal("5203.64"))
     check("Loan total_payable", summary_j["total_payable"], Decimal("60240.00"))
     check("Two penalty_event rows (old superseded, new active)", len(events), 2)
@@ -327,7 +331,8 @@ try:
         cycle_status=CycleStatus.PAID_ON_TIME,
         classification_note="Customer cleared the shortfall.",
     ), db=DB, current_user=user)
-    DB.refresh(c1k); [DB.refresh(c) for c in cycles_k]
+    DB.refresh(c1k)
+    [DB.refresh(c) for c in cycles_k]
     summary_k = get_loan_transaction_summary(DB, loan_k)
     ev = DB.query(PenaltyEvent).filter(PenaltyEvent.loan_id == loan_k.id).first()
     print(f"  Cycle status: {c1k.cycle_status.value}  penalty={c1k.penalty_amount}  M2 total_due={cycles_k[1].total_due}  total_payable={summary_k['total_payable']}")
@@ -355,7 +360,8 @@ try:
         final_settlement_amount=Decimal('0'),
         noc_issued=True, noc_reference='NOC-FC-001',
     ), closed_by=user.id)
-    DB.commit(); DB.refresh(loan_fc)
+    DB.commit()
+    DB.refresh(loan_fc)
     print(f"  closure_type={closure.closure_type.value}  NOC={closure.noc_reference}")
     check("Foreclosure: status after close", loan_fc.status, LoanStatus.CLOSED)
     check("NOC reference recorded", closure.noc_reference, "NOC-FC-001")
@@ -370,7 +376,8 @@ try:
         amount_written_off=Decimal('30000'),
         closure_remarks="50% settlement agreed.",
     ), closed_by=user.id)
-    DB.commit(); DB.refresh(loan_n)
+    DB.commit()
+    DB.refresh(loan_n)
     print(f"  status={loan_n.status.value}  written_off={closure_n.amount_written_off}  collected={closure_n.final_settlement_amount}")
     check("Settlement loan → CLOSED", loan_n.status, LoanStatus.CLOSED)
     check("Amount written off matches arithmetic", closure_n.amount_written_off, Decimal("30000.00"))
@@ -386,7 +393,8 @@ try:
         amount_written_off=summary_w['outstanding'],
         closure_remarks='No recovery possible.',
     ), closed_by=user.id)
-    DB.commit(); DB.refresh(loan_w)
+    DB.commit()
+    DB.refresh(loan_w)
     print(f"  status={loan_w.status.value}  written_off={closure_w.amount_written_off}")
     check("WRITE_OFF → BAD_DEBT terminal", loan_w.status, LoanStatus.BAD_DEBT)
 
@@ -396,11 +404,14 @@ try:
     # Manual propose → REJECT
     loan_p1, _, _ = fresh_loan()
     p1 = propose_bad_debt(DB, loan_p1, proposed_by=user.id, reason="Customer unresponsive for 60 days.")
-    DB.commit(); DB.refresh(loan_p1)
+    DB.commit()
+    DB.refresh(loan_p1)
     check("Manual propose: loan → BAD_DEBT_PROPOSED", loan_p1.status, LoanStatus.BAD_DEBT_PROPOSED)
     check("Proposal auto_proposed=False", p1.auto_proposed, False)
     review_proposal(DB, p1, loan_p1, decision="REJECT", reviewer_id=user.id, review_notes="Customer responded.")
-    DB.commit(); DB.refresh(loan_p1); DB.refresh(p1)
+    DB.commit()
+    DB.refresh(loan_p1)
+    DB.refresh(p1)
     check("Reject: loan reverts to ACTIVE", loan_p1.status, LoanStatus.ACTIVE)
     check("Proposal status REJECTED", p1.status, BadDebtProposalStatus.REJECTED)
 
@@ -409,7 +420,9 @@ try:
     p2 = propose_bad_debt(DB, loan_p2, proposed_by=user.id, reason="Confirmed bad debt after collection efforts.")
     DB.commit()
     review_proposal(DB, p2, loan_p2, decision="APPROVE", reviewer_id=user.id)
-    DB.commit(); DB.refresh(loan_p2); DB.refresh(p2)
+    DB.commit()
+    DB.refresh(loan_p2)
+    DB.refresh(p2)
     check("Approve: loan stays BAD_DEBT_PROPOSED awaiting WRITE_OFF", loan_p2.status, LoanStatus.BAD_DEBT_PROPOSED)
     check("Proposal status APPROVED", p2.status, BadDebtProposalStatus.APPROVED)
 
@@ -422,7 +435,8 @@ try:
         c.due_date = c.due_date - timedelta(days=120)
     DB.commit()
     totals = run_once(db=DB)
-    DB.refresh(cycles_nj[0]); DB.refresh(loan_nj)
+    DB.refresh(cycles_nj[0])
+    DB.refresh(loan_nj)
     prop_nj = DB.query(BadDebtProposal).filter(BadDebtProposal.loan_id == loan_nj.id).first()
     print(f"  totals={totals}")
     print(f"  M1 status={cycles_nj[0].cycle_status.value}  penalty={cycles_nj[0].penalty_amount}  loan.status={loan_nj.status.value}  bad_debt_proposed={prop_nj is not None}")
@@ -565,10 +579,12 @@ try:
         classified_as_of_date=c1_cr8.due_date + timedelta(days=10),
         classification_note="Original 100-day classification was incorrect.",
     ), db=DB, current_user=user)
-    DB.refresh(open_prop); DB.refresh(loan_cr8); DB.refresh(c1_cr8)
+    DB.refresh(open_prop)
+    DB.refresh(loan_cr8)
+    DB.refresh(c1_cr8)
     print(f"  After reclassify (cap → 10-days-late): cycle={c1_cr8.cycle_status.value}  penalty={c1_cr8.penalty_amount}  proposal={open_prop.status.value}  loan={loan_cr8.status.value}")
     check("Cycle status now LATE_PAYMENT (not capped)", c1_cr8.cycle_status, CycleStatus.LATE_PAYMENT)
-    check("Penalty recomputed (5000 × 36% × 10/30 = 600)", c1_cr8.penalty_amount, Decimal("600.00"))
+    check("Penalty recomputed (5000 * 36% * 10/30 = 600)", c1_cr8.penalty_amount, Decimal("600.00"))
     check("Auto bad-debt proposal auto-withdrawn", open_prop.status, BadDebtProposalStatus.REJECTED)
     check("Loan reverted to ACTIVE", loan_cr8.status, LoanStatus.ACTIVE)
     check("Withdrawal note recorded", "Auto-withdrawn" in (open_prop.review_notes or ""), True)

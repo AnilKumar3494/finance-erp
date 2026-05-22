@@ -107,10 +107,20 @@ def process_loan(db: Session, loan: Loan, today: date) -> dict:
                 cycle.id, loan.id, cycle.cycle_number, shortfall,
             )
 
-        # (2) Milestone alerts — fire ONCE when days_late crosses the
-        # threshold exactly, not every run after. Assumes the job runs at
-        # least daily; if a day is skipped, that one alert is missed (the
-        # UI still shows the badge state for any days_late >= 30/60).
+        # (2) Milestone alerts — fire when days_late equals the threshold
+        # exactly. The exact-day match prevents emitting on every nightly
+        # run AFTER the threshold (no spam across days).
+        #
+        # TODO(notifications): this is NOT idempotent across same-day
+        # reruns — if the cron retries after a crash on day 30, the alert
+        # is emitted twice. Today the alert is just a logger.warning() so
+        # duplicates are harmless. When we wire a real notification
+        # provider (email/SMS/push), add a once-only marker — either:
+        #   (a) a `last_notified_days_late` column on due_cycles, or
+        #   (b) an audit_logs existence check on a CYCLE_MILESTONE_<N>
+        #       action_type before emitting.
+        # Option (b) keeps the dedup ledger out of the cycle row and
+        # plays well with whichever provider gives us a delivery id.
         if cycle.cycle_status in (CycleStatus.AWAITING_REVIEW, CycleStatus.LATE_PAYMENT) and shortfall > 0:
             days_late = (today - cycle.due_date).days
             if days_late == DAYS_LATE_NOTIFY_30:
