@@ -85,7 +85,7 @@ class LoanClosureResponse(BaseModel):
     closure_remarks: Optional[str] = None
     supporting_document_id: Optional[uuid.UUID] = None
 
-    closed_by_id: uuid.UUID
+    closed_by_id: Optional[uuid.UUID] = None
     superseded_by_id: Optional[uuid.UUID] = None
 
     created_at: datetime

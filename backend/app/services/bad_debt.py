@@ -23,6 +23,15 @@ from app.models.bad_debt_proposal import BadDebtProposal, BadDebtProposalStatus
 from app.models.loan import Loan, LoanStatus
 
 
+class DuplicateProposalError(ValueError):
+    """Raised when an open proposal already exists for the loan.
+
+    Dedicated subclass so callers (like auto_propose_bad_debt) can recover
+    from this specific race without swallowing other real precondition
+    errors (e.g. trying to propose on a CLOSED loan).
+    """
+
+
 def get_open_proposal(db: Session, loan_id: uuid.UUID) -> Optional[BadDebtProposal]:
     return (
         db.query(BadDebtProposal)
@@ -54,26 +63,35 @@ def propose_bad_debt(
 
     existing = get_open_proposal(db, loan.id)
     if existing is not None:
-        raise ValueError("A bad-debt proposal is already open for this loan")
+        raise DuplicateProposalError("A bad-debt proposal is already open for this loan")
 
-    proposal = BadDebtProposal(
-        loan_id=loan.id,
-        status=BadDebtProposalStatus.PROPOSED,
-        proposed_reason=reason,
-        proposed_by_id=None if auto else proposed_by,
-        auto_proposed=auto,
-        created_by_id=proposed_by,
-    )
-    db.add(proposal)
-
-    loan.status = LoanStatus.BAD_DEBT_PROPOSED
-    loan.updated_by_id = proposed_by
-
+    # Scope the insert + loan-status change inside a savepoint so a race
+    # with another concurrent proposer rolls back ONLY this block — not
+    # any earlier work the caller has already done in the same transaction
+    # (e.g. the cap path in apply_penalty has already written the penalty
+    # event by the time this is invoked).
+    sp = db.begin_nested()
     try:
+        proposal = BadDebtProposal(
+            loan_id=loan.id,
+            status=BadDebtProposalStatus.PROPOSED,
+            proposed_reason=reason,
+            proposed_by_id=None if auto else proposed_by,
+            auto_proposed=auto,
+            created_by_id=proposed_by,
+        )
+        db.add(proposal)
+
+        loan.status = LoanStatus.BAD_DEBT_PROPOSED
+        loan.updated_by_id = proposed_by
+
         db.flush()
+        sp.commit()
     except IntegrityError:
-        db.rollback()
-        raise ValueError("A bad-debt proposal is already open for this loan")
+        sp.rollback()
+        raise DuplicateProposalError(
+            "A bad-debt proposal is already open for this loan"
+        )
     return proposal
 
 
@@ -140,6 +158,7 @@ def auto_propose_bad_debt(
             reason=reason,
             auto=True,
         )
-    except ValueError:
-        # Race with another proposer — refetch and return.
+    except DuplicateProposalError:
+        # Race with another proposer — refetch and return. Other ValueErrors
+        # (e.g. loan is CLOSED / BAD_DEBT) propagate so callers see them.
         return get_open_proposal(db, loan.id)

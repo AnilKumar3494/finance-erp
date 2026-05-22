@@ -50,6 +50,16 @@ def close_loan(
             f"Loan cannot be closed from status {loan.status.value}"
         )
 
+    # Explicit pre-check: surface a clean domain error rather than letting
+    # the partial unique index `uq_loan_closures_loan_active` blow up as
+    # a 500 from IntegrityError.
+    existing = get_active_closure_for_loan(db, loan.id)
+    if existing is not None:
+        raise ValueError(
+            f"An active closure already exists for this loan "
+            f"(closure id={existing.id})"
+        )
+
     summary = get_loan_transaction_summary(db, loan)
     outstanding: Decimal = summary["outstanding"]
 

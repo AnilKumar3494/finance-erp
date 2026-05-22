@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -43,6 +44,17 @@ class LoanClosure(Base):
     """
 
     __tablename__ = "loan_closures"
+
+    # Partial unique index — also created in migration 004; mirrored here
+    # so the ORM is consistent with the DB and tooling sees the invariant.
+    __table_args__ = (
+        Index(
+            "uq_loan_closures_loan_active",
+            "loan_id",
+            unique=True,
+            postgresql_where=text("is_deleted = false AND superseded_by_id IS NULL"),
+        ),
+    )
 
     # --------------------------------------------------
     # PRIMARY KEY
@@ -112,10 +124,14 @@ class LoanClosure(Base):
         nullable=True,
     )
 
-    closed_by_id: Mapped[uuid.UUID] = mapped_column(
+    # Nullable: the FK action is SET NULL so a user offboarding doesn't
+    # delete closure history. Migration 006 dropped the NOT NULL constraint
+    # to match. Schemas marking this required at create time still apply
+    # at the API layer.
+    closed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=False,
+        nullable=True,
     )
 
     superseded_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(

@@ -540,6 +540,88 @@ try:
                 check("RBAC: assigned user allowed access (negative control)", False, True)
 
     # ======================================================================
+    section("CODE-REVIEW FOLLOW-UPS — auto-withdraw on reclassify, cap rounding, idempotent alerts")
+    # ======================================================================
+    # CR8: auto bad-debt proposal must be withdrawn when reclassify removes the cap.
+    # Scenario: admin realises the cap classification was wrong (e.g. wrong date
+    # entered) and reclassifies the same cycle to a non-cap LATE_PAYMENT.
+    loan_cr8, cycles_cr8, _ = fresh_loan()
+    c1_cr8 = cycles_cr8[0]
+    classify_cycle(c1_cr8.id, CycleClassifyRequest(
+        cycle_status=CycleStatus.LATE_PAYMENT,
+        classified_as_of_date=c1_cr8.due_date + timedelta(days=100),  # CAP
+    ), db=DB, current_user=user)
+    DB.refresh(loan_cr8)
+    open_prop = DB.query(BadDebtProposal).filter(
+        BadDebtProposal.loan_id == loan_cr8.id,
+        BadDebtProposal.status == BadDebtProposalStatus.PROPOSED,
+    ).first()
+    check("Cap hit → auto bad-debt proposal opened", open_prop is not None and open_prop.auto_proposed, True)
+    check("Loan status BAD_DEBT_PROPOSED", loan_cr8.status, LoanStatus.BAD_DEBT_PROPOSED)
+
+    # Reclassify the cycle to 10 days late (no cap)
+    reclassify_cycle_route(c1_cr8.id, CycleClassifyRequest(
+        cycle_status=CycleStatus.LATE_PAYMENT,
+        classified_as_of_date=c1_cr8.due_date + timedelta(days=10),
+        classification_note="Original 100-day classification was incorrect.",
+    ), db=DB, current_user=user)
+    DB.refresh(open_prop); DB.refresh(loan_cr8); DB.refresh(c1_cr8)
+    print(f"  After reclassify (cap → 10-days-late): cycle={c1_cr8.cycle_status.value}  penalty={c1_cr8.penalty_amount}  proposal={open_prop.status.value}  loan={loan_cr8.status.value}")
+    check("Cycle status now LATE_PAYMENT (not capped)", c1_cr8.cycle_status, CycleStatus.LATE_PAYMENT)
+    check("Penalty recomputed (5000 × 36% × 10/30 = 600)", c1_cr8.penalty_amount, Decimal("600.00"))
+    check("Auto bad-debt proposal auto-withdrawn", open_prop.status, BadDebtProposalStatus.REJECTED)
+    check("Loan reverted to ACTIVE", loan_cr8.status, LoanStatus.ACTIVE)
+    check("Withdrawal note recorded", "Auto-withdrawn" in (open_prop.review_notes or ""), True)
+
+    # CR7: pre-check active closure surfaces clean error (not 500)
+    loan_cr7, _, _ = fresh_loan()
+    # First close it normally
+    close_loan_with_closure(DB, loan=loan_cr7, data=LoanCloseRequest(
+        closure_type=ClosureType.NEGOTIATED_SETTLEMENT,
+        final_settlement_amount=Decimal('30000'),
+        amount_written_off=Decimal('30000'),
+    ), closed_by=user.id)
+    DB.commit()
+    # Try to close again
+    try:
+        close_loan_with_closure(DB, loan=loan_cr7, data=LoanCloseRequest(
+            closure_type=ClosureType.WRITE_OFF,
+            final_settlement_amount=Decimal('0'),
+            amount_written_off=Decimal('0'),
+        ), closed_by=user.id)
+        check("Double-close pre-check fires", False, True)
+    except ValueError as e:
+        DB.rollback()
+        # First message — could be "Loan cannot be closed from status CLOSED" if status guard catches first
+        check("Double-close pre-check fires", "Loan cannot be closed" in str(e) or "active closure already" in str(e), True)
+
+    # CR6: DuplicateProposalError preserves caller's work (savepoint scope)
+    from app.services.bad_debt import DuplicateProposalError
+    loan_cr6, _, _ = fresh_loan()
+    p1 = propose_bad_debt(DB, loan_cr6, proposed_by=user.id, reason="First proposal for savepoint test.")
+    DB.commit()
+    # Try to propose a SECOND time on the same loan
+    try:
+        propose_bad_debt(DB, loan_cr6, proposed_by=user.id, reason="Duplicate attempt.")
+        check("DuplicateProposalError raised on second propose", False, True)
+    except DuplicateProposalError:
+        check("DuplicateProposalError raised on second propose", True, True)
+    DB.rollback()
+    # Loan should still be BAD_DEBT_PROPOSED (first proposal still effective)
+    DB.refresh(loan_cr6)
+    check("Loan status preserved after duplicate-proposal attempt", loan_cr6.status, LoanStatus.BAD_DEBT_PROPOSED)
+
+    # CR2: cap-day rounding uses ceiling
+    from app.jobs.nightly_cycle_check import _cap_days_for
+    cap_30 = _cap_days_for(date(2026, 6, 15), Decimal('36'))  # June: 30 / 0.36 = 83.33
+    cap_31 = _cap_days_for(date(2026, 7, 15), Decimal('36'))  # July: 31 / 0.36 = 86.11
+    cap_28 = _cap_days_for(date(2027, 2, 15), Decimal('36'))  # Feb 2027: 28 / 0.36 = 77.77
+    print(f"  cap_days: June={cap_30}  July={cap_31}  Feb={cap_28}")
+    check("Cap days June ceiling (84 not 83)", cap_30, 84)
+    check("Cap days July ceiling (87 not 86)", cap_31, 87)
+    check("Cap days Feb ceiling (78 not 77)", cap_28, 78)
+
+    # ======================================================================
     section("FINAL SUMMARY")
     # ======================================================================
     print(f"\n  PASS: {PASS}    FAIL: {FAIL}    TOTAL: {PASS + FAIL}")

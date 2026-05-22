@@ -21,6 +21,7 @@ non-deleted cycle:
 The job is idempotent: re-running on the same day is safe.
 """
 import logging
+import math
 import sys
 import uuid
 from datetime import date, timedelta
@@ -49,14 +50,21 @@ DAYS_LATE_NOTIFY_60 = 60
 
 def _cap_days_for(due_date: date, penalty_rate: Decimal) -> int:
     """
-    Number of days late at which the penalty would reach 100% of late_amount.
-    days = days_in_month / (penalty_rate / 100)
-    With the default 36% rate and a 30-day month, that's ~83 days.
+    Smallest number of days late at which the penalty actually REACHES
+    100% of late_amount.
+
+      penalty = late × (rate/100) × (days/days_in_month)
+      cap_hit when  days/days_in_month >= 100/rate
+      → days >= days_in_month * 100 / rate
+
+    Truncation would trigger a day early (penalty 99.6% — still LATE_PAYMENT,
+    not MISSED_CAPPED). Use ceiling so we only auto-classify when the cap is
+    truly reached.
     """
     if penalty_rate <= 0:
         return 10**6  # effectively never
     days = Decimal(days_in_month_of(due_date)) * Decimal(100) / penalty_rate
-    return int(days)  # truncate — we trigger ON or after the cap day
+    return math.ceil(float(days))
 
 
 def _has_active_event(db: Session, cycle_id: uuid.UUID) -> bool:
@@ -99,19 +107,22 @@ def process_loan(db: Session, loan: Loan, today: date) -> dict:
                 cycle.id, loan.id, cycle.cycle_number, shortfall,
             )
 
-        # (2) Milestone alerts on AWAITING_REVIEW / LATE_PAYMENT cycles
+        # (2) Milestone alerts — fire ONCE when days_late crosses the
+        # threshold exactly, not every run after. Assumes the job runs at
+        # least daily; if a day is skipped, that one alert is missed (the
+        # UI still shows the badge state for any days_late >= 30/60).
         if cycle.cycle_status in (CycleStatus.AWAITING_REVIEW, CycleStatus.LATE_PAYMENT) and shortfall > 0:
             days_late = (today - cycle.due_date).days
-            if days_late >= DAYS_LATE_NOTIFY_30 and days_late < DAYS_LATE_NOTIFY_60:
+            if days_late == DAYS_LATE_NOTIFY_30:
                 counts["notify_30_days"] += 1
                 logger.warning(
-                    "ALERT loan=%s cycle=#%d days_late=%d (>=30) shortfall=%s",
+                    "ALERT loan=%s cycle=#%d days_late=%d (crossed 30) shortfall=%s",
                     loan.loan_number, cycle.cycle_number, days_late, shortfall,
                 )
-            elif days_late >= DAYS_LATE_NOTIFY_60:
+            elif days_late == DAYS_LATE_NOTIFY_60:
                 counts["notify_60_days"] += 1
                 logger.warning(
-                    "ALERT loan=%s cycle=#%d days_late=%d (>=60) shortfall=%s "
+                    "ALERT loan=%s cycle=#%d days_late=%d (crossed 60) shortfall=%s "
                     "-- recommend review for bad debt",
                     loan.loan_number, cycle.cycle_number, days_late, shortfall,
                 )

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.due_cycle import CycleStatus, DueCycle
-from app.models.loan import Loan
+from app.models.loan import Loan, LoanStatus
 from app.models.penalty_event import PenaltyEvent
 from app.services.finance import daily_penalty, days_in_month_of
 
@@ -394,7 +394,61 @@ def reclassify_cycle(
             current_event.superseded_by_id = new_event.id
         db.flush()
 
+    # If the loan has an OPEN auto-proposed bad-debt and no active capped
+    # event remains (cap_hit=True), the cap is no longer the reason for
+    # proposing — withdraw the auto proposal and bring the loan back to
+    # ACTIVE. This unwinds the side effect created by apply_penalty's cap
+    # branch when the underlying capped event has been superseded.
+    _withdraw_auto_proposal_if_no_cap_remains(
+        db, loan, withdrawing_user_id=classified_by
+    )
+
     return cycle, new_event
+
+
+def _withdraw_auto_proposal_if_no_cap_remains(
+    db: Session, loan: Loan, withdrawing_user_id: Optional[uuid.UUID]
+) -> None:
+    """
+    If no active (non-superseded) penalty_event still has cap_hit=True,
+    and there's an open AUTO bad-debt proposal, withdraw it (REJECTED
+    with audit note) and revert the loan to ACTIVE.
+
+    Imports are local to keep the penalty <-> bad_debt module load order safe.
+    """
+    from app.models.bad_debt_proposal import BadDebtProposalStatus
+    from app.services.bad_debt import get_open_proposal
+
+    active_capped = (
+        db.query(PenaltyEvent)
+        .filter(
+            PenaltyEvent.loan_id == loan.id,
+            PenaltyEvent.superseded_by_id.is_(None),
+            PenaltyEvent.cap_hit.is_(True),
+        )
+        .first()
+    )
+    if active_capped is not None:
+        return  # still capped elsewhere — leave the proposal alone
+
+    prop = get_open_proposal(db, loan.id)
+    if prop is None or not prop.auto_proposed:
+        return  # nothing to withdraw, or it's a manual proposal we shouldn't touch
+
+    prop.status = BadDebtProposalStatus.REJECTED
+    prop.reviewed_by_id = withdrawing_user_id
+    prop.reviewed_at = datetime.now(timezone.utc)
+    prop.review_notes = (
+        "Auto-withdrawn: cycle reclassification removed the cap that "
+        "triggered this proposal."
+    )
+    prop.updated_by_id = withdrawing_user_id
+
+    if loan.status == LoanStatus.BAD_DEBT_PROPOSED:
+        loan.status = LoanStatus.ACTIVE
+        loan.updated_by_id = withdrawing_user_id
+
+    db.flush()
 
 
 def write_reclassify_audit(
