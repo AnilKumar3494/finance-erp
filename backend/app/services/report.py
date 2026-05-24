@@ -33,6 +33,12 @@ from app.models.transaction import (
 )
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.utils.time import today_in_tz
+
+
+def _today() -> date:
+    """Calendar today in the configured reports timezone (Asia/Kolkata by default)."""
+    return today_in_tz(settings.REPORTS_TIMEZONE)
 
 
 # --------------------------------------------------
@@ -268,7 +274,7 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
     a corresponding breakdown column here).
     """
 
-    since = date.today() - timedelta(days=days)
+    since = _today() - timedelta(days=days)
 
     if period == "daily":
         date_group = Transaction.effective_payment_date
@@ -630,7 +636,7 @@ def get_employee_report(db: Session) -> dict:
 # --------------------------------------------------
 def _months_back_floor(months: int) -> date:
     """First day of the month that's `months` calendar months before today."""
-    today = date.today()
+    today = _today()
     target_month_index = today.month - 1 - (months - 1)
     target_year = today.year + target_month_index // 12
     target_month = target_month_index % 12 + 1
@@ -669,7 +675,7 @@ def get_collection_chart(db: Session, months: int = 12) -> list:
 
     # Build the exact `months`-long axis ending at the current month, regardless
     # of whether data exists in every slot.
-    today = date.today()
+    today = _today()
     axis: list[str] = []
     y, m = floor_date.year, floor_date.month
     while (y, m) <= (today.year, today.month):
@@ -757,7 +763,7 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
     collections_map = {r.month: _d(r.amount) for r in collections_raw}
 
     # Build the exact `months`-long axis ending at the current month.
-    today = date.today()
+    today = _today()
     axis: list[str] = []
     y, m = floor_date.year, floor_date.month
     while (y, m) <= (today.year, today.month):
