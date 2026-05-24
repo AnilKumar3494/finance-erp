@@ -70,3 +70,31 @@ def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Supreme privileges required. Super Admin access only.",
         )
     return current_user
+
+
+# Explicit allowlist of roles that may consume the role-scoped report
+# endpoints. We do NOT fall back to "allow if not EMPLOYEE" because any
+# future role added to UserRole would otherwise silently inherit
+# tenant-wide PII access. Per product policy: SUPER_ADMIN and ADMIN see
+# all customers, EMPLOYEE sees only their assigned customers.
+_REPORT_ROLES = frozenset(
+    {UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.EMPLOYEE}
+)
+
+
+def require_report_access(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Allowlist gate for the role-scoped report endpoints
+    (/reports/customers and /reports/customers/export). Rejects any role
+    not in {SUPER_ADMIN, ADMIN, EMPLOYEE} with 403 BEFORE the route body
+    runs — so a non-allowlisted caller cannot even trigger the audit-log
+    write that the CSV export performs.
+    """
+    if current_user.role not in _REPORT_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough privileges to access this report.",
+        )
+    return current_user
