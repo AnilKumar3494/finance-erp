@@ -14,8 +14,9 @@ Conventions:
 """
 import uuid
 from decimal import Decimal
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -39,6 +40,21 @@ from app.utils.time import today_in_tz
 def _today() -> date:
     """Calendar today in the configured reports timezone (Asia/Kolkata by default)."""
     return today_in_tz(settings.REPORTS_TIMEZONE)
+
+
+def _local_midnight_utc(d: date) -> datetime:
+    """
+    Return the UTC timestamp that corresponds to 00:00 of `d` in the configured
+    reporting timezone.
+
+    Use this when you need to filter a `timestamptz` column against a date that
+    you computed in the reporting timezone. Comparing `created_at >= <date>`
+    directly promotes the date to UTC midnight and silently drops rows in the
+    IST/UTC offset gap (e.g. a row created at 23:00 UTC on May 31 is 04:30 IST
+    on June 1 — belongs in the June IST bucket but `>= 2025-06-01 00:00 UTC`
+    is false).
+    """
+    return datetime.combine(d, time.min, tzinfo=ZoneInfo(settings.REPORTS_TIMEZONE))
 
 
 # --------------------------------------------------
@@ -446,7 +462,12 @@ def _customer_report_query(
     if assigned_employee_id is not None:
         q = q.filter(Customer.assigned_employee_id == assigned_employee_id)
 
-    return q.order_by(outstanding_sub.c.outstanding.desc().nullslast())
+    # Secondary key on Customer.id keeps the order stable across pages when
+    # multiple customers share the same outstanding (very common at 0.00),
+    # so OFFSET/LIMIT pagination and the CSV stream don't skip/duplicate rows.
+    return q.order_by(
+        outstanding_sub.c.outstanding.desc().nullslast(), Customer.id.asc()
+    )
 
 
 def _customer_row_to_dict(r) -> dict:
@@ -711,9 +732,11 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
     """
 
     floor_date = _months_back_floor(months)
-    # For the timezone-converted timestamptz buckets we filter on the raw
-    # column with a UTC midnight floor — close-enough for the SLA-level
-    # bound (we'd over-fetch by at most one timezone-offset of seconds).
+    # created_at is timestamptz; converting the IST floor to a real UTC
+    # instant avoids dropping rows in the IST/UTC offset gap at the window's
+    # start month (see _local_midnight_utc docstring).
+    floor_ts = _local_midnight_utc(floor_date)
+
     cust_month_col = _local_month(Customer.created_at)
     customers_raw = (
         db.query(
@@ -722,7 +745,7 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
         )
         .filter(
             Customer.is_deleted == False,
-            Customer.created_at >= floor_date,
+            Customer.created_at >= floor_ts,
         )
         .group_by(cust_month_col)
         .all()
@@ -736,7 +759,7 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
         )
         .filter(
             Loan.is_deleted == False,
-            Loan.created_at >= floor_date,
+            Loan.created_at >= floor_ts,
         )
         .group_by(loan_month_col)
         .all()

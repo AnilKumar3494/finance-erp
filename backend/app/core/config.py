@@ -1,4 +1,5 @@
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, computed_field, field_validator
 from functools import lru_cache
@@ -110,6 +111,21 @@ class Settings(BaseSettings):
         allowed = {"HS256", "HS384", "HS512"}
         if v not in allowed:
             raise ValueError(f"JWT ALGORITHM must be one of {allowed}")
+        return v
+
+    @field_validator("REPORTS_TIMEZONE")
+    @classmethod
+    def _reports_timezone_is_real(cls, v: str) -> str:
+        # Fail at app startup on a typo (e.g. "Asia/Kolkat") rather than at
+        # the first report query, where the error would be a buried Postgres
+        # exception with a stack trace.
+        try:
+            ZoneInfo(v)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(
+                f"REPORTS_TIMEZONE={v!r} is not a valid IANA timezone "
+                "(e.g. 'Asia/Kolkata', 'UTC', 'America/New_York')"
+            ) from exc
         return v
 
     @computed_field
