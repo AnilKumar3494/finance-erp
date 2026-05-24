@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.vehicle import AssetStatus, AssetType
 from app.models.loan import LoanStatus
 from app.models.document import DocCategory
@@ -16,7 +16,7 @@ from app.schemas.vehicle import (
     VehicleResponse,
     VehicleUpdate,
 )
-from app.schemas.loan import LoanResponse
+from app.schemas.loan import LoanListResponse
 from app.schemas.document import DocumentListResponse, DocumentResponse
 from app.services.vehicle import (
     create_vehicle,
@@ -29,8 +29,11 @@ from app.services.vehicle import (
     get_vehicle_by_plate,
     get_vehicle_by_chassis,
 )
-from app.services.loan import list_loans
+from app.services.loan import list_loans, parse_includes
 from app.services.document import list_documents
+# Reuse the loans-route enrichment so computed finance fields (monthly_interest,
+# total_payable, net_*) are populated consistently across both endpoints.
+from app.api.v1.routes.loans import enrich_loan
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
@@ -206,12 +209,18 @@ def restore_vehicle_route(
 # --------------------------------------------------
 @router.get(
     "/{vehicle_id}/loans",
-    response_model=list[LoanResponse],
+    response_model=LoanListResponse,
     summary="List loans backed by this vehicle",
 )
 def list_vehicle_loans(
     vehicle_id: uuid.UUID,
     status_filter: Optional[LoanStatus] = Query(None, alias="status"),
+    include: Optional[str] = Query(
+        None,
+        description="Comma-separated list of related objects to include: customer, vehicle, created_by, updated_by",
+    ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -220,14 +229,27 @@ def list_vehicle_loans(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
         )
-    results, _total = list_loans(
+    # RBAC scoping mirrors loans.list_all: employees see only loans whose
+    # customer is assigned to them. Admin / super-admin see everything.
+    assigned_employee_id = (
+        current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    )
+    includes = parse_includes(include)
+    results, total = list_loans(
         db=db,
         vehicle_id=vehicle_id,
         status=status_filter,
-        page=1,
-        page_size=100,
+        page=page,
+        page_size=page_size,
+        assigned_employee_id=assigned_employee_id,
+        include=include,
     )
-    return [LoanResponse.model_validate(loan) for loan in results]
+    return LoanListResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        results=[enrich_loan(loan, includes) for loan in results],
+    )
 
 
 # --------------------------------------------------

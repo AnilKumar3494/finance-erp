@@ -7,6 +7,7 @@ import uuid
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.vehicle import AssetStatus, AssetType
+from app.utils.time import utcnow
 
 
 # Vehicle records up to next calendar year are accepted (dealerships often
@@ -26,13 +27,13 @@ _PLATE_REGEX = re.compile(
     r"^("
     r"[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}"  # standard
     r"|"
-    r"[0-9]{2}BH[0-9]{4}[A-Z]{1,2}"          # BH-series
+    r"[0-9]{2}BH[0-9]{4}[A-Z]{1,2}"  # BH-series
     r")$"
 )
 
 
 def _max_vehicle_year() -> int:
-    return datetime.utcnow().year + 1
+    return utcnow().year + 1
 
 
 def _normalize_plate(v: Optional[str]) -> Optional[str]:

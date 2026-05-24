@@ -194,6 +194,8 @@ def soft_delete_vehicle(
 
     vehicle.soft_delete(by_id=deleted_by)
     db.commit()
+    # Hydrate DB-side values (deleted_at, updated_at trigger) before returning.
+    db.refresh(vehicle)
     return vehicle
 
 
