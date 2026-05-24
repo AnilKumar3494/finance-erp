@@ -7,13 +7,18 @@ from pydantic import BaseModel
 # --------------------------------------------------
 class DashboardSummary(BaseModel):
     total_customers: int
+    total_draft_loans: int
     total_active_loans: int
+    total_awaiting_closure_loans: int
     total_closed_loans: int
+    total_bad_debt_proposed_loans: int
     total_bad_debt_loans: int
     total_vehicles: int
     total_documents: int
 
-    # Financial
+    # Financial — sourced from the due-cycles ledger for open loans.
+    # total_principal_outstanding and total_pending_collections are the same
+    # number expressed two ways (kept as separate fields for UI clarity).
     total_principal_outstanding: Decimal
     total_amount_collected: Decimal
     total_pending_collections: Decimal
@@ -24,10 +29,15 @@ class DashboardSummary(BaseModel):
 # --------------------------------------------------
 class LoanPortfolioReport(BaseModel):
     total_loans: int
+    draft_loans: int
     active_loans: int
+    awaiting_closure_loans: int
     closed_loans: int
+    bad_debt_proposed_loans: int
     bad_debt_loans: int
     total_principal: Decimal
+    # total_payable = principal + interest + penalty add-ons, summed from
+    # due_cycles.total_due for currently-open loans.
     total_payable: Decimal
     total_collected: Decimal
     total_outstanding: Decimal
