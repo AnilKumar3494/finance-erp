@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.dependencies.auth import get_current_user, require_admin
+from app.dependencies.auth import require_admin, require_report_access
 from app.models.user import User, UserRole
 from app.schemas.report import (
     ChartEntry,
@@ -81,10 +81,26 @@ def collections(
 # CUSTOMER REPORT (paginated)
 # --------------------------------------------------
 def _scope_to_employee(current_user: User):
-    """EMPLOYEE callers are scoped to their assigned customers; admins see all."""
+    """
+    Map an allowlisted caller to a customer-visibility scope.
+
+    Returns the user's id for EMPLOYEE (scoped to assigned customers),
+    None for ADMIN / SUPER_ADMIN (full tenant). Any other role is rejected
+    — though in practice it cannot reach here because the route depends on
+    `require_report_access`, which already gates the allowlist.
+    """
     if current_user.role == UserRole.EMPLOYEE:
         return current_user.id
-    return None
+    if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        return None
+    # Belt-and-suspenders: if the role allowlist is ever loosened without
+    # updating this helper, we fail closed rather than leak PII.
+    from fastapi import HTTPException, status as http_status
+
+    raise HTTPException(
+        status_code=http_status.HTTP_403_FORBIDDEN,
+        detail="Role not permitted on customer reports.",
+    )
 
 
 @router.get(
@@ -96,7 +112,7 @@ def customer_report(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_report_access),
 ):
     return get_customer_report(
         db,
@@ -186,7 +202,7 @@ def _stream_customers_csv(db: Session, assigned_employee_id) -> Iterator[str]:
 def export_customers(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_report_access),
 ):
     # EMPLOYEE callers can only export their own assigned customers; ADMIN +
     # SUPER_ADMIN see the full tenant.
