@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.schemas.loan import LoanCreate, LoanUpdate
 from app.models.loan import Loan, LoanStatus
 from app.models.customer import Customer
-from app.models.vehicle import Vehicle
+from app.models.vehicle import AssetStatus, AssetType, Vehicle
 from app.models.transaction import (
     PunctualityStatus,
     Transaction,
@@ -24,6 +24,54 @@ from app.services.finance import monthly_interest, total_payable as calc_total_p
 # VALID INCLUDE OPTIONS
 # --------------------------------------------------
 VALID_INCLUDES = {"customer", "vehicle", "created_by", "updated_by"}
+
+
+# --------------------------------------------------
+# COLLATERAL ELIGIBILITY
+# --------------------------------------------------
+# A vehicle can be attached to a loan only when it is:
+#   - not soft-deleted
+#   - typed as COLLATERAL (INVENTORY assets are company stock, not pledged)
+#   - in a status where pledging makes sense (IN_YARD or MAINTENANCE).
+# SOLD / SEIZED vehicles must never back a loan.
+_PLEDGEABLE_STATUSES = (AssetStatus.IN_YARD, AssetStatus.MAINTENANCE)
+
+
+def is_blocking_vehicle(db: Session, vehicle_id: uuid.UUID) -> bool:
+    """
+    True if `vehicle_id` is the collateral on a non-deleted ACTIVE loan.
+    Used by the vehicle service to decide whether a soft-delete is allowed —
+    keeps the loan query inside the loan domain boundary.
+    """
+    return (
+        db.query(Loan.id)
+        .filter(
+            Loan.vehicle_id == vehicle_id,
+            Loan.status == LoanStatus.ACTIVE,
+            Loan.is_deleted == False,
+        )
+        .first()
+        is not None
+    )
+
+
+def _resolve_pledgeable_vehicle(db: Session, vehicle_id: uuid.UUID) -> Vehicle:
+    vehicle = (
+        db.query(Vehicle)
+        .filter(Vehicle.id == vehicle_id, Vehicle.is_deleted == False)
+        .first()
+    )
+    if not vehicle:
+        raise ValueError("Vehicle not found")
+    if vehicle.type != AssetType.COLLATERAL:
+        raise ValueError(
+            "Vehicle is not marked as COLLATERAL and cannot back a loan"
+        )
+    if vehicle.status not in _PLEDGEABLE_STATUSES:
+        raise ValueError(
+            f"Vehicle status {vehicle.status.value} is not eligible for pledging"
+        )
+    return vehicle
 
 
 def parse_includes(include: Optional[str]) -> set[str]:
@@ -162,16 +210,10 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         raise ValueError("Customer not found")
 
     # --------------------------------------------------
-    # CHECK VEHICLE EXISTS (ONLY IF PROVIDED)
+    # CHECK VEHICLE EXISTS + IS USABLE AS COLLATERAL (ONLY IF PROVIDED)
     # --------------------------------------------------
     if data.vehicle_id:
-        vehicle = (
-            db.query(Vehicle)
-            .filter(Vehicle.id == data.vehicle_id, Vehicle.is_deleted == False)
-            .first()
-        )
-        if not vehicle:
-            raise ValueError("Vehicle not found")
+        _resolve_pledgeable_vehicle(db, data.vehicle_id)
 
     # --------------------------------------------------
     # GUARD: down payment cannot meet or exceed principal
@@ -293,7 +335,22 @@ def update_loan(
             "Edits are only permitted in DRAFT or ACTIVE."
         )
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+
+    # Collateral swaps need the same eligibility check as loan creation.
+    # Once a loan is ACTIVE the collateral is locked — swapping it out would
+    # break the audit chain between vehicle, schedule and disbursement.
+    if "vehicle_id" in changes:
+        new_vehicle_id = changes["vehicle_id"]
+        if new_vehicle_id != loan.vehicle_id:
+            if loan.status == LoanStatus.ACTIVE:
+                raise ValueError(
+                    "Cannot change collateral on an ACTIVE loan"
+                )
+            if new_vehicle_id is not None:
+                _resolve_pledgeable_vehicle(db, new_vehicle_id)
+
+    for field, value in changes.items():
         setattr(loan, field, value)
 
     loan.updated_by_id = updated_by

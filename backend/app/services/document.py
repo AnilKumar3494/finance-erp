@@ -59,6 +59,8 @@ def list_documents(
     requesting_user: User,
     customer_id: Optional[uuid.UUID] = None,
     doc_type: Optional[DocCategory] = None,
+    vehicle_id: Optional[uuid.UUID] = None,
+    loan_id: Optional[uuid.UUID] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Document], int]:
@@ -83,6 +85,12 @@ def list_documents(
 
     if doc_type:
         query = query.filter(Document.doc_type == doc_type)
+
+    if vehicle_id:
+        query = query.filter(Document.vehicle_id == vehicle_id)
+
+    if loan_id:
+        query = query.filter(Document.loan_id == loan_id)
 
     total = query.count()
     results = (
@@ -172,9 +180,20 @@ def upload_document(
                 "Transaction not found or does not belong to this customer"
             )
 
-    elif doc_type == DocCategory.VEHICLE_IMAGE:
+    elif doc_type in (
+        DocCategory.VEHICLE_IMAGE,
+        DocCategory.RC_COPY,
+        DocCategory.INSURANCE_POLICY,
+        DocCategory.VEHICLE_PHOTO,
+    ):
         if not vehicle_id:
-            raise ValueError("vehicle_id is required for VEHICLE_IMAGE documents")
+            raise ValueError(
+                f"vehicle_id is required for {doc_type.value} documents"
+            )
+        if loan_id or transaction_id:
+            raise ValueError(
+                f"{doc_type.value} documents must not have loan_id or transaction_id"
+            )
         vehicle = (
             db.query(Vehicle)
             .filter(
