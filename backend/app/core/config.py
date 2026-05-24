@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
 
     # --------------------------------------------------
+    # REPORTING
+    # --------------------------------------------------
+    # Business timezone for date-bucketing in reports. The DB stores
+    # timestamptz in UTC; reports convert via AT TIME ZONE so a payment
+    # entered at 23:30 IST on the 30th stays in that day's bucket.
+    REPORTS_TIMEZONE: str = "Asia/Kolkata"
+
+    # --------------------------------------------------
     # VALIDATORS
     # --------------------------------------------------
     @field_validator("SECRET_KEY")

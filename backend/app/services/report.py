@@ -1,9 +1,25 @@
+"""
+Reports service — read-only aggregations across the modular monolith.
+
+Conventions:
+  - EMI buckets group on Transaction.effective_payment_date (a DATE,
+    timezone-independent), so admin-attested business dates drive reports.
+  - "New customers / new loans" buckets group on created_at, converted
+    to the configured REPORTS_TIMEZONE so IST midnight-edge rows land
+    in the correct month.
+  - Outstanding / payable / pending are derived from the due_cycles
+    ledger over OPEN_LOAN_STATUSES (loans where money is still owed).
+  - DOWN_PAYMENT transactions are excluded from every "collection" sum;
+    they are origination cash, not EMI collection.
+"""
 from decimal import Decimal
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
+from typing import Iterable
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.customer import Customer
 from app.models.document import Document
 from app.models.due_cycle import DueCycle
@@ -29,6 +45,17 @@ OPEN_LOAN_STATUSES = (
     LoanStatus.BAD_DEBT_PROPOSED,
 )
 
+# Payment modes broken out as their own columns in the collection report.
+# Any PaymentMethod not in this tuple falls into the `other` bucket so the
+# row-level invariant (cash + gpay + phonepe + bank_transfer + other = total)
+# survives the addition of new enum values without a code change here.
+_BREAKDOWN_MODES = (
+    PaymentMethod.CASH,
+    PaymentMethod.GPAY,
+    PaymentMethod.PHONEPE,
+    PaymentMethod.BANK_TRANSFER,
+)
+
 _ZERO = Decimal("0.00")
 
 
@@ -37,6 +64,59 @@ def _d(value) -> Decimal:
     if value is None:
         return _ZERO
     return Decimal(str(value))
+
+
+def _local_month(column):
+    """
+    YYYY-MM bucket from a timestamptz column converted to the configured
+    reporting timezone (IST by default). Without the AT TIME ZONE cast,
+    Postgres uses the session timezone — which in production is usually
+    UTC, shifting late-night IST rows into the next month.
+    """
+    return func.to_char(
+        func.timezone(settings.REPORTS_TIMEZONE, column), "YYYY-MM"
+    )
+
+
+def _month_axis(months: Iterable[str]) -> list[str]:
+    """
+    Given an iterable of 'YYYY-MM' strings from multiple series, return a
+    contiguous, sorted month axis covering [min, max]. When the iterable is
+    empty, return the last 12 months ending at the current month so an
+    empty-DB dashboard still renders a meaningful chart.
+    """
+    months = sorted({m for m in months if m})
+
+    today = date.today()
+
+    if not months:
+        end_year, end_month = today.year, today.month
+        start_year, start_month = end_year, end_month - 11
+        while start_month < 1:
+            start_month += 12
+            start_year -= 1
+    else:
+        start_year, start_month = (int(p) for p in months[0].split("-"))
+        end_year, end_month = (int(p) for p in months[-1].split("-"))
+        # Always extend to "now" so the latest months aren't truncated
+        # when there happens to be no activity in them yet.
+        if (end_year, end_month) < (today.year, today.month):
+            end_year, end_month = today.year, today.month
+
+    out: list[str] = []
+    y, m = start_year, start_month
+    while (y, m) <= (end_year, end_month):
+        out.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return out
+
+
+def _zero_fill(series: dict[str, Decimal | int], axis: list[str], zero):
+    """Project a {month: value} dict onto a fixed axis, filling gaps with zero."""
+    return [{"month": m, **{"value": series.get(m, zero)}} for m in axis]
 
 
 # --------------------------------------------------
@@ -70,8 +150,6 @@ def get_dashboard_summary(db: Session) -> dict:
     # Outstanding   = SUM(total_due - total_received), floored at 0 per cycle.
     cycle_totals = (
         db.query(
-            func.coalesce(func.sum(DueCycle.total_due), 0).label("due"),
-            func.coalesce(func.sum(DueCycle.total_received), 0).label("received"),
             func.coalesce(
                 func.sum(
                     case(
@@ -98,7 +176,8 @@ def get_dashboard_summary(db: Session) -> dict:
 
     # Lifetime EMI collected — REGULAR, SUCCESS, non-deleted transactions
     # across all (non-deleted) loans. Down-payments are excluded because they
-    # represent loan-origination cash, not EMI collection.
+    # represent loan-origination cash, not EMI collection. CLOSED loans are
+    # included so historical collections don't disappear when a loan closes.
     total_collected = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
         .join(Loan, Loan.id == Transaction.loan_id)
@@ -223,6 +302,10 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
 
     DOWN_PAYMENT transactions are excluded — they represent origination cash,
     not EMI collection.
+
+    Per-row invariant: cash + gpay + phonepe + bank_transfer + other = total
+    (the `other` bucket catches any PaymentMethod added to the enum without
+    a corresponding breakdown column here).
     """
 
     since = date.today() - timedelta(days=days)
@@ -230,10 +313,10 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
     if period == "daily":
         date_group = Transaction.effective_payment_date
     else:
-        # YYYY-MM bucket from a DATE column
+        # YYYY-MM bucket from a DATE column — tz-independent
         date_group = func.to_char(Transaction.effective_payment_date, "YYYY-MM")
 
-    def _mode_bucket(mode: PaymentMethod):
+    def _mode_sum(mode: PaymentMethod):
         return func.coalesce(
             func.sum(
                 case((Transaction.payment_mode == mode, Transaction.amount), else_=0)
@@ -241,15 +324,32 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
             0,
         )
 
+    # SUM(amount) where payment_mode NOT IN known modes — i.e. enum values
+    # added after this code was written. Falls into the `other` bucket so
+    # the row reconciles regardless.
+    other_sum = func.coalesce(
+        func.sum(
+            case(
+                (
+                    Transaction.payment_mode.notin_(_BREAKDOWN_MODES),
+                    Transaction.amount,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+
     results = (
         db.query(
             date_group.label("date"),
             func.count(Transaction.id).label("count"),
             func.coalesce(func.sum(Transaction.amount), 0).label("total"),
-            _mode_bucket(PaymentMethod.CASH).label("cash"),
-            _mode_bucket(PaymentMethod.GPAY).label("gpay"),
-            _mode_bucket(PaymentMethod.PHONEPE).label("phonepe"),
-            _mode_bucket(PaymentMethod.BANK_TRANSFER).label("bank_transfer"),
+            _mode_sum(PaymentMethod.CASH).label("cash"),
+            _mode_sum(PaymentMethod.GPAY).label("gpay"),
+            _mode_sum(PaymentMethod.PHONEPE).label("phonepe"),
+            _mode_sum(PaymentMethod.BANK_TRANSFER).label("bank_transfer"),
+            other_sum.label("other"),
         )
         .filter(
             Transaction.is_deleted == False,
@@ -271,6 +371,7 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
             "gpay": _d(r.gpay),
             "phonepe": _d(r.phonepe),
             "bank_transfer": _d(r.bank_transfer),
+            "other": _d(r.other),
         }
         for r in results
     ]
@@ -462,7 +563,12 @@ def get_employee_report(db: Session) -> dict:
 # Charts
 # --------------------------------------------------
 def get_collection_chart(db: Session) -> list:
-    """Monthly REGULAR collection totals — buckets on effective_payment_date."""
+    """
+    Monthly REGULAR collection totals — buckets on effective_payment_date.
+
+    Months with no activity are zero-filled across [earliest data month,
+    current month] so the frontend renders a continuous series.
+    """
 
     month = func.to_char(Transaction.effective_payment_date, "YYYY-MM")
 
@@ -481,41 +587,57 @@ def get_collection_chart(db: Session) -> list:
         .all()
     )
 
-    return [{"month": r.month, "amount": _d(r.amount)} for r in rows]
+    series = {r.month: _d(r.amount) for r in rows}
+    axis = _month_axis(series.keys())
+    return [{"month": m, "amount": series.get(m, _ZERO)} for m in axis]
 
 
 # --------------------------------------------------
 # Trends
 # --------------------------------------------------
 def get_monthly_trends(db: Session) -> dict:
+    """
+    Month-over-month new customers, new loans, and EMI collections.
 
-    customers = (
+    All three series share a single zero-filled month axis derived from the
+    union of their data months (or last 12 months for an empty DB), so the
+    frontend can render aligned bars/lines without per-series gaps.
+
+    new_customers / new_loans bucket on created_at converted to the configured
+    reporting timezone (Asia/Kolkata by default). Without the AT TIME ZONE
+    cast, a customer created at 23:30 IST on 31-Mar would land in April when
+    the DB session timezone is UTC.
+
+    Collections bucket on effective_payment_date (a DATE column, naturally
+    timezone-independent) and exclude DOWN_PAYMENT.
+    """
+
+    cust_month_col = _local_month(Customer.created_at)
+    customers_raw = (
         db.query(
-            func.to_char(Customer.created_at, "YYYY-MM").label("month"),
+            cust_month_col.label("month"),
             func.count(Customer.id).label("count"),
         )
         .filter(Customer.is_deleted == False)
-        .group_by(func.to_char(Customer.created_at, "YYYY-MM"))
-        .order_by(func.to_char(Customer.created_at, "YYYY-MM"))
+        .group_by(cust_month_col)
         .all()
     )
 
-    loans = (
+    loan_month_col = _local_month(Loan.created_at)
+    loans_raw = (
         db.query(
-            func.to_char(Loan.created_at, "YYYY-MM").label("month"),
+            loan_month_col.label("month"),
             func.count(Loan.id).label("count"),
         )
         .filter(Loan.is_deleted == False)
-        .group_by(func.to_char(Loan.created_at, "YYYY-MM"))
-        .order_by(func.to_char(Loan.created_at, "YYYY-MM"))
+        .group_by(loan_month_col)
         .all()
     )
 
-    # Collections bucket on effective_payment_date and exclude DOWN_PAYMENT.
-    coll_month = func.to_char(Transaction.effective_payment_date, "YYYY-MM")
-    collections = (
+    coll_month_col = func.to_char(Transaction.effective_payment_date, "YYYY-MM")
+    collections_raw = (
         db.query(
-            coll_month.label("month"),
+            coll_month_col.label("month"),
             func.coalesce(func.sum(Transaction.amount), 0).label("amount"),
         )
         .filter(
@@ -523,15 +645,28 @@ def get_monthly_trends(db: Session) -> dict:
             Transaction.transaction_type == TransactionType.REGULAR,
             Transaction.is_deleted == False,
         )
-        .group_by(coll_month)
-        .order_by(coll_month)
+        .group_by(coll_month_col)
         .all()
     )
 
+    customers_map = {r.month: r.count for r in customers_raw}
+    loans_map = {r.month: r.count for r in loans_raw}
+    collections_map = {r.month: _d(r.amount) for r in collections_raw}
+
+    axis = _month_axis(
+        list(customers_map.keys())
+        + list(loans_map.keys())
+        + list(collections_map.keys())
+    )
+
     return {
-        "new_customers": [{"month": r.month, "count": r.count} for r in customers],
-        "new_loans": [{"month": r.month, "count": r.count} for r in loans],
+        "new_customers": [
+            {"month": m, "count": customers_map.get(m, 0)} for m in axis
+        ],
+        "new_loans": [
+            {"month": m, "count": loans_map.get(m, 0)} for m in axis
+        ],
         "collections": [
-            {"month": r.month, "amount": _d(r.amount)} for r in collections
+            {"month": m, "amount": collections_map.get(m, _ZERO)} for m in axis
         ],
     }

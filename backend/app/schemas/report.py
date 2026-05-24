@@ -20,6 +20,9 @@ class DashboardSummary(BaseModel):
     # total_principal_outstanding and total_pending_collections are the same
     # number expressed two ways (kept as separate fields for UI clarity).
     total_principal_outstanding: Decimal
+    # Lifetime SUCCESS + REGULAR (non-down-payment) EMI collected across all
+    # non-deleted loans, including CLOSED ones — so historical collections
+    # don't disappear when a loan closes.
     total_amount_collected: Decimal
     total_pending_collections: Decimal
 
@@ -56,6 +59,9 @@ class CollectionEntry(BaseModel):
     gpay: Decimal
     phonepe: Decimal
     bank_transfer: Decimal
+    # Catches any PaymentMethod enum value not in the four known buckets,
+    # so cash + gpay + phonepe + bank_transfer + other == total_amount holds.
+    other: Decimal
 
 
 class CollectionReport(BaseModel):
