@@ -87,6 +87,8 @@ class CustomerStat(BaseModel):
 class CustomerReport(BaseModel):
     total_customers: int
     customers_with_active_loans: int
+    page: int
+    page_size: int
     results: list[CustomerStat]
 
 

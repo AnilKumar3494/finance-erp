@@ -14,7 +14,6 @@ Conventions:
 """
 from decimal import Decimal
 from datetime import date, timedelta
-from typing import Iterable
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -76,47 +75,6 @@ def _local_month(column):
     return func.to_char(
         func.timezone(settings.REPORTS_TIMEZONE, column), "YYYY-MM"
     )
-
-
-def _month_axis(months: Iterable[str]) -> list[str]:
-    """
-    Given an iterable of 'YYYY-MM' strings from multiple series, return a
-    contiguous, sorted month axis covering [min, max]. When the iterable is
-    empty, return the last 12 months ending at the current month so an
-    empty-DB dashboard still renders a meaningful chart.
-    """
-    months = sorted({m for m in months if m})
-
-    today = date.today()
-
-    if not months:
-        end_year, end_month = today.year, today.month
-        start_year, start_month = end_year, end_month - 11
-        while start_month < 1:
-            start_month += 12
-            start_year -= 1
-    else:
-        start_year, start_month = (int(p) for p in months[0].split("-"))
-        end_year, end_month = (int(p) for p in months[-1].split("-"))
-        # Always extend to "now" so the latest months aren't truncated
-        # when there happens to be no activity in them yet.
-        if (end_year, end_month) < (today.year, today.month):
-            end_year, end_month = today.year, today.month
-
-    out: list[str] = []
-    y, m = start_year, start_month
-    while (y, m) <= (end_year, end_month):
-        out.append(f"{y:04d}-{m:02d}")
-        m += 1
-        if m > 12:
-            m = 1
-            y += 1
-    return out
-
-
-def _zero_fill(series: dict[str, Decimal | int], axis: list[str], zero):
-    """Project a {month: value} dict onto a fixed axis, filling gaps with zero."""
-    return [{"month": m, **{"value": series.get(m, zero)}} for m in axis]
 
 
 # --------------------------------------------------
@@ -389,15 +347,17 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
 # --------------------------------------------------
 # CUSTOMER REPORT
 # --------------------------------------------------
-def get_customer_report(db: Session) -> dict:
+def _customer_report_query(db: Session):
     """
-    Per-customer roll-up.
+    Shared SQL composition for the customer report.
 
-    Outstanding is sourced from due_cycles (the canonical ledger) for loans
-    in OPEN_LOAN_STATUSES. "Active loans" counts loans in those same
-    open statuses. "Paid" counts SUCCESS REGULAR transactions on those loans.
+    Returns a SQLAlchemy Query yielding rows with columns:
+      (id, full_name, mobile_number, active_loans, principal, paid, outstanding)
+    sorted by outstanding DESC NULLS LAST.
+
+    Used by both the paginated JSON endpoint and the streaming CSV export
+    so the two never drift.
     """
-
     loan_sub = (
         db.query(
             Loan.customer_id,
@@ -452,7 +412,7 @@ def get_customer_report(db: Session) -> dict:
         .subquery()
     )
 
-    rows = (
+    return (
         db.query(
             Customer.id,
             Customer.full_name,
@@ -467,29 +427,80 @@ def get_customer_report(db: Session) -> dict:
         .outerjoin(outstanding_sub, outstanding_sub.c.customer_id == Customer.id)
         .filter(Customer.is_deleted == False)
         .order_by(outstanding_sub.c.outstanding.desc().nullslast())
-        .all()
     )
 
-    results = [
-        {
-            "customer_id": str(r.id),
-            "customer_name": r.full_name,
-            "mobile_number": r.mobile_number,
-            "active_loans": r.active_loans,
-            "total_principal": _d(r.principal),
-            "total_paid": _d(r.paid),
-            "total_outstanding": _d(r.outstanding),
-        }
-        for r in rows
-    ]
+
+def _customer_row_to_dict(r) -> dict:
+    return {
+        "customer_id": str(r.id),
+        "customer_name": r.full_name,
+        "mobile_number": r.mobile_number,
+        "active_loans": r.active_loans,
+        "total_principal": _d(r.principal),
+        "total_paid": _d(r.paid),
+        "total_outstanding": _d(r.outstanding),
+    }
+
+
+def get_customer_report(
+    db: Session, page: int = 1, page_size: int = 50
+) -> dict:
+    """
+    Per-customer roll-up. Paginated.
+
+    Outstanding is sourced from due_cycles (the canonical ledger) for loans
+    in OPEN_LOAN_STATUSES. "Active loans" counts loans in those same
+    open statuses. "Paid" counts SUCCESS REGULAR transactions on those loans.
+    """
+    query = _customer_report_query(db)
+
+    total = (
+        db.query(func.count(Customer.id))
+        .filter(Customer.is_deleted == False)
+        .scalar()
+        or 0
+    )
+
+    customers_with_active_loans = (
+        db.query(func.count(func.distinct(Loan.customer_id)))
+        .filter(Loan.status.in_(OPEN_LOAN_STATUSES), Loan.is_deleted == False)
+        .scalar()
+        or 0
+    )
+
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return {
-        "total_customers": len(results),
-        "customers_with_active_loans": sum(
-            1 for x in results if x["active_loans"] > 0
-        ),
-        "results": results,
+        "total_customers": total,
+        "customers_with_active_loans": customers_with_active_loans,
+        "page": page,
+        "page_size": page_size,
+        "results": [_customer_row_to_dict(r) for r in rows],
     }
+
+
+def iter_customer_report_rows(db: Session):
+    """
+    Stream customer-report rows from the DB without materialising the full
+    set in Python. Used by the CSV export so a 100k-customer tenant doesn't
+    OOM the worker.
+
+    yield_per(500) tells SQLAlchemy to fetch the result in chunks rather
+    than buffering all rows server-side.
+    """
+    query = _customer_report_query(db).execution_options(yield_per=500)
+    for r in query:
+        yield _customer_row_to_dict(r)
+
+
+def count_customers(db: Session) -> int:
+    """Total non-deleted customers — used for audit-row count metadata."""
+    return (
+        db.query(func.count(Customer.id))
+        .filter(Customer.is_deleted == False)
+        .scalar()
+        or 0
+    )
 
 
 # --------------------------------------------------
@@ -562,40 +573,64 @@ def get_employee_report(db: Session) -> dict:
 # --------------------------------------------------
 # Charts
 # --------------------------------------------------
-def get_collection_chart(db: Session) -> list:
+def _months_back_floor(months: int) -> date:
+    """First day of the month that's `months` calendar months before today."""
+    today = date.today()
+    target_month_index = today.month - 1 - (months - 1)
+    target_year = today.year + target_month_index // 12
+    target_month = target_month_index % 12 + 1
+    return date(target_year, target_month, 1)
+
+
+def get_collection_chart(db: Session, months: int = 12) -> list:
     """
     Monthly REGULAR collection totals — buckets on effective_payment_date.
 
-    Months with no activity are zero-filled across [earliest data month,
-    current month] so the frontend renders a continuous series.
+    Window is the trailing `months` calendar months (default 12). Empty
+    months in the window are zero-filled so the frontend renders a
+    continuous series.
     """
 
-    month = func.to_char(Transaction.effective_payment_date, "YYYY-MM")
+    floor_date = _months_back_floor(months)
+    month_col = func.to_char(Transaction.effective_payment_date, "YYYY-MM")
 
     rows = (
         db.query(
-            month.label("month"),
+            month_col.label("month"),
             func.coalesce(func.sum(Transaction.amount), 0).label("amount"),
         )
         .filter(
             Transaction.status == TransactionStatus.SUCCESS,
             Transaction.transaction_type == TransactionType.REGULAR,
             Transaction.is_deleted == False,
+            Transaction.effective_payment_date >= floor_date,
         )
-        .group_by(month)
-        .order_by(month)
+        .group_by(month_col)
+        .order_by(month_col)
         .all()
     )
 
     series = {r.month: _d(r.amount) for r in rows}
-    axis = _month_axis(series.keys())
+
+    # Build the exact `months`-long axis ending at the current month, regardless
+    # of whether data exists in every slot.
+    today = date.today()
+    axis: list[str] = []
+    y, m = floor_date.year, floor_date.month
+    while (y, m) <= (today.year, today.month):
+        axis.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
     return [{"month": m, "amount": series.get(m, _ZERO)} for m in axis]
 
 
 # --------------------------------------------------
 # Trends
 # --------------------------------------------------
-def get_monthly_trends(db: Session) -> dict:
+def get_monthly_trends(db: Session, months: int = 12) -> dict:
     """
     Month-over-month new customers, new loans, and EMI collections.
 
@@ -610,15 +645,24 @@ def get_monthly_trends(db: Session) -> dict:
 
     Collections bucket on effective_payment_date (a DATE column, naturally
     timezone-independent) and exclude DOWN_PAYMENT.
+
+    Window is the trailing `months` calendar months (default 12).
     """
 
+    floor_date = _months_back_floor(months)
+    # For the timezone-converted timestamptz buckets we filter on the raw
+    # column with a UTC midnight floor — close-enough for the SLA-level
+    # bound (we'd over-fetch by at most one timezone-offset of seconds).
     cust_month_col = _local_month(Customer.created_at)
     customers_raw = (
         db.query(
             cust_month_col.label("month"),
             func.count(Customer.id).label("count"),
         )
-        .filter(Customer.is_deleted == False)
+        .filter(
+            Customer.is_deleted == False,
+            Customer.created_at >= floor_date,
+        )
         .group_by(cust_month_col)
         .all()
     )
@@ -629,7 +673,10 @@ def get_monthly_trends(db: Session) -> dict:
             loan_month_col.label("month"),
             func.count(Loan.id).label("count"),
         )
-        .filter(Loan.is_deleted == False)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.created_at >= floor_date,
+        )
         .group_by(loan_month_col)
         .all()
     )
@@ -644,6 +691,7 @@ def get_monthly_trends(db: Session) -> dict:
             Transaction.status == TransactionStatus.SUCCESS,
             Transaction.transaction_type == TransactionType.REGULAR,
             Transaction.is_deleted == False,
+            Transaction.effective_payment_date >= floor_date,
         )
         .group_by(coll_month_col)
         .all()
@@ -653,20 +701,25 @@ def get_monthly_trends(db: Session) -> dict:
     loans_map = {r.month: r.count for r in loans_raw}
     collections_map = {r.month: _d(r.amount) for r in collections_raw}
 
-    axis = _month_axis(
-        list(customers_map.keys())
-        + list(loans_map.keys())
-        + list(collections_map.keys())
-    )
+    # Build the exact `months`-long axis ending at the current month.
+    today = date.today()
+    axis: list[str] = []
+    y, m = floor_date.year, floor_date.month
+    while (y, m) <= (today.year, today.month):
+        axis.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
 
     return {
         "new_customers": [
-            {"month": m, "count": customers_map.get(m, 0)} for m in axis
+            {"month": mo, "count": customers_map.get(mo, 0)} for mo in axis
         ],
         "new_loans": [
-            {"month": m, "count": loans_map.get(m, 0)} for m in axis
+            {"month": mo, "count": loans_map.get(mo, 0)} for mo in axis
         ],
         "collections": [
-            {"month": m, "amount": collections_map.get(m, _ZERO)} for m in axis
+            {"month": mo, "amount": collections_map.get(mo, _ZERO)} for mo in axis
         ],
     }
