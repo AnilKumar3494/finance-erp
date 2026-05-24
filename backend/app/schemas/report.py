@@ -1,5 +1,10 @@
+import uuid
 from decimal import Decimal
+from typing import Literal
+
 from pydantic import BaseModel
+
+from app.models.user import UserRole
 
 
 # --------------------------------------------------
@@ -65,7 +70,7 @@ class CollectionEntry(BaseModel):
 
 
 class CollectionReport(BaseModel):
-    period: str  # "daily" or "monthly"
+    period: Literal["daily", "monthly"]
     total_collected: Decimal
     total_transactions: int
     entries: list[CollectionEntry]
@@ -75,7 +80,7 @@ class CollectionReport(BaseModel):
 # CUSTOMER REPORT
 # --------------------------------------------------
 class CustomerStat(BaseModel):
-    customer_id: str
+    customer_id: uuid.UUID
     customer_name: str
     mobile_number: str
     active_loans: int
@@ -96,15 +101,21 @@ class CustomerReport(BaseModel):
 # EMPLOYEE PERFORMANCE
 # --------------------------------------------------
 class EmployeePerformance(BaseModel):
-    employee_id: str
+    employee_id: uuid.UUID
     employee_name: str
-    role: str
+    role: UserRole
+    # False when the user has been deactivated or soft-deleted; the row is
+    # still included so historical collections are attributable.
+    is_active: bool
     assigned_customers: int
     total_collections: Decimal
     transaction_count: int
 
 
 class EmployeeReport(BaseModel):
+    total_employees: int
+    total_collections: Decimal
+    total_transactions: int
     results: list[EmployeePerformance]
 
 

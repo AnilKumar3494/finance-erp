@@ -12,8 +12,10 @@ Conventions:
   - DOWN_PAYMENT transactions are excluded from every "collection" sum;
     they are origination cash, not EMI collection.
 """
+import uuid
 from decimal import Decimal
 from datetime import date, timedelta
+from typing import Optional
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -347,7 +349,10 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
 # --------------------------------------------------
 # CUSTOMER REPORT
 # --------------------------------------------------
-def _customer_report_query(db: Session):
+def _customer_report_query(
+    db: Session,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+):
     """
     Shared SQL composition for the customer report.
 
@@ -357,6 +362,10 @@ def _customer_report_query(db: Session):
 
     Used by both the paginated JSON endpoint and the streaming CSV export
     so the two never drift.
+
+    When `assigned_employee_id` is provided, the result is scoped to
+    customers assigned to that employee — used to enforce per-EMPLOYEE
+    visibility at the report layer.
     """
     loan_sub = (
         db.query(
@@ -412,7 +421,7 @@ def _customer_report_query(db: Session):
         .subquery()
     )
 
-    return (
+    q = (
         db.query(
             Customer.id,
             Customer.full_name,
@@ -426,8 +435,12 @@ def _customer_report_query(db: Session):
         .outerjoin(paid_sub, paid_sub.c.customer_id == Customer.id)
         .outerjoin(outstanding_sub, outstanding_sub.c.customer_id == Customer.id)
         .filter(Customer.is_deleted == False)
-        .order_by(outstanding_sub.c.outstanding.desc().nullslast())
     )
+
+    if assigned_employee_id is not None:
+        q = q.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    return q.order_by(outstanding_sub.c.outstanding.desc().nullslast())
 
 
 def _customer_row_to_dict(r) -> dict:
@@ -443,7 +456,10 @@ def _customer_row_to_dict(r) -> dict:
 
 
 def get_customer_report(
-    db: Session, page: int = 1, page_size: int = 50
+    db: Session,
+    page: int = 1,
+    page_size: int = 50,
+    assigned_employee_id: Optional[uuid.UUID] = None,
 ) -> dict:
     """
     Per-customer roll-up. Paginated.
@@ -451,22 +467,30 @@ def get_customer_report(
     Outstanding is sourced from due_cycles (the canonical ledger) for loans
     in OPEN_LOAN_STATUSES. "Active loans" counts loans in those same
     open statuses. "Paid" counts SUCCESS REGULAR transactions on those loans.
+
+    `assigned_employee_id`, when provided, scopes the report to that
+    employee's assigned customers (used to enforce EMPLOYEE-role visibility).
     """
-    query = _customer_report_query(db)
+    query = _customer_report_query(db, assigned_employee_id=assigned_employee_id)
 
-    total = (
-        db.query(func.count(Customer.id))
-        .filter(Customer.is_deleted == False)
-        .scalar()
-        or 0
-    )
-
-    customers_with_active_loans = (
+    total_q = db.query(func.count(Customer.id)).filter(Customer.is_deleted == False)
+    active_q = (
         db.query(func.count(func.distinct(Loan.customer_id)))
-        .filter(Loan.status.in_(OPEN_LOAN_STATUSES), Loan.is_deleted == False)
-        .scalar()
-        or 0
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            Loan.status.in_(OPEN_LOAN_STATUSES),
+            Loan.is_deleted == False,
+            Customer.is_deleted == False,
+        )
     )
+    if assigned_employee_id is not None:
+        total_q = total_q.filter(Customer.assigned_employee_id == assigned_employee_id)
+        active_q = active_q.filter(
+            Customer.assigned_employee_id == assigned_employee_id
+        )
+
+    total = total_q.scalar() or 0
+    customers_with_active_loans = active_q.scalar() or 0
 
     rows = query.offset((page - 1) * page_size).limit(page_size).all()
 
@@ -479,7 +503,10 @@ def get_customer_report(
     }
 
 
-def iter_customer_report_rows(db: Session):
+def iter_customer_report_rows(
+    db: Session,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+):
     """
     Stream customer-report rows from the DB without materialising the full
     set in Python. Used by the CSV export so a 100k-customer tenant doesn't
@@ -488,25 +515,39 @@ def iter_customer_report_rows(db: Session):
     yield_per(500) tells SQLAlchemy to fetch the result in chunks rather
     than buffering all rows server-side.
     """
-    query = _customer_report_query(db).execution_options(yield_per=500)
+    query = _customer_report_query(
+        db, assigned_employee_id=assigned_employee_id
+    ).execution_options(yield_per=500)
     for r in query:
         yield _customer_row_to_dict(r)
 
 
-def count_customers(db: Session) -> int:
-    """Total non-deleted customers — used for audit-row count metadata."""
-    return (
-        db.query(func.count(Customer.id))
-        .filter(Customer.is_deleted == False)
-        .scalar()
-        or 0
-    )
+def count_customers(
+    db: Session,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+) -> int:
+    """Eligible non-deleted customers — used for audit-row count metadata."""
+    q = db.query(func.count(Customer.id)).filter(Customer.is_deleted == False)
+    if assigned_employee_id is not None:
+        q = q.filter(Customer.assigned_employee_id == assigned_employee_id)
+    return q.scalar() or 0
 
 
 # --------------------------------------------------
 # EMPLOYEE PERFORMANCE
 # --------------------------------------------------
 def get_employee_report(db: Session) -> dict:
+    """
+    Per-user collection performance.
+
+    Includes soft-deleted / deactivated users that still have transactions
+    or assigned customers, so historical collections don't disappear when
+    an employee leaves. Each row carries `is_active` so the UI can render
+    former employees distinctly.
+
+    Only REGULAR collections count — DOWN_PAYMENT cash handed at disbursal
+    isn't a "collection".
+    """
 
     assigned_sub = (
         db.query(
@@ -521,8 +562,6 @@ def get_employee_report(db: Session) -> dict:
         .subquery()
     )
 
-    # Only REGULAR collections count toward employee performance;
-    # DOWN_PAYMENT cash handed at disbursal isn't a "collection".
     collections_sub = (
         db.query(
             Transaction.collected_by_id.label("emp_id"),
@@ -544,13 +583,21 @@ def get_employee_report(db: Session) -> dict:
             User.id,
             User.username,
             User.role,
+            User.is_active,
+            User.is_deleted,
             func.coalesce(assigned_sub.c.cnt, 0).label("assigned_customers"),
             func.coalesce(collections_sub.c.total_amount, 0).label("total_collections"),
             func.coalesce(collections_sub.c.txn_count, 0).label("transaction_count"),
         )
         .outerjoin(assigned_sub, assigned_sub.c.emp_id == User.id)
         .outerjoin(collections_sub, collections_sub.c.emp_id == User.id)
-        .filter(User.is_deleted == False, User.is_active == True)
+        # Keep deactivated / soft-deleted users that have history; drop
+        # only the truly noise rows (deleted/inactive AND no history).
+        .filter(
+            (User.is_deleted == False)
+            | (assigned_sub.c.cnt > 0)
+            | (collections_sub.c.txn_count > 0)
+        )
         .all()
     )
 
@@ -558,7 +605,8 @@ def get_employee_report(db: Session) -> dict:
         {
             "employee_id": str(r.id),
             "employee_name": r.username,
-            "role": r.role.value,
+            "role": r.role,
+            "is_active": bool(r.is_active) and not bool(r.is_deleted),
             "assigned_customers": r.assigned_customers,
             "total_collections": _d(r.total_collections),
             "transaction_count": r.transaction_count,
@@ -567,7 +615,14 @@ def get_employee_report(db: Session) -> dict:
     ]
     results.sort(key=lambda x: x["total_collections"], reverse=True)
 
-    return {"results": results}
+    return {
+        "total_employees": len(results),
+        "total_collections": sum(
+            (r["total_collections"] for r in results), _ZERO
+        ),
+        "total_transactions": sum(r["transaction_count"] for r in results),
+        "results": results,
+    }
 
 
 # --------------------------------------------------

@@ -7,8 +7,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.dependencies.auth import require_admin
-from app.models.user import User
+from app.dependencies.auth import get_current_user, require_admin
+from app.models.user import User, UserRole
 from app.schemas.report import (
     ChartEntry,
     CollectionReport,
@@ -80,6 +80,13 @@ def collections(
 # --------------------------------------------------
 # CUSTOMER REPORT (paginated)
 # --------------------------------------------------
+def _scope_to_employee(current_user: User):
+    """EMPLOYEE callers are scoped to their assigned customers; admins see all."""
+    if current_user.role == UserRole.EMPLOYEE:
+        return current_user.id
+    return None
+
+
 @router.get(
     "/customers",
     response_model=CustomerReport,
@@ -89,9 +96,14 @@ def customer_report(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
-    return get_customer_report(db, page=page, page_size=page_size)
+    return get_customer_report(
+        db,
+        page=page,
+        page_size=page_size,
+        assigned_employee_id=_scope_to_employee(current_user),
+    )
 
 
 # --------------------------------------------------
@@ -127,7 +139,7 @@ def _csv_safe(value) -> str:
     return s
 
 
-def _stream_customers_csv(db: Session) -> Iterator[str]:
+def _stream_customers_csv(db: Session, assigned_employee_id) -> Iterator[str]:
     """
     Generator that yields the CSV one row at a time so a multi-MB export
     doesn't buffer in worker memory. Starts with a UTF-8 BOM so Excel on
@@ -150,7 +162,9 @@ def _stream_customers_csv(db: Session) -> Iterator[str]:
     )
     yield _flush()
 
-    for row in iter_customer_report_rows(db):
+    for row in iter_customer_report_rows(
+        db, assigned_employee_id=assigned_employee_id
+    ):
         writer.writerow(
             [
                 _csv_safe(row["customer_name"]),
@@ -172,24 +186,32 @@ def _stream_customers_csv(db: Session) -> Iterator[str]:
 def export_customers(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
+    # EMPLOYEE callers can only export their own assigned customers; ADMIN +
+    # SUPER_ADMIN see the full tenant.
+    scope = _scope_to_employee(current_user)
+
     # Audit BEFORE the stream starts so the compliance record exists even
     # if the client aborts mid-download. The row count is the eligible total
     # at audit-write time — close enough for compliance lookback.
-    row_count = count_customers(db)
+    row_count = count_customers(db, assigned_employee_id=scope)
     write_audit(
         db,
         action_type="CUSTOMER_REPORT_EXPORT",
         target_table="customers",
         user_id=current_user.id,
-        new_data={"row_count": row_count, "format": "csv"},
+        new_data={
+            "row_count": row_count,
+            "format": "csv",
+            "scope": "self" if scope is not None else "all",
+        },
         request=request,
     )
     db.commit()
 
     return StreamingResponse(
-        _stream_customers_csv(db),
+        _stream_customers_csv(db, assigned_employee_id=scope),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=customers_report.csv"},
     )
