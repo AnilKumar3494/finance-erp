@@ -113,6 +113,21 @@ class Settings(BaseSettings):
     REPORTS_TIMEZONE: str = "Asia/Kolkata"
 
     # --------------------------------------------------
+    # NIGHTLY JOB (cycle promotion + cap auto-classify)
+    # --------------------------------------------------
+    # Embeds an APScheduler that fires nightly_cycle_check at the chosen
+    # hour in REPORTS_TIMEZONE. Multi-worker setups are safe because the
+    # job grabs a Postgres advisory lock before running — only one worker
+    # ever does the work per fire. Set NIGHTLY_JOB_ENABLED=false in CI /
+    # local dev to keep the scheduler dormant.
+    NIGHTLY_JOB_ENABLED: bool = True
+    NIGHTLY_JOB_HOUR: int = Field(default=2, ge=0, le=23)     # 02:00 IST
+    NIGHTLY_JOB_MINUTE: int = Field(default=0, ge=0, le=59)
+    # Advisory-lock key. Arbitrary 64-bit int; any deployment that shares
+    # a database must share this value so the lock actually serialises.
+    NIGHTLY_JOB_LOCK_KEY: int = 0xF1E_C1C_E  # 253_656_270 — "fnce_cyc"
+
+    # --------------------------------------------------
     # VALIDATORS
     # --------------------------------------------------
     @field_validator("SECRET_KEY")

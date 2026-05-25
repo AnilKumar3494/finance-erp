@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.error_handlers import register_error_handlers
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
+from app.core.scheduler import start_scheduler, stop_scheduler
 from app.api.v1.routes import (
     auth,
     customers,
@@ -106,6 +107,23 @@ app.include_router(bad_debt_propose_router, prefix="/api/v1")
 app.include_router(bad_debt_review_router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
+
+
+# --------------------------------------------------
+# LIFECYCLE — nightly cycle-check scheduler (N1)
+#
+# The scheduler is started on app startup and stopped on shutdown. It
+# uses a Postgres advisory lock internally so running multiple workers
+# does not double-fire the job. Toggle via NIGHTLY_JOB_ENABLED in env.
+# --------------------------------------------------
+@app.on_event("startup")
+def _startup_scheduler() -> None:
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def _shutdown_scheduler() -> None:
+    stop_scheduler()
 
 
 # --------------------------------------------------
