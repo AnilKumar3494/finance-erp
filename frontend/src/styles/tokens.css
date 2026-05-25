@@ -1,0 +1,153 @@
+/* =========================================================================
+   FinERP Design Tokens
+   -------------------------------------------------------------------------
+   Single source of truth for every visual constant in the app.
+   - :root              = Light theme (default)
+   - [data-theme="dark"] = Modern (dark) theme
+   - Component CSS, sx props, and the MUI theme adapter ALL read from these.
+   - Never write a hex/rgb value outside this file.
+   ========================================================================= */
+
+:root {
+  /* ---------- Surfaces ---------- */
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface-alt: #f7f9fc;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  /* ---------- Sidebar (deep navy in both themes) ---------- */
+  --sidebar: #1a2744;
+  --sidebar-text: rgba(255, 255, 255, 0.6);
+  --sidebar-text-strong: rgba(255, 255, 255, 0.92);
+  --sidebar-active: rgba(59, 110, 240, 0.25);
+  --sidebar-active-text: #7ba7f7;
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
+
+  /* ---------- Text ---------- */
+  --text: #1e293b;
+  --text-sub: #64748b;
+  --text-muted: #94a3b8;
+  --text-inverse: #ffffff;
+
+  /* ---------- Brand / status ---------- */
+  --accent: #3b6ef0;
+  --accent-light: #eef2fd;
+  --accent-strong: #2956d4;
+
+  --success: #16a34a;
+  --success-light: #f0fdf4;
+
+  --warning: #d97706;
+  --warning-light: #fffbeb;
+
+  --danger: #dc2626;
+  --danger-light: #fef2f2;
+
+  --mint: #6be0c4;
+
+  /* ---------- Chart palette (only these four; never rainbow) ---------- */
+  --chart-1: #3b6ef0; /* accent blue */
+  --chart-2: #7c3aed; /* purple */
+  --chart-3: #0369a1; /* deep blue */
+  --chart-4: #16a34a; /* success green */
+
+  /* ---------- Shadows ---------- */
+  --shadow-card: 0 1px 4px rgba(15, 23, 42, 0.06);
+  --shadow-modal: 0 20px 60px rgba(15, 23, 42, 0.15);
+  --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.1);
+
+  /* ---------- Radii ---------- */
+  --radius-pill: 99px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-tile: 10px;
+
+  /* ---------- Spacing scale (4px grid; named values from spec) ---------- */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 14px;
+  --space-8: 16px;
+  --space-9: 18px;
+  --space-10: 20px;
+  --space-12: 24px;
+  --space-14: 28px;
+  --space-16: 32px;
+  --space-20: 40px;
+
+  /* ---------- Typography ----------
+     Fonts are tokenized so we can swap Inter -> DM Sans later in one place. */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Inter', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  /* When we swap: change --font-sans to 'DM Sans', --font-mono to 'DM Mono'. */
+
+  --tracking-tight: -0.02em;
+  --tracking-tighter: -0.025em;
+  --tracking-eyebrow: 0.06em;
+  --tracking-header: 0.07em;
+  --tracking-label: 0.05em;
+
+  /* ---------- Layout ---------- */
+  --sidebar-w: 220px;
+  --sidebar-w-collapsed: 56px;
+  --topbar-h-mobile: 52px;
+  --bottombar-h-mobile: 60px;
+  --page-pad-top: 24px;
+  --page-pad-x: 28px;
+  --page-pad-bottom: 40px;
+
+  /* ---------- Transitions ---------- */
+  --t-fast: 0.12s ease;
+  --t-base: 0.15s ease;
+  --t-sidebar: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  --t-fill: 0.6s ease;
+}
+
+/* ============================================================
+   Dark / "Modern" theme
+   ============================================================ */
+[data-theme='dark'] {
+  --bg: #0d1117;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-alt: rgba(255, 255, 255, 0.03);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  --sidebar: rgba(255, 255, 255, 0.03);
+  --sidebar-text: rgba(255, 255, 255, 0.45);
+  --sidebar-text-strong: rgba(255, 255, 255, 0.92);
+  --sidebar-active: rgba(99, 179, 237, 0.15);
+  --sidebar-active-text: #63b3ed;
+  --sidebar-hover: rgba(255, 255, 255, 0.04);
+
+  --text: rgba(255, 255, 255, 0.92);
+  --text-sub: rgba(255, 255, 255, 0.5);
+  --text-muted: rgba(255, 255, 255, 0.3);
+  --text-inverse: #0d1117;
+
+  --accent: #63b3ed;
+  --accent-light: rgba(99, 179, 237, 0.1);
+  --accent-strong: #4f9ee0;
+
+  --success: #4ade80;
+  --success-light: rgba(74, 222, 128, 0.1);
+
+  --warning: #fbbf24;
+  --warning-light: rgba(251, 191, 36, 0.1);
+
+  --danger: #f87171;
+  --danger-light: rgba(248, 113, 113, 0.1);
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.6);
+  --shadow-hover: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --glow-accent: 0 0 40px rgba(99, 179, 237, 0.15);
+}
