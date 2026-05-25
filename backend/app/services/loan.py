@@ -18,6 +18,7 @@ from app.models.transaction import (
 )
 from app.services.due_cycle import generate_cycles_for_loan
 from app.services.finance import monthly_interest, total_payable as calc_total_payable
+from app.utils.db_errors import safe_integrity_message
 
 
 # --------------------------------------------------
@@ -245,9 +246,11 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         return loan
     except IntegrityError as e:
         db.rollback()
-        if "loans_loan_number_key" in str(e.orig):
-            raise ValueError("Loan number collision — please retry")
-        raise ValueError("Invalid customer or vehicle reference")
+        # L2 fix: don't string-match e.orig. The loan_number is a UUID slice
+        # and collisions are vanishingly rare; treat any IntegrityError here
+        # as a generic uniqueness/constraint failure with a non-leaking
+        # message. The route returns 409.
+        raise ValueError(safe_integrity_message(e)) from None
 
 
 def approve_loan(
@@ -359,17 +362,16 @@ def update_loan(
     return loan
 
 
-def mark_bad_debt(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
-    """Mark loan as BAD_DEBT"""
-    loan.status = LoanStatus.BAD_DEBT
-    loan.updated_by_id = updated_by
-    db.commit()
-    db.refresh(loan)
-    return loan
+# L1 fix: `mark_bad_debt` removed. Bad-debt status is now reached via the
+# two-step propose / review flow (see app/services/bad_debt.py) followed
+# by close_loan with closure_type=WRITE_OFF (see app/services/loan_closure.py).
+# Keeping a public direct-write function alongside the proper flow was a
+# footgun — anyone importing it would silently bypass approval + audit.
 
 
 def soft_delete_loan(db: Session, loan: Loan, deleted_by: uuid.UUID) -> Loan:
-    # Use AuditBase.soft_delete so deleted_by_id is also set (review item L3).
+    # AuditBase.soft_delete sets is_deleted/deleted_at/deleted_by_id/updated_by_id
+    # atomically (satisfies the check_soft_delete_loans CHECK).
     loan.soft_delete(deleted_by)
     db.commit()
     return loan

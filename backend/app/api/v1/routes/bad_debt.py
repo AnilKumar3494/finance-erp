@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -20,6 +20,7 @@ from app.services.bad_debt import (
     propose_bad_debt,
     review_proposal,
 )
+from app.utils.audit import write_audit
 
 # Two routers — one under /loans/{id}/bad-debt for create, one under
 # /bad-debt-proposals for list/get/review.
@@ -34,6 +35,7 @@ review_router = APIRouter(prefix="/bad-debt-proposals", tags=["Bad Debt"])
     summary="Propose a loan for bad-debt review",
 )
 def propose_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: BadDebtProposeRequest,
     db: Session = Depends(get_db),
@@ -59,6 +61,24 @@ def propose_route(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    # B1: bad-debt lifecycle moves real money toward write-off. Capture the
+    # proposer, the loan state at proposal time, and the reason length
+    # (never the reason text — it may contain customer-supplied PII).
+    write_audit(
+        db,
+        action_type="BAD_DEBT_PROPOSE",
+        target_table="bad_debt_proposals",
+        record_id=proposal.id,
+        user_id=current_user.id,
+        new_data={
+            "loan_id": str(loan.id),
+            "loan_number": loan.loan_number,
+            "loan_status_after": loan.status.value,
+            "auto_proposed": False,
+            "reason_length": len(payload.proposed_reason or ""),
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(proposal)
     return proposal
@@ -122,6 +142,7 @@ def get_one(
     summary="Approve or reject a bad-debt proposal (admin/super-admin)",
 )
 def review_route(
+    request: Request,
     proposal_id: uuid.UUID,
     payload: BadDebtReviewRequest,
     db: Session = Depends(get_db),
@@ -151,6 +172,8 @@ def review_route(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
 
+    old_proposal_status = proposal.status.value
+    old_loan_status = loan.status.value
     try:
         review_proposal(
             db,
@@ -164,6 +187,26 @@ def review_route(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    # B1: record who reviewed, the decision, and the resulting loan
+    # status. Review note length only (notes can contain customer PII).
+    write_audit(
+        db,
+        action_type="BAD_DEBT_REVIEW",
+        target_table="bad_debt_proposals",
+        record_id=proposal.id,
+        user_id=current_user.id,
+        old_data={
+            "proposal_status": old_proposal_status,
+            "loan_status": old_loan_status,
+        },
+        new_data={
+            "proposal_status": proposal.status.value,
+            "loan_status": loan.status.value,
+            "decision": payload.decision,
+            "review_notes_length": len(payload.review_notes or ""),
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(proposal)
     return proposal

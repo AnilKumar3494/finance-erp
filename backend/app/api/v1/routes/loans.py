@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -37,8 +37,31 @@ from app.services.loan import (
     update_loan,
 )
 from app.services.loan_closure import close_loan as close_loan_with_closure
+from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/loans", tags=["Loans"])
+
+
+# --------------------------------------------------
+# AUDIT helpers — one snapshot shape used by every loan-mutating route.
+# `principal` and friends are stringified so JSONB stays portable across
+# Decimal precisions (json.dumps(Decimal) chokes otherwise).
+# --------------------------------------------------
+def _loan_audit_snapshot(loan: Loan) -> dict:
+    return {
+        "loan_number": loan.loan_number,
+        "customer_id": str(loan.customer_id),
+        "vehicle_id": str(loan.vehicle_id) if loan.vehicle_id else None,
+        "principal": str(loan.principal),
+        "interest_rate": str(loan.interest_rate),
+        "tenure": loan.tenure,
+        "down_payment": str(loan.down_payment),
+        "processing_fee": str(loan.processing_fee),
+        "documentation_fee": str(loan.documentation_fee),
+        "penalty_rate": str(loan.penalty_rate) if loan.penalty_rate is not None else None,
+        "status": loan.status.value,
+        "approval_date": loan.approval_date.isoformat() if loan.approval_date else None,
+    }
 
 
 # --------------------------------------------------
@@ -117,6 +140,7 @@ def create_loan_route(
     summary="Approve a DRAFT loan: generate schedule, record down payment",
 )
 def approve_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: LoanApproveRequest,
     db: Session = Depends(get_db),
@@ -132,6 +156,8 @@ def approve_loan_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Only DRAFT loans can be approved; this loan is {loan.status.value}",
         )
+
+    before = _loan_audit_snapshot(loan)
     try:
         approved = approve_loan(
             db=db,
@@ -141,9 +167,28 @@ def approve_loan_route(
                 payload.down_payment_mode.value if payload.down_payment_mode else None
             ),
         )
-        return enrich_loan(approved)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    # L5: APPROVE is one of the highest-stakes admin actions — it
+    # generates the schedule and (if applicable) creates the DP transaction.
+    write_audit(
+        db,
+        action_type="LOAN_APPROVE",
+        target_table="loans",
+        record_id=approved.id,
+        user_id=current_user.id,
+        old_data=before,
+        new_data={
+            **_loan_audit_snapshot(approved),
+            "down_payment_mode": (
+                payload.down_payment_mode.value if payload.down_payment_mode else None
+            ),
+        },
+        request=request,
+    )
+    db.commit()
+    return enrich_loan(approved)
 
 
 # --------------------------------------------------
@@ -265,6 +310,7 @@ _EDITABLE_LOAN_STATUSES = {LoanStatus.DRAFT, LoanStatus.ACTIVE}
 
 @router.patch("/{loan_id}", response_model=LoanResponse, summary="Update loan details")
 def update_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: LoanUpdate,
     db: Session = Depends(get_db),
@@ -315,9 +361,23 @@ def update_loan_route(
             ),
         )
 
-    return enrich_loan(
-        update_loan(db=db, loan=loan, data=payload, updated_by=current_user.id)
+    before = _loan_audit_snapshot(loan)
+    updated = update_loan(db=db, loan=loan, data=payload, updated_by=current_user.id)
+
+    # L3: loan edits affect outstanding math when sensitive fields change;
+    # always audit the diff so a reviewer can see exactly what flipped.
+    write_audit(
+        db,
+        action_type="LOAN_UPDATE",
+        target_table="loans",
+        record_id=updated.id,
+        user_id=current_user.id,
+        old_data=before,
+        new_data={**_loan_audit_snapshot(updated), "fields_changed": sorted(requested)},
+        request=request,
     )
+    db.commit()
+    return enrich_loan(updated)
 
 
 # --------------------------------------------------
@@ -331,6 +391,7 @@ def update_loan_route(
     summary="Close a loan with full closure form (admin)",
 )
 def close_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: LoanCloseRequest,
     db: Session = Depends(get_db),
@@ -348,6 +409,7 @@ def close_loan_route(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
 
+    before = _loan_audit_snapshot(loan)
     try:
         closure = close_loan_with_closure(
             db=db, loan=loan, data=payload, closed_by=current_user.id
@@ -357,6 +419,32 @@ def close_loan_route(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+
+    # LC1: closure is the single most consequential admin action — write-off
+    # amounts, NOC issuance, refunds. Audit captures the closure terms so a
+    # later dispute has a clear record of who authorised what.
+    write_audit(
+        db,
+        action_type="LOAN_CLOSE",
+        target_table="loans",
+        record_id=loan.id,
+        user_id=current_user.id,
+        old_data=before,
+        new_data={
+            **_loan_audit_snapshot(loan),
+            "closure_id": str(closure.id),
+            "closure_type": closure.closure_type.value,
+            "outstanding_at_closure": str(closure.outstanding_at_closure),
+            "final_settlement_amount": str(closure.final_settlement_amount),
+            "amount_written_off": str(closure.amount_written_off),
+            "closing_charges": str(closure.closing_charges),
+            "charge_waived": closure.charge_waived,
+            "refund_due_to_customer": str(closure.refund_due_to_customer),
+            "noc_issued": closure.noc_issued,
+            "closure_date": closure.closure_date.isoformat(),
+        },
+        request=request,
+    )
 
     db.commit()
     db.refresh(closure)
@@ -380,6 +468,7 @@ def close_loan_route(
     "/{loan_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Soft delete a loan"
 )
 def delete_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -396,4 +485,18 @@ def delete_loan_route(
             detail="Cannot delete an ACTIVE loan. Close or mark as bad debt first.",
         )
 
+    snapshot = _loan_audit_snapshot(loan)
     soft_delete_loan(db=db, loan=loan, deleted_by=current_user.id)
+
+    # L4: soft-delete of a loan is structurally rare but high-impact —
+    # audit so an operator can answer "who removed this loan and when".
+    write_audit(
+        db,
+        action_type="LOAN_DELETE",
+        target_table="loans",
+        record_id=loan.id,
+        user_id=current_user.id,
+        old_data=snapshot,
+        request=request,
+    )
+    db.commit()
