@@ -86,7 +86,9 @@ def list_proposals(
         .limit(page_size)
         .all()
     )
-    return BadDebtProposalListResponse(total=total, proposals=results)
+    return BadDebtProposalListResponse(
+        total=total, page=page, page_size=page_size, results=results
+    )
 
 
 @review_router.get(

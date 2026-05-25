@@ -41,5 +41,10 @@ class BadDebtProposalResponse(BaseModel):
 
 
 class BadDebtProposalListResponse(BaseModel):
+    """Uniform paginated shape (G3) — `proposals` renamed to `results` so
+    every list endpoint shares one envelope."""
+
     total: int
-    proposals: list[BadDebtProposalResponse]
+    page: int = 1
+    page_size: int
+    results: list[BadDebtProposalResponse]

@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan
 from app.models.transaction import PunctualityStatus, Transaction
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.due_cycle import (
     CycleClassifyRequest,
     CycleClassifyResponse,
@@ -42,23 +42,9 @@ def _to_response(cycle: DueCycle) -> DueCycleResponse:
     return resp
 
 
-def _assert_loan_access(loan: Loan, current_user: User, db: Session) -> None:
-    """403 if an EMPLOYEE tries to read a cycle outside their assigned customers."""
-    if current_user.role == UserRole.EMPLOYEE:
-        cust = (
-            db.query(Customer)
-            .filter(
-                Customer.id == loan.customer_id,
-                Customer.assigned_employee_id == current_user.id,
-                Customer.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if not cust:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this cycle",
-            )
+# Centralized in app/dependencies/access.py — rebound here so existing
+# call sites in this file keep their local name.
+_assert_loan_access = assert_loan_access
 
 
 def _propagate_punctuality_to_transactions(
@@ -129,7 +115,9 @@ def list_for_loan(
     return DueCycleListResponse(
         loan_id=loan_id,
         total=len(cycles),
-        cycles=[_to_response(c) for c in cycles],
+        page=1,
+        page_size=len(cycles),
+        results=[_to_response(c) for c in cycles],
     )
 
 

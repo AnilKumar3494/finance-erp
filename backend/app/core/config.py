@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Throttle identity lookups (Aadhaar/PAN/mobile probes) to blunt
     # PII-enumeration attempts. IP-keyed.
     RATE_LIMIT_LOOKUP: str = "30/minute"
+    # Cap document upload volume per IP — protects S3 PUT spend and worker
+    # memory (each upload spools up to MAX_DOCUMENT_UPLOAD_BYTES).
+    RATE_LIMIT_UPLOAD: str = "20/minute"
 
     # --------------------------------------------------
     # PROXY / CLIENT IP
@@ -77,6 +80,24 @@ class Settings(BaseSettings):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/plain",
     }
+
+    # --------------------------------------------------
+    # CORS
+    # --------------------------------------------------
+    # Comma-separated list of origins allowed to call the API with
+    # credentials. Defaults to local dev so a fresh checkout works without
+    # extra env config; production deploys MUST set this explicitly
+    # (e.g. CORS_ORIGINS="https://app.example.com,https://admin.example.com").
+    # Wildcard "*" is intentionally NOT supported because allow_credentials=True
+    # is incompatible with wildcard origins under the CORS spec.
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000"
+    )
+
+    @computed_field
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # --------------------------------------------------
     # LOGGING

@@ -5,6 +5,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.core.config import settings
+from app.core.error_handlers import register_error_handlers
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import limiter
 from app.api.v1.routes import (
@@ -67,15 +69,21 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # --------------------------------------------------
-# CORS
+# GLOBAL ERROR ENVELOPE (G2 / G5)
+# Wraps HTTPException, RequestValidationError, SQLAlchemyError, and any
+# unhandled Exception into one consistent JSON shape for the frontend.
+# RateLimitExceeded is intentionally NOT in here — it has its own slowapi
+# handler above that preserves the retry-after header.
+# --------------------------------------------------
+register_error_handlers(app)
+
+# --------------------------------------------------
+# CORS — origin list comes from settings.CORS_ORIGINS (env-driven).
+# Local default covers dev; production deployments must override the env var.
 # --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # Frontend
-        "http://localhost:8000",  # Swagger UI via localhost
-        "http://127.0.0.1:8000",  # Swagger UI via 127.0.0.1
-    ],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -101,9 +109,64 @@ app.include_router(reports.router, prefix="/api/v1")
 
 
 # --------------------------------------------------
-# HEALTH CHECK
+# HEALTH / READINESS
+# --------------------------------------------------
+# `/health` is intentionally SHALLOW — process-is-up, useful for k8s
+# liveness probes that should NOT restart the pod just because the DB is
+# temporarily unreachable.
+#
+# `/readyz` is DEEP — verifies the dependencies the app actually needs to
+# serve requests (DB connectivity, S3 reachability). Use this for k8s
+# readiness probes and ALB target-group health checks.
 # --------------------------------------------------
 @app.get("/health", tags=["System"])
 def health_check():
-    """Quick endpoint to verify the API is running"""
+    """Liveness — process is up. Does not touch external systems."""
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/readyz", tags=["System"])
+def readiness_check():
+    """Readiness — DB + S3 reachable. Returns 503 if any dep is down.
+
+    Checks performed:
+      - `SELECT 1` against the configured Postgres instance.
+      - `head_bucket` against the configured S3 bucket. We don't validate
+        write permissions (an upload would be too expensive) but we DO
+        confirm the bucket exists and our IAM role can see it.
+    """
+    from fastapi import HTTPException
+    import logging as _logging
+
+    log = _logging.getLogger("readyz")
+    checks: dict[str, str] = {}
+
+    # --- DB
+    try:
+        from sqlalchemy import text
+        from app.core.db import engine
+
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as exc:  # noqa: BLE001 — probe must not crash
+        checks["db"] = "fail"
+        log.exception("readyz db check failed: %s", exc)
+
+    # --- S3
+    try:
+        from botocore.exceptions import ClientError
+        from app.utils.s3 import get_s3_client
+
+        get_s3_client().head_bucket(Bucket=settings.S3_BUCKET_NAME)
+        checks["s3"] = "ok"
+    except ClientError as exc:
+        checks["s3"] = "fail"
+        log.warning("readyz s3 check failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        checks["s3"] = "fail"
+        log.exception("readyz s3 check failed: %s", exc)
+
+    if any(v != "ok" for v in checks.values()):
+        raise HTTPException(status_code=503, detail={"status": "degraded", "checks": checks})
+    return {"status": "ok", "checks": checks}

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
 
 from app.models.user import User, UserRole
@@ -76,23 +77,11 @@ def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
     return response
 
 
-def _assert_loan_access(loan: "Loan", current_user: User, db: Session) -> None:
-    """Raise 403 if an employee tries to access a loan outside their assigned customers."""
-    if current_user.role == UserRole.EMPLOYEE:
-        customer = (
-            db.query(Customer)
-            .filter(
-                Customer.id == loan.customer_id,
-                Customer.assigned_employee_id == current_user.id,
-                Customer.is_deleted == False,
-            )
-            .first()
-        )
-        if not customer:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this loan",
-            )
+# `_assert_loan_access` lived here as a duplicate of helpers in three other
+# route files (transactions, due_cycles, personnel). It's now centralized
+# in app/dependencies/access.py — we re-bind the import-local name so
+# nothing inside this file's existing call sites had to change.
+_assert_loan_access = assert_loan_access
 
 
 # --------------------------------------------------

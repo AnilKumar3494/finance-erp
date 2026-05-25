@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.customer import Customer
 from app.models.loan import Loan
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.transaction import (
     LoanTransactionSummary,
     TransactionCreate,
@@ -33,15 +33,14 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
 
 # --------------------------------------------------
-# RBAC helper — fixes review item T1 (employees seeing/editing other employees' transactions)
+# RBAC helpers — wrap the centralized access dep so existing call sites
+# keep their familiar signatures (loan_id / transaction). The actual
+# rule (ADMIN sees all; EMPLOYEE only assigned-customer loans) lives in
+# app/dependencies/access.py.
 # --------------------------------------------------
 def _assert_loan_in_user_scope(
     db: Session, loan_id: uuid.UUID, current_user: User
 ) -> Loan:
-    """
-    Returns the loan if the current user is allowed to touch it, else 403.
-    EMPLOYEE users may only act on loans whose customer is assigned to them.
-    """
     loan = (
         db.query(Loan)
         .filter(Loan.id == loan_id, Loan.is_deleted.is_(False))
@@ -51,21 +50,7 @@ def _assert_loan_in_user_scope(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
-    if current_user.role == UserRole.EMPLOYEE:
-        cust = (
-            db.query(Customer)
-            .filter(
-                Customer.id == loan.customer_id,
-                Customer.assigned_employee_id == current_user.id,
-                Customer.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if cust is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this loan",
-            )
+    assert_loan_access(loan, current_user, db)
     return loan
 
 
