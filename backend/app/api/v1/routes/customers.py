@@ -205,25 +205,38 @@ def get_one(
 
 
 # --------------------------------------------------
-# UNMASK PII (Admin Only) — audited
+# UNMASK PII (Admin / assigned Employee) — audited
 # --------------------------------------------------
 @router.get(
     "/{customer_id}/unmask",
     response_model=CustomerUnmaskedPII,
-    summary="Get unmasked PII data (Admin Only)",
+    summary="Get unmasked PII data (Admin / assigned Employee)",
     dependencies=[Depends(no_store)],
 )
 def get_unmasked_pii(
     request: Request,
     customer_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # SECURITY: Admins only
+    current_user: User = Depends(get_current_user),
 ):
-    """Every unmask is recorded in audit_logs (NBFC compliance)."""
+    """Every unmask is recorded in audit_logs (NBFC compliance).
+
+    ADMIN / SUPER_ADMIN may unmask any customer; an EMPLOYEE may only
+    unmask a customer assigned to them.
+    """
     customer = get_customer(db, customer_id)
     if not customer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found"
+        )
+
+    if (
+        current_user.role == UserRole.EMPLOYEE
+        and customer.assigned_employee_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Customer not assigned to you.",
         )
 
     write_audit(

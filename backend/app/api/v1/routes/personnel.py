@@ -10,8 +10,10 @@ from app.core.rate_limit import limiter
 from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
 from app.dependencies.cache import no_store
+from app.models.customer import Customer
 from app.models.loan import Loan
-from app.models.user import User
+from app.models.personnel import LoanPersonnel
+from app.models.user import User, UserRole
 from app.schemas.personnel import (
     LoanPersonnelCreate,
     LoanPersonnelListResponse,
@@ -151,24 +153,49 @@ def get_one(
 
 
 # --------------------------------------------------
-# UNMASK PII (Admin Only) — audited
+# UNMASK PII (Admin / assigned Employee) — audited
 # --------------------------------------------------
 @personnel_router.get(
     "/{personnel_id}/unmask",
     response_model=PersonnelUnmaskedPII,
-    summary="Get unmasked Aadhaar/PAN for a person (Admin Only)",
+    summary="Get unmasked Aadhaar/PAN for a person (Admin / assigned Employee)",
     dependencies=[Depends(no_store)],
 )
 def get_unmasked_pii(
     request: Request,
     personnel_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # SECURITY: Admins only
+    current_user: User = Depends(get_current_user),
 ):
-    """Every unmask is recorded in audit_logs (NBFC compliance)."""
+    """Every unmask is recorded in audit_logs (NBFC compliance).
+
+    ADMIN / SUPER_ADMIN may unmask any personnel record; an EMPLOYEE may
+    only unmask a personnel record attached (via a loan) to a customer
+    assigned to them.
+    """
     person = get_personnel(db, personnel_id)
     if not person:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    if current_user.role == UserRole.EMPLOYEE:
+        has_access = (
+            db.query(LoanPersonnel.id)
+            .join(Loan, Loan.id == LoanPersonnel.loan_id)
+            .join(Customer, Customer.id == Loan.customer_id)
+            .filter(
+                LoanPersonnel.personnel_id == person.id,
+                LoanPersonnel.is_deleted == False,  # noqa: E712
+                Loan.is_deleted == False,  # noqa: E712
+                Customer.is_deleted == False,  # noqa: E712
+                Customer.assigned_employee_id == current_user.id,
+            )
+            .first()
+        )
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Personnel not linked to a customer assigned to you.",
+            )
 
     write_audit(
         db,
@@ -206,7 +233,10 @@ def update(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     try:
         return update_personnel(
-            db=db, person=person, data=payload, updated_by=current_user.id,
+            db=db,
+            person=person,
+            data=payload,
+            updated_by=current_user.id,
             request=request,
         )
     except ValueError as e:
@@ -270,7 +300,10 @@ def add_personnel_to_loan(
 
     try:
         return add_to_loan(
-            db=db, loan_id=loan_id, data=payload, created_by=current_user.id,
+            db=db,
+            loan_id=loan_id,
+            data=payload,
+            created_by=current_user.id,
             request=request,
         )
     except ValueError as e:
@@ -327,6 +360,4 @@ def remove_personnel_from_loan(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    remove_from_loan(
-        db=db, record=record, deleted_by=current_user.id, request=request
-    )
+    remove_from_loan(db=db, record=record, deleted_by=current_user.id, request=request)
