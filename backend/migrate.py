@@ -284,6 +284,21 @@ def cmd_apply(only_version: Optional[str] = None) -> int:
                     "applied, then re-run `migrate.py apply`."
                 )
                 return 2
+            # Selective --version on a fresh DB is unsafe: the runner would
+            # bootstrap an empty tracker, apply only the requested file, and
+            # leave the rest unrecorded. Migration 010 is the worst case —
+            # its own backfill would mark 001..009 as "applied" without any
+            # of those migrations ever running, hiding the drift forever.
+            # Force a full ordered apply on first run; --version is for
+            # post-bootstrap admin reapplies only.
+            if only_version is not None:
+                logger.error(
+                    "--version is not allowed on a fresh database "
+                    "(schema_migrations does not yet exist). Run "
+                    "`migrate.py apply` without --version first to "
+                    "bootstrap the tracker and apply migrations in order."
+                )
+                return 2
             logger.info("schema_migrations not present — bootstrapping")
             _bootstrap_tracker_table(conn)
 
