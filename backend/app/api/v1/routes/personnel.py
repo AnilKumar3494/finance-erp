@@ -7,11 +7,11 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
 from app.dependencies.cache import no_store
-from app.models.customer import Customer
 from app.models.loan import Loan
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.personnel import (
     LoanPersonnelCreate,
     LoanPersonnelListResponse,
@@ -39,20 +39,10 @@ personnel_router = APIRouter(prefix="/personnel", tags=["Personnel"])
 loan_personnel_router = APIRouter(prefix="/loans", tags=["Personnel"])
 
 
+# Centralized in app/dependencies/access.py. Existing call sites stay
+# as-is; only the implementation moves.
 def _ensure_loan_access(db: Session, loan: Loan, current_user: User) -> None:
-    """EMPLOYEEs may only touch loans whose customer is assigned to them."""
-    if current_user.role != UserRole.EMPLOYEE:
-        return
-    customer = (
-        db.query(Customer)
-        .filter(
-            Customer.id == loan.customer_id,
-            Customer.is_deleted == False,  # noqa: E712
-        )
-        .first()
-    )
-    if not customer or customer.assigned_employee_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    assert_loan_access(loan, current_user, db)
 
 
 # --------------------------------------------------
@@ -309,7 +299,12 @@ def list_personnel_for_loan(
     _ensure_loan_access(db, loan, current_user)
 
     results = list_loan_personnel(db, loan_id)
-    return LoanPersonnelListResponse(total=len(results), results=results)
+    return LoanPersonnelListResponse(
+        total=len(results),
+        page=1,
+        page_size=len(results),
+        results=results,
+    )
 
 
 # --------------------------------------------------

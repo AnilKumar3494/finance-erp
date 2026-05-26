@@ -1,10 +1,11 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
 
 from app.models.user import User, UserRole
@@ -38,6 +39,10 @@ from app.services.loan import (
 from app.services.loan_closure import close_loan as close_loan_with_closure
 
 router = APIRouter(prefix="/loans", tags=["Loans"])
+
+# Audit for every loan mutation lives inside the service layer — see
+# app/services/loan.py and app/services/loan_closure.py. Routes just pass
+# `request=request` through to the service.
 
 
 # --------------------------------------------------
@@ -76,23 +81,11 @@ def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
     return response
 
 
-def _assert_loan_access(loan: "Loan", current_user: User, db: Session) -> None:
-    """Raise 403 if an employee tries to access a loan outside their assigned customers."""
-    if current_user.role == UserRole.EMPLOYEE:
-        customer = (
-            db.query(Customer)
-            .filter(
-                Customer.id == loan.customer_id,
-                Customer.assigned_employee_id == current_user.id,
-                Customer.is_deleted == False,
-            )
-            .first()
-        )
-        if not customer:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this loan",
-            )
+# `_assert_loan_access` lived here as a duplicate of helpers in three other
+# route files (transactions, due_cycles, personnel). It's now centralized
+# in app/dependencies/access.py — we re-bind the import-local name so
+# nothing inside this file's existing call sites had to change.
+_assert_loan_access = assert_loan_access
 
 
 # --------------------------------------------------
@@ -128,6 +121,7 @@ def create_loan_route(
     summary="Approve a DRAFT loan: generate schedule, record down payment",
 )
 def approve_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: LoanApproveRequest,
     db: Session = Depends(get_db),
@@ -143,6 +137,7 @@ def approve_loan_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Only DRAFT loans can be approved; this loan is {loan.status.value}",
         )
+
     try:
         approved = approve_loan(
             db=db,
@@ -151,10 +146,12 @@ def approve_loan_route(
             down_payment_mode=(
                 payload.down_payment_mode.value if payload.down_payment_mode else None
             ),
+            request=request,
         )
-        return enrich_loan(approved)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    return enrich_loan(approved)
 
 
 # --------------------------------------------------
@@ -276,6 +273,7 @@ _EDITABLE_LOAN_STATUSES = {LoanStatus.DRAFT, LoanStatus.ACTIVE}
 
 @router.patch("/{loan_id}", response_model=LoanResponse, summary="Update loan details")
 def update_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: LoanUpdate,
     db: Session = Depends(get_db),
@@ -326,9 +324,14 @@ def update_loan_route(
             ),
         )
 
-    return enrich_loan(
-        update_loan(db=db, loan=loan, data=payload, updated_by=current_user.id)
+    updated = update_loan(
+        db=db,
+        loan=loan,
+        data=payload,
+        updated_by=current_user.id,
+        request=request,
     )
+    return enrich_loan(updated)
 
 
 # --------------------------------------------------
@@ -342,6 +345,7 @@ def update_loan_route(
     summary="Close a loan with full closure form (admin)",
 )
 def close_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     payload: LoanCloseRequest,
     db: Session = Depends(get_db),
@@ -361,7 +365,11 @@ def close_loan_route(
 
     try:
         closure = close_loan_with_closure(
-            db=db, loan=loan, data=payload, closed_by=current_user.id
+            db=db,
+            loan=loan,
+            data=payload,
+            closed_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         db.rollback()
@@ -391,6 +399,7 @@ def close_loan_route(
     "/{loan_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Soft delete a loan"
 )
 def delete_loan_route(
+    request: Request,
     loan_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -407,4 +416,6 @@ def delete_loan_route(
             detail="Cannot delete an ACTIVE loan. Close or mark as bad debt first.",
         )
 
-    soft_delete_loan(db=db, loan=loan, deleted_by=current_user.id)
+    soft_delete_loan(
+        db=db, loan=loan, deleted_by=current_user.id, request=request,
+    )

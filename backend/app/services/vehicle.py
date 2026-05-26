@@ -1,11 +1,22 @@
 import uuid
 from typing import Optional
 
+from fastapi import Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.vehicle import AssetStatus, AssetType, Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleUpdate
+from app.utils.audit import write_audit
+
+
+def _vehicle_audit_snapshot(v: Vehicle) -> dict:
+    return {
+        "plate_number": v.plate_number,
+        "chassis_number": v.chassis_number,
+        "type": v.type.value if v.type else None,
+        "status": v.status.value if v.status else None,
+    }
 
 
 # Constraint-name → user-facing message. Keeps the create/update error
@@ -133,7 +144,13 @@ def list_vehicles(
     return results, total
 
 
-def create_vehicle(db: Session, data: VehicleCreate, created_by: uuid.UUID) -> Vehicle:
+def create_vehicle(
+    db: Session,
+    data: VehicleCreate,
+    created_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
+) -> Vehicle:
     """Create a new vehicle"""
     vehicle = Vehicle(
         **data.model_dump(),
@@ -141,6 +158,16 @@ def create_vehicle(db: Session, data: VehicleCreate, created_by: uuid.UUID) -> V
     )
     db.add(vehicle)
     try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="VEHICLE_CREATE",
+            target_table="vehicles",
+            record_id=vehicle.id,
+            user_id=created_by,
+            new_data=_vehicle_audit_snapshot(vehicle),
+            request=request,
+        )
         db.commit()
         db.refresh(vehicle)
         return vehicle
@@ -150,7 +177,12 @@ def create_vehicle(db: Session, data: VehicleCreate, created_by: uuid.UUID) -> V
 
 
 def update_vehicle(
-    db: Session, vehicle: Vehicle, data: VehicleUpdate, updated_by: uuid.UUID
+    db: Session,
+    vehicle: Vehicle,
+    data: VehicleUpdate,
+    updated_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Vehicle:
     """Update only provided fields"""
     changes = data.model_dump(exclude_unset=True)
@@ -168,11 +200,23 @@ def update_vehicle(
                     f"Cannot mark {new_status.value} — vehicle backs an active loan"
                 )
 
+    before = _vehicle_audit_snapshot(vehicle)
     for field, value in changes.items():
         setattr(vehicle, field, value)
 
     vehicle.updated_by_id = updated_by
     try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="VEHICLE_UPDATE",
+            target_table="vehicles",
+            record_id=vehicle.id,
+            user_id=updated_by,
+            old_data=before,
+            new_data=_vehicle_audit_snapshot(vehicle),
+            request=request,
+        )
         db.commit()
         db.refresh(vehicle)
         return vehicle
@@ -182,7 +226,11 @@ def update_vehicle(
 
 
 def soft_delete_vehicle(
-    db: Session, vehicle: Vehicle, deleted_by: uuid.UUID
+    db: Session,
+    vehicle: Vehicle,
+    deleted_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Vehicle:
     """Soft delete — never hard delete"""
     # Local import keeps the import graph acyclic at module load time
@@ -192,14 +240,31 @@ def soft_delete_vehicle(
     if is_blocking_vehicle(db, vehicle.id):
         raise ValueError("Cannot delete vehicle — it is collateral for an active loan")
 
+    snapshot = _vehicle_audit_snapshot(vehicle)
     vehicle.soft_delete(by_id=deleted_by)
+    db.flush()
+    write_audit(
+        db,
+        action_type="VEHICLE_DELETE",
+        target_table="vehicles",
+        record_id=vehicle.id,
+        user_id=deleted_by,
+        old_data=snapshot,
+        request=request,
+    )
     db.commit()
     # Hydrate DB-side values (deleted_at, updated_at trigger) before returning.
     db.refresh(vehicle)
     return vehicle
 
 
-def restore_vehicle(db: Session, vehicle: Vehicle, restored_by: uuid.UUID) -> Vehicle:
+def restore_vehicle(
+    db: Session,
+    vehicle: Vehicle,
+    restored_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
+) -> Vehicle:
     """
     Reverse a soft-delete. Blocked if the plate is already in use by another
     active vehicle (would violate uq_vehicles_plate_number_active).
@@ -222,6 +287,16 @@ def restore_vehicle(db: Session, vehicle: Vehicle, restored_by: uuid.UUID) -> Ve
         )
 
     vehicle.restore(by_id=restored_by)
+    db.flush()
+    write_audit(
+        db,
+        action_type="VEHICLE_RESTORE",
+        target_table="vehicles",
+        record_id=vehicle.id,
+        user_id=restored_by,
+        new_data=_vehicle_audit_snapshot(vehicle),
+        request=request,
+    )
     db.commit()
     db.refresh(vehicle)
     return vehicle

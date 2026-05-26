@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
+from fastapi import Request
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,6 +23,25 @@ from app.models.user import UserRole
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
 from app.services.due_cycle import find_target_cycle_for_payment
 from app.services.finance import total_payable as calc_total_payable
+from app.utils.audit import write_audit
+
+
+def _txn_audit_snapshot(t: Transaction) -> dict:
+    """Money record — `amount` is part of the audit on purpose. `notes`
+    is free text and may contain customer-supplied strings; excluded."""
+    return {
+        "loan_id": str(t.loan_id),
+        "amount": str(t.amount),
+        "payment_mode": t.payment_mode.value if t.payment_mode else None,
+        "status": t.status.value,
+        "transaction_type": t.transaction_type.value,
+        "punctuality_status": t.punctuality_status.value,
+        "effective_payment_date": (
+            t.effective_payment_date.isoformat() if t.effective_payment_date else None
+        ),
+        "due_cycle_id": str(t.due_cycle_id) if t.due_cycle_id else None,
+        "collected_by_id": str(t.collected_by_id) if t.collected_by_id else None,
+    }
 
 
 # --------------------------------------------------
@@ -210,7 +230,11 @@ def resolve_due_cycle_for_payment(
 # CREATE
 # --------------------------------------------------
 def create_transaction(
-    db: Session, data: TransactionCreate, created_by: uuid.UUID
+    db: Session,
+    data: TransactionCreate,
+    created_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Transaction:
     """
     Record a payment against a loan.
@@ -297,6 +321,16 @@ def create_transaction(
     )
     db.add(transaction)
     try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="TRANSACTION_CREATE",
+            target_table="transactions",
+            record_id=transaction.id,
+            user_id=created_by,
+            new_data=_txn_audit_snapshot(transaction),
+            request=request,
+        )
         db.commit()
         db.refresh(transaction)
         # PENDING transactions don't change cycle.total_received yet — that
@@ -323,7 +357,11 @@ def create_transaction(
 # CONFIRM
 # --------------------------------------------------
 def confirm_transaction(
-    db: Session, transaction: Transaction, updated_by: uuid.UUID
+    db: Session,
+    transaction: Transaction,
+    updated_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Transaction:
     """
     Mark a PENDING transaction as SUCCESS.
@@ -331,6 +369,8 @@ def confirm_transaction(
     """
     if transaction.status != TransactionStatus.PENDING:
         raise ValueError(f"Transaction is already {transaction.status.value}")
+
+    before = _txn_audit_snapshot(transaction)
 
     # --- Lock loan and re-validate outstanding ---
     loan = (
@@ -378,6 +418,16 @@ def confirm_transaction(
         loan.status = LoanStatus.AWAITING_CLOSURE
         loan.updated_by_id = updated_by
 
+    write_audit(
+        db,
+        action_type="TRANSACTION_CONFIRM",
+        target_table="transactions",
+        record_id=transaction.id,
+        user_id=updated_by,
+        old_data=before,
+        new_data=_txn_audit_snapshot(transaction),
+        request=request,
+    )
     db.commit()
     db.refresh(transaction)
 
@@ -392,15 +442,32 @@ def fail_transaction(
     transaction: Transaction,
     updated_by: uuid.UUID,
     reason: Optional[str] = None,
+    *,
+    request: Optional[Request] = None,
 ) -> Transaction:
     """Mark a PENDING transaction as FAILED (e.g. bounced cheque, failed UPI)"""
     if transaction.status != TransactionStatus.PENDING:
         raise ValueError(f"Transaction is already {transaction.status.value}")
 
+    before = _txn_audit_snapshot(transaction)
     transaction.status = TransactionStatus.FAILED
     transaction.updated_by_id = updated_by
     if reason:
         transaction.notes = f"{transaction.notes or ''} | FAILED: {reason}".strip(" |")
+    db.flush()
+    write_audit(
+        db,
+        action_type="TRANSACTION_FAIL",
+        target_table="transactions",
+        record_id=transaction.id,
+        user_id=updated_by,
+        old_data=before,
+        new_data={
+            **_txn_audit_snapshot(transaction),
+            "fail_reason_provided": reason is not None,
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(transaction)
     return transaction
@@ -414,14 +481,28 @@ def update_transaction(
     transaction: Transaction,
     data: TransactionUpdate,
     updated_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Transaction:
     """Update transaction notes only. Status changes go through /confirm or /fail."""
     if transaction.status == TransactionStatus.SUCCESS:
         raise ValueError("Cannot modify a confirmed transaction")
 
+    before = {"had_notes": transaction.notes is not None}
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(transaction, field, value)
     transaction.updated_by_id = updated_by
+    db.flush()
+    write_audit(
+        db,
+        action_type="TRANSACTION_UPDATE",
+        target_table="transactions",
+        record_id=transaction.id,
+        user_id=updated_by,
+        old_data=before,
+        new_data={"has_notes": transaction.notes is not None},
+        request=request,
+    )
     db.commit()
     db.refresh(transaction)
     return transaction
@@ -431,7 +512,11 @@ def update_transaction(
 # SOFT DELETE
 # --------------------------------------------------
 def soft_delete_transaction(
-    db: Session, transaction: Transaction, deleted_by: uuid.UUID
+    db: Session,
+    transaction: Transaction,
+    deleted_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Transaction:
     """Soft delete — only allowed for FAILED transactions."""
     if transaction.status == TransactionStatus.SUCCESS:
@@ -446,7 +531,18 @@ def soft_delete_transaction(
             "Mark it as failed first, then delete."
         )
 
+    snapshot = _txn_audit_snapshot(transaction)
     # Use AuditBase.soft_delete so deleted_by_id is also set (review item T5).
     transaction.soft_delete(deleted_by)
+    db.flush()
+    write_audit(
+        db,
+        action_type="TRANSACTION_DELETE",
+        target_table="transactions",
+        record_id=transaction.id,
+        user_id=deleted_by,
+        old_data=snapshot,
+        request=request,
+    )
     db.commit()
     return transaction

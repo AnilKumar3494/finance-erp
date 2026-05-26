@@ -389,10 +389,22 @@ def change_role(
         # No-op: nothing to change, nothing to audit.
         return target
 
-    return change_user_role(
-        db,
-        target,
-        payload.role,
-        actor_id=current_super_admin.id,
-        request=request,
-    )
+    # A2: the schema (RoleChangeRequest._no_super_admin) already rejects
+    # `role=SUPER_ADMIN` at the boundary with a 422, and the service
+    # (change_user_role) has a defense-in-depth check that raises
+    # ValueError for the same case. We catch that ValueError here so a
+    # service-to-service call that bypassed the schema doesn't surface
+    # as a 500. Empirically unreachable via HTTP, but keeps the route
+    # contract honest.
+    try:
+        return change_user_role(
+            db,
+            target,
+            payload.role,
+            actor_id=current_super_admin.id,
+            request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )

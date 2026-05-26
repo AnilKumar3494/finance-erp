@@ -156,7 +156,13 @@ class LoanPersonnelResponse(BaseModel):
 
 
 class LoanPersonnelListResponse(BaseModel):
+    """Uniform paginated shape (G3) — `page` / `page_size` are dummy when
+    this endpoint isn't paginated, but their presence keeps the frontend
+    table component on a single render path."""
+
     total: int
+    page: int = 1
+    page_size: int
     results: list[LoanPersonnelResponse]
 
 

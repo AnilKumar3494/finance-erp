@@ -1,41 +1,32 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import loan_for_user
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.loan import Loan
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.stability_document import (
     StabilityDocumentCreate,
     StabilityDocumentListResponse,
     StabilityDocumentResponse,
+    StabilityDocumentUpdate,
 )
 from app.services.stability_document import (
     create_stability_document,
     delete_stability_document,
     get_stability_document,
     list_stability_documents,
+    update_stability_document,
 )
 
 router = APIRouter(prefix="/loans", tags=["Stability Documents"])
 
-
-def _get_loan_with_access_check(
-    loan_id: uuid.UUID, db: Session, current_user: User
-) -> Loan:
-    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
-    if not loan:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
-        )
-    if current_user.role == UserRole.EMPLOYEE:
-        from app.models.customer import Customer
-        customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
-        if not customer or customer.assigned_employee_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    return loan
+# NOTE on audit: the service layer writes the audit row inside the same
+# transaction as the mutation (see app/services/stability_document.py).
+# Route handlers no longer call write_audit themselves.
 
 
 # --------------------------------------------------
@@ -48,18 +39,23 @@ def _get_loan_with_access_check(
     summary="Add a stability verification document to a loan",
 )
 def create(
-    loan_id: uuid.UUID,
+    request: Request,
     payload: StabilityDocumentCreate,
+    loan: Loan = Depends(loan_for_user),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _get_loan_with_access_check(loan_id, db, current_user)
     try:
-        return create_stability_document(
-            db=db, loan_id=loan_id, data=payload, created_by=current_user.id
+        doc = create_stability_document(
+            db=db,
+            loan_id=loan.id,
+            data=payload,
+            created_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    return StabilityDocumentResponse.model_validate(doc)
 
 
 # --------------------------------------------------
@@ -71,13 +67,46 @@ def create(
     summary="List all stability documents for a loan",
 )
 def list_all(
-    loan_id: uuid.UUID,
+    loan: Loan = Depends(loan_for_user),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    _get_loan_with_access_check(loan_id, db, current_user)
-    results = list_stability_documents(db, loan_id)
-    return StabilityDocumentListResponse(total=len(results), results=results)
+    results = list_stability_documents(db, loan.id)
+    return StabilityDocumentListResponse(
+        total=len(results),
+        page=1,
+        page_size=len(results),
+        results=[StabilityDocumentResponse.model_validate(r) for r in results],
+    )
+
+
+# --------------------------------------------------
+# UPDATE (Admin only)
+# --------------------------------------------------
+@router.patch(
+    "/{loan_id}/stability-docs/{doc_id}",
+    response_model=StabilityDocumentResponse,
+    summary="Update description / cheque_count on a stability document",
+)
+def update(
+    request: Request,
+    doc_id: uuid.UUID,
+    payload: StabilityDocumentUpdate,
+    loan: Loan = Depends(loan_for_user),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    doc = get_stability_document(db, doc_id)
+    if not doc or doc.loan_id != loan.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    try:
+        updated = update_stability_document(
+            db, doc, payload, updated_by=current_user.id, request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    return StabilityDocumentResponse.model_validate(updated)
 
 
 # --------------------------------------------------
@@ -89,12 +118,16 @@ def list_all(
     summary="Soft delete a stability document",
 )
 def delete(
-    loan_id: uuid.UUID,
+    request: Request,
     doc_id: uuid.UUID,
+    loan: Loan = Depends(loan_for_user),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     doc = get_stability_document(db, doc_id)
-    if not doc or doc.loan_id != loan_id:
+    if not doc or doc.loan_id != loan.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    delete_stability_document(db=db, doc=doc, deleted_by=current_user.id)
+
+    delete_stability_document(
+        db=db, doc=doc, deleted_by=current_user.id, request=request,
+    )

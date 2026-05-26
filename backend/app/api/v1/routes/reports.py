@@ -109,17 +109,51 @@ def _scope_to_employee(current_user: User):
     summary="Customer stats with outstanding balances (paginated)",
 )
 def customer_report(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_report_access),
 ):
-    return get_customer_report(
+    scope = _scope_to_employee(current_user)
+    report = get_customer_report(
         db,
         page=page,
         page_size=page_size,
-        assigned_employee_id=_scope_to_employee(current_user),
+        assigned_employee_id=scope,
     )
+
+    # R1: the JSON listing of customer rows is the same PII surface the
+    # CSV export streams — auditing only the CSV path made the JSON view
+    # an unaudited PII-pull lane. We log structural facts only (count,
+    # page, scope) — never the rows themselves, which contain customer
+    # names + masked PII.
+    #
+    # Audit goes through the SAVEPOINT helper, so a write failure can't
+    # break the report response.
+    rows_on_page = (
+        len(report.get("results", [])) if isinstance(report, dict) else 0
+    )
+    total_eligible = (
+        report.get("total_customers") if isinstance(report, dict) else None
+    )
+    write_audit(
+        db,
+        action_type="CUSTOMER_REPORT_VIEW",
+        target_table="customers",
+        user_id=current_user.id,
+        new_data={
+            "row_count_on_page": rows_on_page,
+            "total_eligible": total_eligible,
+            "page": page,
+            "page_size": page_size,
+            "format": "json",
+            "scope": "self" if scope is not None else "all",
+        },
+        request=request,
+    )
+    db.commit()
+    return report
 
 
 # --------------------------------------------------

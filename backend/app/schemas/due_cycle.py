@@ -115,6 +115,13 @@ class CycleClassifyResponse(BaseModel):
 # RESPONSE — list of cycles for a loan
 # --------------------------------------------------
 class DueCycleListResponse(BaseModel):
+    """Uniform list shape (G3). `loan_id` retained because callers often
+    fan this out in the UI alongside other per-loan blocks and it's free
+    on the server. `cycles` is renamed to `results` to match every other
+    list endpoint in the API."""
+
     loan_id: uuid.UUID
     total: int
-    cycles: list[DueCycleResponse]
+    page: int = 1
+    page_size: int
+    results: list[DueCycleResponse]

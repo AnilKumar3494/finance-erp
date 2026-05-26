@@ -123,16 +123,6 @@ def get_customer(db: Session, customer_id: uuid.UUID) -> Optional[Customer]:
     )
 
 
-def get_customer_by_mobile(db: Session, mobile: str) -> Optional[Customer]:
-    return (
-        db.query(Customer)
-        .filter(
-            Customer.mobile_number == mobile, Customer.is_deleted == False
-        )  # noqa: E712
-        .first()
-    )
-
-
 def get_customer_by_idempotency_key(
     db: Session, key: str, created_by: uuid.UUID
 ) -> Optional[Customer]:

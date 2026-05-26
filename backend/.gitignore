@@ -21,4 +21,8 @@ Thumbs.db
 pyrightconfig.json
 seed.py
 
-migrations
+# Migration SQL files are tracked (see backend/migrate.py).
+# Only the schema-dump build artifacts stay ignored.
+migrations/inspect.sql
+migrations/inspect_output.txt
+migrations/*_test_output.md

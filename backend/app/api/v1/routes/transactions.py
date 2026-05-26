@@ -1,15 +1,15 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.customer import Customer
 from app.models.loan import Loan
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.transaction import (
     LoanTransactionSummary,
     TransactionCreate,
@@ -31,17 +31,12 @@ from app.services.transaction import (
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
+# Audit lives in the service layer — see app/services/transaction.py.
 
-# --------------------------------------------------
-# RBAC helper — fixes review item T1 (employees seeing/editing other employees' transactions)
-# --------------------------------------------------
+
 def _assert_loan_in_user_scope(
     db: Session, loan_id: uuid.UUID, current_user: User
 ) -> Loan:
-    """
-    Returns the loan if the current user is allowed to touch it, else 403.
-    EMPLOYEE users may only act on loans whose customer is assigned to them.
-    """
     loan = (
         db.query(Loan)
         .filter(Loan.id == loan_id, Loan.is_deleted.is_(False))
@@ -51,28 +46,13 @@ def _assert_loan_in_user_scope(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
-    if current_user.role == UserRole.EMPLOYEE:
-        cust = (
-            db.query(Customer)
-            .filter(
-                Customer.id == loan.customer_id,
-                Customer.assigned_employee_id == current_user.id,
-                Customer.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if cust is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this loan",
-            )
+    assert_loan_access(loan, current_user, db)
     return loan
 
 
 def _assert_transaction_in_user_scope(
     db: Session, transaction: Transaction, current_user: User
 ) -> None:
-    """Block employees from reading/touching transactions outside their scope."""
     _assert_loan_in_user_scope(db, transaction.loan_id, current_user)
 
 
@@ -86,14 +66,16 @@ def _assert_transaction_in_user_scope(
     summary="Record a new payment",
 )
 def create_transaction_route(
+    request: Request,
     payload: TransactionCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # T1 fix: employees can only create transactions for their assigned customers' loans.
     _assert_loan_in_user_scope(db, payload.loan_id, current_user)
     try:
-        return create_transaction(db=db, data=payload, created_by=current_user.id)
+        return create_transaction(
+            db=db, data=payload, created_by=current_user.id, request=request,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -152,7 +134,6 @@ def get_one(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-    # T1 fix: 403 for employees reading transactions outside their scope.
     _assert_transaction_in_user_scope(db, transaction, current_user)
     return transaction
 
@@ -170,7 +151,6 @@ def loan_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # T1 fix: 403 for employees reading summaries outside their scope.
     loan = _assert_loan_in_user_scope(db, loan_id, current_user)
     return get_loan_transaction_summary(db, loan)
 
@@ -184,6 +164,7 @@ def loan_summary(
     summary="Confirm a pending transaction",
 )
 def confirm_transaction_route(
+    request: Request,
     transaction_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -195,7 +176,10 @@ def confirm_transaction_route(
         )
     try:
         return confirm_transaction(
-            db=db, transaction=transaction, updated_by=current_user.id
+            db=db,
+            transaction=transaction,
+            updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -210,6 +194,7 @@ def confirm_transaction_route(
     summary="Mark a pending transaction as failed",
 )
 def fail_transaction_route(
+    request: Request,
     transaction_id: uuid.UUID,
     reason: Optional[str] = Query(None, max_length=500),
     db: Session = Depends(get_db),
@@ -222,7 +207,11 @@ def fail_transaction_route(
         )
     try:
         return fail_transaction(
-            db=db, transaction=transaction, updated_by=current_user.id, reason=reason
+            db=db,
+            transaction=transaction,
+            updated_by=current_user.id,
+            reason=reason,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -237,6 +226,7 @@ def fail_transaction_route(
     summary="Update transaction notes",
 )
 def update_transaction_route(
+    request: Request,
     transaction_id: uuid.UUID,
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
@@ -249,7 +239,11 @@ def update_transaction_route(
         )
     try:
         return update_transaction(
-            db=db, transaction=transaction, data=payload, updated_by=current_user.id
+            db=db,
+            transaction=transaction,
+            data=payload,
+            updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -264,6 +258,7 @@ def update_transaction_route(
     summary="Soft delete a transaction (FAILED only)",
 )
 def delete_transaction_route(
+    request: Request,
     transaction_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -275,7 +270,10 @@ def delete_transaction_route(
         )
     try:
         soft_delete_transaction(
-            db=db, transaction=transaction, deleted_by=current_user.id
+            db=db,
+            transaction=transaction,
+            deleted_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

@@ -19,7 +19,6 @@ from app.services.customer import (
     create_customer,
     get_customer,
     get_customer_by_idempotency_key,
-    get_customer_by_mobile,
     list_customers,
     soft_delete_customer,
     update_customer,
@@ -29,7 +28,18 @@ from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
-_PRIVILEGED = (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+# C1: removed unused `_PRIVILEGED` constant. It was defined here but never
+# referenced; the role gates use `current_user.role == UserRole.EMPLOYEE`
+# (allowlist of one) and `require_admin`. Keeping a dead privileged-roles
+# tuple in scope would invite the wrong import the next time someone
+# needs a multi-role check.
+#
+# C3: removed the redundant `get_customer_by_mobile` pre-check on create.
+# The DB enforces mobile uniqueness via `customers_mobile_number_key`,
+# and the service translates the resulting IntegrityError via
+# `safe_integrity_message` into a 409. The pre-check did not close any
+# race (another request could insert between the SELECT and the INSERT),
+# it just added a round-trip and an inconsistent error message.
 
 
 # --------------------------------------------------
@@ -106,14 +116,13 @@ def create(
                         "request payload."
                     ),
                 )
-            existing.assigned_employee_name = None
+            # C2: previously this branch did `existing.assigned_employee_name = None`,
+            # mutating a non-column attribute on the ORM instance. The
+            # response schema declares the field as Optional[str] with a
+            # default of None, and `from_attributes` falls back to the
+            # default when the attribute is missing — the explicit set was
+            # unnecessary and obscured intent. Just return the row.
             return existing
-
-    if get_customer_by_mobile(db, payload.mobile_number):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Mobile number already registered",
-        )
 
     try:
         return create_customer(

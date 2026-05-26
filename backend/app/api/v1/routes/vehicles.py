@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -10,6 +10,8 @@ from app.models.user import User, UserRole
 from app.models.vehicle import AssetStatus, AssetType
 from app.models.loan import LoanStatus
 from app.models.document import DocCategory
+
+# Audit lives in the service layer — see app/services/vehicle.py.
 from app.schemas.vehicle import (
     VehicleCreate,
     VehicleListResponse,
@@ -48,6 +50,7 @@ router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
     summary="Add a new vehicle",
 )
 def create_vehicle_route(
+    request: Request,
     payload: VehicleCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # Admin only
@@ -65,7 +68,9 @@ def create_vehicle_route(
         )
 
     try:
-        return create_vehicle(db=db, data=payload, created_by=current_user.id)
+        return create_vehicle(
+            db=db, data=payload, created_by=current_user.id, request=request,
+        )
     except ValueError as e:
         # Race-condition fallback: pre-checks above passed but the DB unique
         # constraint still fired. Surface the precise message from the service.
@@ -123,6 +128,7 @@ def get_one(
     "/{vehicle_id}", response_model=VehicleResponse, summary="Update vehicle details"
 )
 def update_vehicle_route(
+    request: Request,
     vehicle_id: uuid.UUID,
     payload: VehicleUpdate,
     db: Session = Depends(get_db),
@@ -146,7 +152,11 @@ def update_vehicle_route(
 
     try:
         return update_vehicle(
-            db=db, vehicle=vehicle, data=payload, updated_by=current_user.id
+            db=db,
+            vehicle=vehicle,
+            data=payload,
+            updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
@@ -161,6 +171,7 @@ def update_vehicle_route(
     summary="Soft delete a vehicle",
 )
 def delete_vehicle_route(
+    request: Request,
     vehicle_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # Admin only
@@ -171,7 +182,12 @@ def delete_vehicle_route(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
         )
     try:
-        soft_delete_vehicle(db=db, vehicle=vehicle, deleted_by=current_user.id)
+        soft_delete_vehicle(
+            db=db,
+            vehicle=vehicle,
+            deleted_by=current_user.id,
+            request=request,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -185,6 +201,7 @@ def delete_vehicle_route(
     summary="Restore a soft-deleted vehicle",
 )
 def restore_vehicle_route(
+    request: Request,
     vehicle_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),  # Admin only
@@ -198,7 +215,10 @@ def restore_vehicle_route(
         )
     try:
         return restore_vehicle(
-            db=db, vehicle=vehicle, restored_by=current_user.id
+            db=db,
+            vehicle=vehicle,
+            restored_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

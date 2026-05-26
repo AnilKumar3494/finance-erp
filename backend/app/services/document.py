@@ -1,20 +1,22 @@
 import hashlib
 import logging
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from botocore.exceptions import ClientError
+from fastapi import Request
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.customer import Customer
 from app.models.document import DocCategory, Document
-from app.models.user import User, UserRole
 from app.models.loan import Loan
 from app.models.transaction import Transaction
+from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
+from app.utils.audit import write_audit
+from app.utils.db_errors import safe_integrity_message
 from app.utils.s3 import (
     archive_file_in_s3,
     delete_file_from_s3,
@@ -24,20 +26,176 @@ from app.utils.s3 import (
 
 logger = logging.getLogger(__name__)
 
-# Prefix constants
+# Prefix constants — single source of truth for S3 layout.
 ACTIVE_PREFIX = "customers/"
 ARCHIVE_PREFIX = "archives/"
+
+# doc_types that REQUIRE a vehicle link and forbid loan/transaction links.
+_VEHICLE_LINKED = frozenset(
+    {
+        DocCategory.VEHICLE_IMAGE,
+        DocCategory.RC_COPY,
+        DocCategory.INSURANCE_POLICY,
+        DocCategory.VEHICLE_PHOTO,
+    }
+)
+
+# doc_types that REQUIRE a loan link.
+_LOAN_LINKED = frozenset(
+    {DocCategory.LOAN_AGREEMENT, DocCategory.STABILITY_DOC}
+)
+
+# doc_types that must be UNLINKED to loan/transaction/vehicle.
+_UNLINKED = frozenset(
+    {DocCategory.KYC, DocCategory.IDENTITY_PROOF, DocCategory.ARCHIVE}
+)
+
+
+# --------------------------------------------------
+# LINK VALIDATION — single source of truth for every doc_type
+# --------------------------------------------------
+def _validate_links(
+    db: Session,
+    *,
+    doc_type: DocCategory,
+    customer_id: uuid.UUID,
+    loan_id: Optional[uuid.UUID],
+    transaction_id: Optional[uuid.UUID],
+    vehicle_id: Optional[uuid.UUID],
+) -> None:
+    """Verify the (loan_id, transaction_id, vehicle_id) tuple is consistent
+    with doc_type, and that each referenced row exists and belongs to the
+    customer. Raises ValueError on any mismatch — caller maps to 400.
+
+    Mirrors the DB CHECK `ck_documents_type_link_consistency` so violations
+    surface as a clean validation error instead of a generic IntegrityError
+    that gets misreported as a duplicate.
+    """
+    # --- LOAN_AGREEMENT / STABILITY_DOC: require loan_id, forbid txn/vehicle.
+    if doc_type in _LOAN_LINKED:
+        if not loan_id:
+            raise ValueError(
+                f"loan_id is required for {doc_type.value} documents"
+            )
+        if transaction_id or vehicle_id:
+            raise ValueError(
+                f"{doc_type.value} documents must not have "
+                "transaction_id or vehicle_id"
+            )
+        loan = (
+            db.query(Loan)
+            .filter(
+                Loan.id == loan_id,
+                Loan.customer_id == customer_id,
+                Loan.is_deleted == False,  # noqa: E712
+            )
+            .first()
+        )
+        if not loan:
+            raise ValueError("Loan not found or does not belong to this customer")
+        return
+
+    # --- RECEIPT: require transaction_id (which must belong to a loan of
+    # this customer), forbid loan_id/vehicle_id.
+    if doc_type == DocCategory.RECEIPT:
+        if not transaction_id:
+            raise ValueError("transaction_id is required for RECEIPT documents")
+        if loan_id or vehicle_id:
+            raise ValueError(
+                "RECEIPT documents must not have loan_id or vehicle_id"
+            )
+        txn = (
+            db.query(Transaction)
+            .join(Loan, Loan.id == Transaction.loan_id)
+            .filter(
+                Transaction.id == transaction_id,
+                Loan.customer_id == customer_id,
+                Transaction.is_deleted == False,  # noqa: E712
+            )
+            .first()
+        )
+        if not txn:
+            raise ValueError(
+                "Transaction not found or does not belong to this customer"
+            )
+        return
+
+    # --- Vehicle docs: require vehicle_id, forbid loan/transaction.
+    # Vehicles have no direct customer ownership — they're collateral and
+    # belong to a customer transitively, via loans.vehicle_id. Without
+    # this cross-check the vehicle-doc lane is a cross-tenant leak:
+    # customer A could upload an RC scan for a vehicle backing customer
+    # B's loan. Require an active, non-deleted loan that pairs the
+    # provided vehicle_id with customer_id.
+    if doc_type in _VEHICLE_LINKED:
+        if not vehicle_id:
+            raise ValueError(
+                f"vehicle_id is required for {doc_type.value} documents"
+            )
+        if loan_id or transaction_id:
+            raise ValueError(
+                f"{doc_type.value} documents must not have "
+                "loan_id or transaction_id"
+            )
+        vehicle = (
+            db.query(Vehicle)
+            .filter(
+                Vehicle.id == vehicle_id,
+                Vehicle.is_deleted == False,  # noqa: E712
+            )
+            .first()
+        )
+        if not vehicle:
+            raise ValueError("Vehicle not found")
+
+        # Cross-tenant guard: a vehicle is only "this customer's" if there
+        # is a non-deleted loan tying them together. This includes loans
+        # in any status (DRAFT through CLOSED) so a customer can upload
+        # the RC for a vehicle on a closed loan — historical access is
+        # legitimate. Deleted loans don't count.
+        owns_via_loan = (
+            db.query(Loan.id)
+            .filter(
+                Loan.customer_id == customer_id,
+                Loan.vehicle_id == vehicle_id,
+                Loan.is_deleted == False,  # noqa: E712
+            )
+            .first()
+            is not None
+        )
+        if not owns_via_loan:
+            raise ValueError(
+                "Vehicle is not associated with this customer "
+                "(no active loan pairs them)."
+            )
+        return
+
+    # --- KYC / IDENTITY_PROOF / ARCHIVE: must not link to anything.
+    if doc_type in _UNLINKED:
+        if loan_id or transaction_id or vehicle_id:
+            raise ValueError(
+                f"{doc_type.value} documents must not have "
+                "loan_id, transaction_id, or vehicle_id"
+            )
+        return
+
+    # Safety net: any future enum value will land here loudly instead of
+    # silently slipping past validation into the DB CHECK.
+    raise ValueError(f"Unsupported doc_type: {doc_type.value}")
 
 
 # --------------------------------------------------
 # READ HELPERS
 # --------------------------------------------------
 def get_document(db: Session, document_id: uuid.UUID) -> Optional[Document]:
-    """Fetch single active document by ID, eager-load uploader."""
+    """Fetch single active document by ID, eager-load uploader + customer."""
     return (
         db.query(Document)
-        .options(joinedload(Document.uploaded_by))
-        .filter(Document.id == document_id, Document.is_deleted == False)
+        .options(
+            joinedload(Document.uploaded_by),
+            joinedload(Document.customer),
+        )
+        .filter(Document.id == document_id, Document.is_deleted == False)  # noqa: E712
         .first()
     )
 
@@ -48,7 +206,10 @@ def get_document_including_deleted(
     """Used by restore — fetch even if soft-deleted."""
     return (
         db.query(Document)
-        .options(joinedload(Document.uploaded_by))
+        .options(
+            joinedload(Document.uploaded_by),
+            joinedload(Document.customer),
+        )
         .filter(Document.id == document_id)
         .first()
     )
@@ -59,20 +220,20 @@ def list_documents(
     requesting_user: User,
     customer_id: Optional[uuid.UUID] = None,
     doc_type: Optional[DocCategory] = None,
-    vehicle_id: Optional[uuid.UUID] = None,
     loan_id: Optional[uuid.UUID] = None,
+    vehicle_id: Optional[uuid.UUID] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Document], int]:
     """
     ADMIN/SUPER_ADMIN → sees all documents
     EMPLOYEE → only sees documents of their assigned customers
-    Eager-loads uploader to avoid N+1. Resolves §2.1.
+    Eager-loads uploader to avoid N+1.
     """
     query = (
         db.query(Document)
         .options(joinedload(Document.uploaded_by))
-        .filter(Document.is_deleted == False)
+        .filter(Document.is_deleted == False)  # noqa: E712
     )
 
     if requesting_user.role == UserRole.EMPLOYEE:
@@ -82,15 +243,12 @@ def list_documents(
 
     if customer_id:
         query = query.filter(Document.customer_id == customer_id)
-
     if doc_type:
         query = query.filter(Document.doc_type == doc_type)
-
-    if vehicle_id:
-        query = query.filter(Document.vehicle_id == vehicle_id)
-
     if loan_id:
         query = query.filter(Document.loan_id == loan_id)
+    if vehicle_id:
+        query = query.filter(Document.vehicle_id == vehicle_id)
 
     total = query.count()
     results = (
@@ -108,11 +266,19 @@ def check_document_access(
     """
     Admin/Super-admin → always yes.
     Employee → only if assigned to the document's customer.
+    Uses the eager-loaded `document.customer` when available to avoid an
+    extra round-trip; falls back to a query only if needed.
     """
     if requesting_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         return True
 
-    customer = db.query(Customer).filter(Customer.id == document.customer_id).first()
+    customer = document.customer
+    if customer is None:
+        customer = (
+            db.query(Customer)
+            .filter(Customer.id == document.customer_id)
+            .first()
+        )
     return customer is not None and customer.assigned_employee_id == requesting_user.id
 
 
@@ -131,10 +297,11 @@ def upload_document(
     loan_id: Optional[uuid.UUID] = None,
     transaction_id: Optional[uuid.UUID] = None,
     vehicle_id: Optional[uuid.UUID] = None,
+    request: Optional[Request] = None,
 ) -> Document:
     customer = (
         db.query(Customer)
-        .filter(Customer.id == customer_id, Customer.is_deleted == False)
+        .filter(Customer.id == customer_id, Customer.is_deleted == False)  # noqa: E712
         .first()
     )
     if not customer:
@@ -147,69 +314,15 @@ def upload_document(
     ):
         raise PermissionError("Customer not assigned to you")
 
-    if doc_type == DocCategory.LOAN_AGREEMENT:
-        if not loan_id:
-            raise ValueError("loan_id is required for LOAN_AGREEMENT documents")
-        loan = (
-            db.query(Loan)
-            .filter(
-                Loan.id == loan_id,
-                Loan.customer_id == customer_id,
-                Loan.is_deleted == False,
-            )
-            .first()
-        )
-        if not loan:
-            raise ValueError("Loan not found or does not belong to this customer")
-
-    elif doc_type == DocCategory.RECEIPT:
-        if not transaction_id:
-            raise ValueError("transaction_id is required for RECEIPT documents")
-        txn = (
-            db.query(Transaction)
-            .join(Loan, Loan.id == Transaction.loan_id)
-            .filter(
-                Transaction.id == transaction_id,
-                Loan.customer_id == customer_id,
-                Transaction.is_deleted == False,
-            )
-            .first()
-        )
-        if not txn:
-            raise ValueError(
-                "Transaction not found or does not belong to this customer"
-            )
-
-    elif doc_type in (
-        DocCategory.VEHICLE_IMAGE,
-        DocCategory.RC_COPY,
-        DocCategory.INSURANCE_POLICY,
-        DocCategory.VEHICLE_PHOTO,
-    ):
-        if not vehicle_id:
-            raise ValueError(
-                f"vehicle_id is required for {doc_type.value} documents"
-            )
-        if loan_id or transaction_id:
-            raise ValueError(
-                f"{doc_type.value} documents must not have loan_id or transaction_id"
-            )
-        vehicle = (
-            db.query(Vehicle)
-            .filter(
-                Vehicle.id == vehicle_id,
-                Vehicle.is_deleted == False,
-            )
-            .first()
-        )
-        if not vehicle:
-            raise ValueError("Vehicle not found")
-
-    elif doc_type == DocCategory.KYC:
-        if loan_id or transaction_id or vehicle_id:
-            raise ValueError(
-                "KYC documents must not have loan_id, transaction_id, or vehicle_id"
-            )
+    # Single dispatch over every doc_type — D1/D2 fix.
+    _validate_links(
+        db,
+        doc_type=doc_type,
+        customer_id=customer_id,
+        loan_id=loan_id,
+        transaction_id=transaction_id,
+        vehicle_id=vehicle_id,
+    )
 
     file_hash = hashlib.sha256(file_bytes).hexdigest()
 
@@ -223,6 +336,9 @@ def upload_document(
         f"{doc_type.value}/{uuid.uuid4()}/{save_file_name}"
     )
 
+    # S3 upload BEFORE the DB write. If S3 fails we never opened a DB
+    # transaction; if the DB write fails we rollback + delete the S3
+    # object so we never leak an orphan file.
     s3_uploaded = False
     try:
         upload_file_to_s3(
@@ -245,18 +361,46 @@ def upload_document(
             # AKTODO: set scan_status='PENDING' once antivirus pipeline is wired up.
         )
         db.add(document)
+        # Atomic commit: flush surfaces IntegrityError without committing,
+        # then write_audit lands the audit row in the same transaction,
+        # then a single commit persists both. The old pattern (commit
+        # in service + audit in route) could leave a committed doc
+        # without an audit row if the worker crashed between them.
+        db.flush()
+        write_audit(
+            db,
+            action_type="DOCUMENT_UPLOAD",
+            target_table="documents",
+            record_id=document.id,
+            user_id=created_by,
+            new_data={
+                "customer_id": str(document.customer_id),
+                "doc_type": document.doc_type.value,
+                "loan_id": str(document.loan_id) if document.loan_id else None,
+                "transaction_id": (
+                    str(document.transaction_id) if document.transaction_id else None
+                ),
+                "vehicle_id": str(document.vehicle_id) if document.vehicle_id else None,
+                "file_size": document.file_size,
+                "content_type": document.content_type,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document
 
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
         if s3_uploaded:
             try:
                 delete_file_from_s3(s3_key)
             except Exception:
-                logger.exception("ORPHAN S3 KEY %s after dup-rollback", s3_key)
-        raise ValueError("Duplicate file already uploaded")
+                logger.exception("ORPHAN_S3_KEY key=%s after dup-rollback", s3_key)
+        # Use the generic non-leaking message — duplicate-by-hash is the
+        # most likely cause given the partial unique index, but the route
+        # layer can decide how to format the response.
+        raise ValueError(safe_integrity_message(e)) from None
 
     except SQLAlchemyError:
         db.rollback()
@@ -264,9 +408,69 @@ def upload_document(
             try:
                 delete_file_from_s3(s3_key)
             except Exception:
-                logger.exception("ORPHAN S3 KEY %s after sql-rollback", s3_key)
+                logger.exception("ORPHAN_S3_KEY key=%s after sql-rollback", s3_key)
         logger.exception("upload_document DB error for customer %s", customer_id)
         raise ValueError("Database save failed")
+
+
+# --------------------------------------------------
+# UPDATE METADATA
+# --------------------------------------------------
+def update_document_metadata(
+    db: Session,
+    document: Document,
+    *,
+    doc_type: Optional[DocCategory] = None,
+    file_name: Optional[str] = None,
+    updated_by: uuid.UUID,
+    request: Optional[Request] = None,
+) -> Document:
+    """Update mutable metadata. If doc_type changes, re-run the link
+    validation against the document's existing FK columns so we don't end
+    up with a row that violates `ck_documents_type_link_consistency`.
+    """
+    before = {
+        "doc_type": document.doc_type.value,
+        "file_name": document.file_name,
+    }
+
+    if doc_type is not None and doc_type != document.doc_type:
+        _validate_links(
+            db,
+            doc_type=doc_type,
+            customer_id=document.customer_id,
+            loan_id=document.loan_id,
+            transaction_id=document.transaction_id,
+            vehicle_id=document.vehicle_id,
+        )
+        document.doc_type = doc_type
+
+    if file_name is not None:
+        document.file_name = Path(file_name).name  # strip path components
+
+    document.updated_by_id = updated_by
+
+    try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="DOCUMENT_UPDATE",
+            target_table="documents",
+            record_id=document.id,
+            user_id=updated_by,
+            old_data=before,
+            new_data={
+                "doc_type": document.doc_type.value,
+                "file_name": document.file_name,
+            },
+            request=request,
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+    except IntegrityError as e:
+        db.rollback()
+        raise ValueError(safe_integrity_message(e)) from None
 
 
 # --------------------------------------------------
@@ -277,40 +481,95 @@ def get_download_url(document: Document) -> str:
     return generate_presigned_url(document.s3_key, file_name=document.file_name)
 
 
+def issue_download(
+    db: Session,
+    document: Document,
+    *,
+    requested_by: uuid.UUID,
+    request: Optional[Request] = None,
+) -> str:
+    """Issue a presigned URL AND record the audit row in one commit.
+
+    The route was previously: generate URL → write_audit → commit. If
+    the worker crashed between url-generation and commit, the URL was
+    handed to the client but the audit row never landed. Here the audit
+    write is mandatory before the function returns the URL.
+    """
+    url = generate_presigned_url(document.s3_key, file_name=document.file_name)
+    write_audit(
+        db,
+        action_type="DOCUMENT_DOWNLOAD",
+        target_table="documents",
+        record_id=document.id,
+        user_id=requested_by,
+        new_data={
+            "doc_type": document.doc_type.value,
+            "customer_id": str(document.customer_id),
+            "file_name": document.file_name,
+        },
+        request=request,
+    )
+    db.commit()
+    return url
+
+
 # --------------------------------------------------
 # SOFT DELETE
 # --------------------------------------------------
 def soft_delete_document(
-    db: Session, document: Document, deleted_by: uuid.UUID
+    db: Session,
+    document: Document,
+    deleted_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Document:
     if not document.s3_key.startswith(ACTIVE_PREFIX):
         raise ValueError(
             f"Cannot archive — key not in active prefix: {document.s3_key}"
         )
 
+    snapshot = {
+        "doc_type": document.doc_type.value,
+        "customer_id": str(document.customer_id),
+        "file_name": document.file_name,
+    }
     old_s3_key = document.s3_key
-    new_s3_key = ARCHIVE_PREFIX + old_s3_key[len(ACTIVE_PREFIX) :]
+    new_s3_key = ARCHIVE_PREFIX + old_s3_key[len(ACTIVE_PREFIX):]
 
     document.s3_key = new_s3_key
-    document.is_deleted = True
-    document.deleted_at = datetime.now(timezone.utc)
-    document.deleted_by_id = deleted_by
-    document.updated_by_id = deleted_by
+    # Centralized soft-delete: keeps is_deleted/deleted_at in sync (satisfies
+    # check_soft_delete_documents) and stamps updated_by_id.
+    document.soft_delete(deleted_by)
 
     try:
         db.flush()
         archive_file_in_s3(old_s3_key, new_s3_key)
+        write_audit(
+            db,
+            action_type="DOCUMENT_DELETE",
+            target_table="documents",
+            record_id=document.id,
+            user_id=deleted_by,
+            old_data=snapshot,
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document
     except (SQLAlchemyError, ClientError, ValueError) as e:
         logger.exception("soft_delete_document failed for doc %s", document.id)
         db.rollback()
-        # Compensate: try to put the file back if S3 archive succeeded
+        # Compensate: try to put the file back if S3 archive succeeded.
+        # On failure we MUST log the orphan key — a human or janitor sweep
+        # is the only recovery path.
         try:
             archive_file_in_s3(new_s3_key, old_s3_key)
         except Exception:
-            logger.exception("ORPHAN S3 KEY %s after soft-delete rollback", new_s3_key)
+            logger.error(
+                "ORPHAN_S3_KEY key=%s doc_id=%s phase=soft_delete_rollback",
+                new_s3_key,
+                document.id,
+            )
         raise ValueError(f"Archive failed: {e}")
 
 
@@ -318,7 +577,11 @@ def soft_delete_document(
 # RESTORE
 # --------------------------------------------------
 def restore_document(
-    db: Session, document: Document, restored_by: uuid.UUID
+    db: Session,
+    document: Document,
+    restored_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Document:
     if not document.s3_key.startswith(ARCHIVE_PREFIX):
         raise ValueError(
@@ -327,17 +590,26 @@ def restore_document(
         )
 
     old_s3_key = document.s3_key
-    new_s3_key = ACTIVE_PREFIX + old_s3_key[len(ARCHIVE_PREFIX) :]
+    new_s3_key = ACTIVE_PREFIX + old_s3_key[len(ARCHIVE_PREFIX):]
 
     document.s3_key = new_s3_key
-    document.is_deleted = False
-    document.deleted_at = None
-    document.deleted_by_id = None
-    document.updated_by_id = restored_by
+    document.restore(restored_by)
 
     try:
         db.flush()
         archive_file_in_s3(old_s3_key, new_s3_key)
+        write_audit(
+            db,
+            action_type="DOCUMENT_RESTORE",
+            target_table="documents",
+            record_id=document.id,
+            user_id=restored_by,
+            new_data={
+                "doc_type": document.doc_type.value,
+                "file_name": document.file_name,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document
@@ -347,7 +619,11 @@ def restore_document(
         try:
             archive_file_in_s3(new_s3_key, old_s3_key)
         except Exception:
-            logger.exception("ORPHAN S3 KEY %s after restore rollback", new_s3_key)
+            logger.error(
+                "ORPHAN_S3_KEY key=%s doc_id=%s phase=restore_rollback",
+                new_s3_key,
+                document.id,
+            )
         raise ValueError(f"Restore failed: {e}")
 
 

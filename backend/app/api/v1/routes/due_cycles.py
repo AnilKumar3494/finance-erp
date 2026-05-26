@@ -2,16 +2,16 @@ import uuid
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
-from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan
 from app.models.transaction import PunctualityStatus, Transaction
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.due_cycle import (
     CycleClassifyRequest,
     CycleClassifyResponse,
@@ -28,6 +28,7 @@ from app.services.penalty import (
     reclassify_cycle,
     write_reclassify_audit,
 )
+from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/due-cycles", tags=["Due Cycles"])
 
@@ -42,23 +43,9 @@ def _to_response(cycle: DueCycle) -> DueCycleResponse:
     return resp
 
 
-def _assert_loan_access(loan: Loan, current_user: User, db: Session) -> None:
-    """403 if an EMPLOYEE tries to read a cycle outside their assigned customers."""
-    if current_user.role == UserRole.EMPLOYEE:
-        cust = (
-            db.query(Customer)
-            .filter(
-                Customer.id == loan.customer_id,
-                Customer.assigned_employee_id == current_user.id,
-                Customer.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if not cust:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this cycle",
-            )
+# Centralized in app/dependencies/access.py — rebound here so existing
+# call sites in this file keep their local name.
+_assert_loan_access = assert_loan_access
 
 
 def _propagate_punctuality_to_transactions(
@@ -129,7 +116,9 @@ def list_for_loan(
     return DueCycleListResponse(
         loan_id=loan_id,
         total=len(cycles),
-        cycles=[_to_response(c) for c in cycles],
+        page=1,
+        page_size=len(cycles),
+        results=[_to_response(c) for c in cycles],
     )
 
 
@@ -147,6 +136,7 @@ def list_for_loan(
     summary="Classify a due cycle (PAID_ON_TIME or LATE_PAYMENT)",
 )
 def classify_cycle(
+    request: Request,
     cycle_id: uuid.UUID,
     payload: CycleClassifyRequest,
     db: Session = Depends(get_db),
@@ -184,6 +174,7 @@ def classify_cycle(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
 
+    old_status = cycle.cycle_status.value
     penalty_event = None
     try:
         if payload.cycle_status == CycleStatus.PAID_ON_TIME:
@@ -213,6 +204,32 @@ def classify_cycle(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    # D1: reclassify already records a supersession audit row. First-time
+    # classify (this branch) didn't — fixed here. Penalty math itself lives
+    # in penalty_events; this row captures the human-decision context.
+    write_audit(
+        db,
+        action_type="DUE_CYCLE_CLASSIFY",
+        target_table="due_cycles",
+        record_id=cycle.id,
+        user_id=current_user.id,
+        old_data={"cycle_status": old_status},
+        new_data={
+            "loan_id": str(loan.id),
+            "cycle_number": cycle.cycle_number,
+            "cycle_status": cycle.cycle_status.value,
+            "classified_as_of_date": (
+                payload.classified_as_of_date.isoformat()
+                if payload.classified_as_of_date
+                else None
+            ),
+            "penalty_event_id": (
+                str(penalty_event.id) if penalty_event is not None else None
+            ),
+            "note_provided": bool(payload.classification_note),
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(cycle)
 

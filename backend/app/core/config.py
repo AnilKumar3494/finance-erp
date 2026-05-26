@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Throttle identity lookups (Aadhaar/PAN/mobile probes) to blunt
     # PII-enumeration attempts. IP-keyed.
     RATE_LIMIT_LOOKUP: str = "30/minute"
+    # Cap document upload volume per IP — protects S3 PUT spend and worker
+    # memory (each upload spools up to MAX_DOCUMENT_UPLOAD_BYTES).
+    RATE_LIMIT_UPLOAD: str = "20/minute"
 
     # --------------------------------------------------
     # PROXY / CLIENT IP
@@ -79,6 +82,42 @@ class Settings(BaseSettings):
     }
 
     # --------------------------------------------------
+    # CORS
+    # --------------------------------------------------
+    # Comma-separated list of origins allowed to call the API with
+    # credentials. Defaults to local dev so a fresh checkout works without
+    # extra env config; production deploys MUST set this explicitly
+    # (e.g. CORS_ORIGINS="https://app.example.com,https://admin.example.com").
+    # Wildcard "*" is intentionally NOT supported because allow_credentials=True
+    # is incompatible with wildcard origins under the CORS spec.
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000"
+    )
+
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def _no_wildcard_origin(cls, v: str) -> str:
+        # The CORS spec disallows `Access-Control-Allow-Origin: *` when
+        # `Access-Control-Allow-Credentials: true`. Our middleware sends
+        # credentials, so a wildcard would either be silently ignored by
+        # the browser (failing every authenticated XHR) or — worse — be
+        # accepted by a misconfigured proxy and broaden the exposure.
+        # Reject at parse time so a typo in env can't ship.
+        for raw in v.split(","):
+            origin = raw.strip()
+            if origin == "*":
+                raise ValueError(
+                    "CORS_ORIGINS must not contain '*' — allow_credentials=True "
+                    "is incompatible with wildcard origins. Set explicit URLs."
+                )
+        return v
+
+    @computed_field
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    # --------------------------------------------------
     # LOGGING
     # --------------------------------------------------
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
@@ -90,6 +129,21 @@ class Settings(BaseSettings):
     # timestamptz in UTC; reports convert via AT TIME ZONE so a payment
     # entered at 23:30 IST on the 30th stays in that day's bucket.
     REPORTS_TIMEZONE: str = "Asia/Kolkata"
+
+    # --------------------------------------------------
+    # NIGHTLY JOB (cycle promotion + cap auto-classify)
+    # --------------------------------------------------
+    # Embeds an APScheduler that fires nightly_cycle_check at the chosen
+    # hour in REPORTS_TIMEZONE. Multi-worker setups are safe because the
+    # job grabs a Postgres advisory lock before running — only one worker
+    # ever does the work per fire. Set NIGHTLY_JOB_ENABLED=false in CI /
+    # local dev to keep the scheduler dormant.
+    NIGHTLY_JOB_ENABLED: bool = True
+    NIGHTLY_JOB_HOUR: int = Field(default=2, ge=0, le=23)     # 02:00 IST
+    NIGHTLY_JOB_MINUTE: int = Field(default=0, ge=0, le=59)
+    # Advisory-lock key. Arbitrary 64-bit int; any deployment that shares
+    # a database must share this value so the lock actually serialises.
+    NIGHTLY_JOB_LOCK_KEY: int = 0xF1E_C1C_E  # 253_656_270 — "fnce_cyc"
 
     # --------------------------------------------------
     # VALIDATORS

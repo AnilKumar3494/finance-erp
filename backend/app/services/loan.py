@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Optional
 from datetime import date, datetime, timezone
 
+from fastapi import Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -18,6 +19,26 @@ from app.models.transaction import (
 )
 from app.services.due_cycle import generate_cycles_for_loan
 from app.services.finance import monthly_interest, total_payable as calc_total_payable
+from app.utils.audit import write_audit
+from app.utils.db_errors import safe_integrity_message
+
+
+def _loan_audit_snapshot(loan: Loan) -> dict:
+    """Stringify Decimals so JSONB stays portable across precisions."""
+    return {
+        "loan_number": loan.loan_number,
+        "customer_id": str(loan.customer_id),
+        "vehicle_id": str(loan.vehicle_id) if loan.vehicle_id else None,
+        "principal": str(loan.principal),
+        "interest_rate": str(loan.interest_rate),
+        "tenure": loan.tenure,
+        "down_payment": str(loan.down_payment),
+        "processing_fee": str(loan.processing_fee),
+        "documentation_fee": str(loan.documentation_fee),
+        "penalty_rate": str(loan.penalty_rate) if loan.penalty_rate is not None else None,
+        "status": loan.status.value,
+        "approval_date": loan.approval_date.isoformat() if loan.approval_date else None,
+    }
 
 
 # --------------------------------------------------
@@ -245,9 +266,11 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         return loan
     except IntegrityError as e:
         db.rollback()
-        if "loans_loan_number_key" in str(e.orig):
-            raise ValueError("Loan number collision — please retry")
-        raise ValueError("Invalid customer or vehicle reference")
+        # L2 fix: don't string-match e.orig. The loan_number is a UUID slice
+        # and collisions are vanishingly rare; treat any IntegrityError here
+        # as a generic uniqueness/constraint failure with a non-leaking
+        # message. The route returns 409.
+        raise ValueError(safe_integrity_message(e)) from None
 
 
 def approve_loan(
@@ -255,6 +278,8 @@ def approve_loan(
     loan: Loan,
     approved_by: uuid.UUID,
     down_payment_mode: Optional[str] = None,
+    *,
+    request: Optional[Request] = None,
 ) -> Loan:
     """
     Transition a DRAFT loan to ACTIVE.
@@ -278,6 +303,8 @@ def approve_loan(
 
     if loan.down_payment and loan.down_payment > 0 and not down_payment_mode:
         raise ValueError("down_payment_mode is required when down_payment > 0")
+
+    before = _loan_audit_snapshot(loan)
 
     today = date.today()
     loan.approval_date = today
@@ -316,13 +343,31 @@ def approve_loan(
 
             recompute_cycle_totals(db, first_cycle)
 
+    write_audit(
+        db,
+        action_type="LOAN_APPROVE",
+        target_table="loans",
+        record_id=loan.id,
+        user_id=approved_by,
+        old_data=before,
+        new_data={
+            **_loan_audit_snapshot(loan),
+            "down_payment_mode": down_payment_mode,
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(loan)
     return loan
 
 
 def update_loan(
-    db: Session, loan: Loan, data: LoanUpdate, updated_by: uuid.UUID
+    db: Session,
+    loan: Loan,
+    data: LoanUpdate,
+    updated_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Loan:
     """
     Update a loan. Defense-in-depth: the service refuses edits on loans that
@@ -336,6 +381,7 @@ def update_loan(
         )
 
     changes = data.model_dump(exclude_unset=True)
+    fields_changed = sorted(changes.keys())
 
     # Collateral swaps need the same eligibility check as loan creation.
     # Once a loan is ACTIVE the collateral is locked — swapping it out would
@@ -350,26 +396,54 @@ def update_loan(
             if new_vehicle_id is not None:
                 _resolve_pledgeable_vehicle(db, new_vehicle_id)
 
+    before = _loan_audit_snapshot(loan)
     for field, value in changes.items():
         setattr(loan, field, value)
 
     loan.updated_by_id = updated_by
+    db.flush()
+    write_audit(
+        db,
+        action_type="LOAN_UPDATE",
+        target_table="loans",
+        record_id=loan.id,
+        user_id=updated_by,
+        old_data=before,
+        new_data={**_loan_audit_snapshot(loan), "fields_changed": fields_changed},
+        request=request,
+    )
     db.commit()
     db.refresh(loan)
     return loan
 
 
-def mark_bad_debt(db: Session, loan: Loan, updated_by: uuid.UUID) -> Loan:
-    """Mark loan as BAD_DEBT"""
-    loan.status = LoanStatus.BAD_DEBT
-    loan.updated_by_id = updated_by
-    db.commit()
-    db.refresh(loan)
-    return loan
+# L1 fix: `mark_bad_debt` removed. Bad-debt status is now reached via the
+# two-step propose / review flow (see app/services/bad_debt.py) followed
+# by close_loan with closure_type=WRITE_OFF (see app/services/loan_closure.py).
+# Keeping a public direct-write function alongside the proper flow was a
+# footgun — anyone importing it would silently bypass approval + audit.
 
 
-def soft_delete_loan(db: Session, loan: Loan, deleted_by: uuid.UUID) -> Loan:
-    # Use AuditBase.soft_delete so deleted_by_id is also set (review item L3).
+def soft_delete_loan(
+    db: Session,
+    loan: Loan,
+    deleted_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
+) -> Loan:
+    # AuditBase.soft_delete sets is_deleted/deleted_at/deleted_by_id/updated_by_id
+    # atomically (satisfies the check_soft_delete_loans CHECK).
+    snapshot = _loan_audit_snapshot(loan)
     loan.soft_delete(deleted_by)
+    db.flush()
+    write_audit(
+        db,
+        action_type="LOAN_DELETE",
+        target_table="loans",
+        record_id=loan.id,
+        user_id=deleted_by,
+        old_data=snapshot,
+        request=request,
+    )
     db.commit()
     return loan
