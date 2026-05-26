@@ -34,14 +34,16 @@ from app.services.document import (
     check_document_access,
     get_document,
     get_document_including_deleted,
-    get_download_url,
+    issue_download,
     list_documents,
     restore_document,
     soft_delete_document,
     update_document_metadata,
     upload_document,
 )
-from app.utils.audit import write_audit
+
+# Audit is written inside each service call inside the same transaction
+# as the mutation. Routes no longer call write_audit directly.
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -154,34 +156,13 @@ def upload(
             file_name=file.filename,
             content_type=detected_mime,
             created_by=current_user.id,
+            request=request,
         )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    # Audit AFTER the service commit; if the audit write itself fails it
-    # uses a SAVEPOINT internally so the upload is not rolled back.
-    write_audit(
-        db,
-        action_type="DOCUMENT_UPLOAD",
-        target_table="documents",
-        record_id=document.id,
-        user_id=current_user.id,
-        new_data={
-            "customer_id": str(document.customer_id),
-            "doc_type": document.doc_type.value,
-            "loan_id": str(document.loan_id) if document.loan_id else None,
-            "transaction_id": (
-                str(document.transaction_id) if document.transaction_id else None
-            ),
-            "vehicle_id": str(document.vehicle_id) if document.vehicle_id else None,
-            "file_size": document.file_size,
-            "content_type": document.content_type,
-        },
-        request=request,
-    )
-    db.commit()
     return DocumentResponse.model_validate(document)
 
 
@@ -270,30 +251,20 @@ def download(
             status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
 
+    # issue_download generates the presigned URL AND writes the audit row
+    # in one commit — the URL is never returned to the client without an
+    # audit trail.
     try:
-        url = get_download_url(document)
+        url = issue_download(
+            db,
+            document,
+            requested_by=current_user.id,
+            request=request,
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
-
-    # Every presigned-URL issuance is a sensitive event — NBFC audit
-    # mandate. Record who, when, and what was unlocked. Never log the URL
-    # itself (it's a bearer credential).
-    write_audit(
-        db,
-        action_type="DOCUMENT_DOWNLOAD",
-        target_table="documents",
-        record_id=document.id,
-        user_id=current_user.id,
-        new_data={
-            "doc_type": document.doc_type.value,
-            "customer_id": str(document.customer_id),
-            "file_name": document.file_name,
-        },
-        request=request,
-    )
-    db.commit()
 
     return DocumentDownloadResponse(
         document_id=document.id,
@@ -324,10 +295,6 @@ def update_metadata(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
 
-    before = {
-        "doc_type": document.doc_type.value,
-        "file_name": document.file_name,
-    }
     try:
         updated = update_document_metadata(
             db,
@@ -335,24 +302,11 @@ def update_metadata(
             doc_type=payload.doc_type,
             file_name=payload.file_name,
             updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    write_audit(
-        db,
-        action_type="DOCUMENT_UPDATE",
-        target_table="documents",
-        record_id=updated.id,
-        user_id=current_user.id,
-        old_data=before,
-        new_data={
-            "doc_type": updated.doc_type.value,
-            "file_name": updated.file_name,
-        },
-        request=request,
-    )
-    db.commit()
     return DocumentResponse.model_validate(updated)
 
 
@@ -376,24 +330,14 @@ def delete(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
     try:
-        soft_delete_document(db=db, document=document, deleted_by=current_user.id)
+        soft_delete_document(
+            db=db,
+            document=document,
+            deleted_by=current_user.id,
+            request=request,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="DOCUMENT_DELETE",
-        target_table="documents",
-        record_id=document.id,
-        user_id=current_user.id,
-        old_data={
-            "doc_type": document.doc_type.value,
-            "customer_id": str(document.customer_id),
-            "file_name": document.file_name,
-        },
-        request=request,
-    )
-    db.commit()
 
 
 # --------------------------------------------------
@@ -422,22 +366,12 @@ def restore(
         )
     try:
         restored = restore_document(
-            db=db, document=document, restored_by=current_user.id
+            db=db,
+            document=document,
+            restored_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    write_audit(
-        db,
-        action_type="DOCUMENT_RESTORE",
-        target_table="documents",
-        record_id=restored.id,
-        user_id=current_user.id,
-        new_data={
-            "doc_type": restored.doc_type.value,
-            "file_name": restored.file_name,
-        },
-        request=request,
-    )
-    db.commit()
     return DocumentResponse.model_validate(restored)

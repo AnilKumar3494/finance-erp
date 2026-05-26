@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import Optional
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.core.config import settings
@@ -16,6 +17,31 @@ logger = logging.getLogger(__name__)
 @lru_cache(maxsize=1)
 def get_s3_client():
     return boto3.client("s3", region_name=settings.AWS_REGION)
+
+
+# --------------------------------------------------
+# S3 PROBE CLIENT — short-timeout, no-retry client for /readyz.
+# The default boto3 client retries 3× with exponential backoff and uses
+# 60-second connect / 60-second read timeouts. That's the correct default
+# for an upload (we want to survive a transient blip) but it's the wrong
+# default for a health probe — a slow S3 keeps every k8s readiness check
+# blocked for minutes and ties up workers behind the GIL.
+#
+# This client is cached separately so the per-request `get_s3_client()`
+# keeps its retry behaviour.
+# --------------------------------------------------
+@lru_cache(maxsize=1)
+def get_s3_probe_client():
+    return boto3.client(
+        "s3",
+        region_name=settings.AWS_REGION,
+        config=Config(
+            connect_timeout=2,         # seconds — fail fast on network issues
+            read_timeout=2,            # seconds — head_bucket is ~1 KB so 2s is generous
+            retries={"max_attempts": 1, "mode": "standard"},
+            # No signature retries; we want a single deterministic call.
+        ),
+    )
 
 
 # --------------------------------------------------

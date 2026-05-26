@@ -39,7 +39,21 @@ def validate_document_link(
 
     Raises:
         ValueError with a generic, non-leaking message on any mismatch.
+
+    Fail-closed: at least one of `expected_customer_id` / `expected_loan_id`
+    MUST be supplied. Documents are always owned by a customer (NOT NULL
+    in DB since migration 009), so calling this helper with both unset
+    would let a caller attach any document to any child row — exactly the
+    cross-tenant leak the helper exists to prevent. The personnel branch
+    of identity_proof must NOT call this helper; it should reject
+    `document_id` outright until documents can be owned by personnel.
     """
+    if expected_customer_id is None and expected_loan_id is None:
+        raise ValueError(
+            "Document linkage requires either a customer or a loan scope. "
+            "Personnel-owned documents are not yet supported."
+        )
+
     doc = (
         db.query(Document)
         .filter(Document.id == document_id, Document.is_deleted == False)  # noqa: E712

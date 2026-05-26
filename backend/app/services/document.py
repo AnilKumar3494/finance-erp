@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from botocore.exceptions import ClientError
+from fastapi import Request
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
@@ -14,6 +15,7 @@ from app.models.loan import Loan
 from app.models.transaction import Transaction
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
+from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
 from app.utils.s3 import (
     archive_file_in_s3,
@@ -119,6 +121,12 @@ def _validate_links(
         return
 
     # --- Vehicle docs: require vehicle_id, forbid loan/transaction.
+    # Vehicles have no direct customer ownership — they're collateral and
+    # belong to a customer transitively, via loans.vehicle_id. Without
+    # this cross-check the vehicle-doc lane is a cross-tenant leak:
+    # customer A could upload an RC scan for a vehicle backing customer
+    # B's loan. Require an active, non-deleted loan that pairs the
+    # provided vehicle_id with customer_id.
     if doc_type in _VEHICLE_LINKED:
         if not vehicle_id:
             raise ValueError(
@@ -139,6 +147,27 @@ def _validate_links(
         )
         if not vehicle:
             raise ValueError("Vehicle not found")
+
+        # Cross-tenant guard: a vehicle is only "this customer's" if there
+        # is a non-deleted loan tying them together. This includes loans
+        # in any status (DRAFT through CLOSED) so a customer can upload
+        # the RC for a vehicle on a closed loan — historical access is
+        # legitimate. Deleted loans don't count.
+        owns_via_loan = (
+            db.query(Loan.id)
+            .filter(
+                Loan.customer_id == customer_id,
+                Loan.vehicle_id == vehicle_id,
+                Loan.is_deleted == False,  # noqa: E712
+            )
+            .first()
+            is not None
+        )
+        if not owns_via_loan:
+            raise ValueError(
+                "Vehicle is not associated with this customer "
+                "(no active loan pairs them)."
+            )
         return
 
     # --- KYC / IDENTITY_PROOF / ARCHIVE: must not link to anything.
@@ -268,6 +297,7 @@ def upload_document(
     loan_id: Optional[uuid.UUID] = None,
     transaction_id: Optional[uuid.UUID] = None,
     vehicle_id: Optional[uuid.UUID] = None,
+    request: Optional[Request] = None,
 ) -> Document:
     customer = (
         db.query(Customer)
@@ -306,6 +336,9 @@ def upload_document(
         f"{doc_type.value}/{uuid.uuid4()}/{save_file_name}"
     )
 
+    # S3 upload BEFORE the DB write. If S3 fails we never opened a DB
+    # transaction; if the DB write fails we rollback + delete the S3
+    # object so we never leak an orphan file.
     s3_uploaded = False
     try:
         upload_file_to_s3(
@@ -328,6 +361,31 @@ def upload_document(
             # AKTODO: set scan_status='PENDING' once antivirus pipeline is wired up.
         )
         db.add(document)
+        # Atomic commit: flush surfaces IntegrityError without committing,
+        # then write_audit lands the audit row in the same transaction,
+        # then a single commit persists both. The old pattern (commit
+        # in service + audit in route) could leave a committed doc
+        # without an audit row if the worker crashed between them.
+        db.flush()
+        write_audit(
+            db,
+            action_type="DOCUMENT_UPLOAD",
+            target_table="documents",
+            record_id=document.id,
+            user_id=created_by,
+            new_data={
+                "customer_id": str(document.customer_id),
+                "doc_type": document.doc_type.value,
+                "loan_id": str(document.loan_id) if document.loan_id else None,
+                "transaction_id": (
+                    str(document.transaction_id) if document.transaction_id else None
+                ),
+                "vehicle_id": str(document.vehicle_id) if document.vehicle_id else None,
+                "file_size": document.file_size,
+                "content_type": document.content_type,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document
@@ -365,11 +423,17 @@ def update_document_metadata(
     doc_type: Optional[DocCategory] = None,
     file_name: Optional[str] = None,
     updated_by: uuid.UUID,
+    request: Optional[Request] = None,
 ) -> Document:
     """Update mutable metadata. If doc_type changes, re-run the link
     validation against the document's existing FK columns so we don't end
     up with a row that violates `ck_documents_type_link_consistency`.
     """
+    before = {
+        "doc_type": document.doc_type.value,
+        "file_name": document.file_name,
+    }
+
     if doc_type is not None and doc_type != document.doc_type:
         _validate_links(
             db,
@@ -387,6 +451,20 @@ def update_document_metadata(
     document.updated_by_id = updated_by
 
     try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="DOCUMENT_UPDATE",
+            target_table="documents",
+            record_id=document.id,
+            user_id=updated_by,
+            old_data=before,
+            new_data={
+                "doc_type": document.doc_type.value,
+                "file_name": document.file_name,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document
@@ -403,17 +481,58 @@ def get_download_url(document: Document) -> str:
     return generate_presigned_url(document.s3_key, file_name=document.file_name)
 
 
+def issue_download(
+    db: Session,
+    document: Document,
+    *,
+    requested_by: uuid.UUID,
+    request: Optional[Request] = None,
+) -> str:
+    """Issue a presigned URL AND record the audit row in one commit.
+
+    The route was previously: generate URL → write_audit → commit. If
+    the worker crashed between url-generation and commit, the URL was
+    handed to the client but the audit row never landed. Here the audit
+    write is mandatory before the function returns the URL.
+    """
+    url = generate_presigned_url(document.s3_key, file_name=document.file_name)
+    write_audit(
+        db,
+        action_type="DOCUMENT_DOWNLOAD",
+        target_table="documents",
+        record_id=document.id,
+        user_id=requested_by,
+        new_data={
+            "doc_type": document.doc_type.value,
+            "customer_id": str(document.customer_id),
+            "file_name": document.file_name,
+        },
+        request=request,
+    )
+    db.commit()
+    return url
+
+
 # --------------------------------------------------
 # SOFT DELETE
 # --------------------------------------------------
 def soft_delete_document(
-    db: Session, document: Document, deleted_by: uuid.UUID
+    db: Session,
+    document: Document,
+    deleted_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Document:
     if not document.s3_key.startswith(ACTIVE_PREFIX):
         raise ValueError(
             f"Cannot archive — key not in active prefix: {document.s3_key}"
         )
 
+    snapshot = {
+        "doc_type": document.doc_type.value,
+        "customer_id": str(document.customer_id),
+        "file_name": document.file_name,
+    }
     old_s3_key = document.s3_key
     new_s3_key = ARCHIVE_PREFIX + old_s3_key[len(ACTIVE_PREFIX):]
 
@@ -425,6 +544,15 @@ def soft_delete_document(
     try:
         db.flush()
         archive_file_in_s3(old_s3_key, new_s3_key)
+        write_audit(
+            db,
+            action_type="DOCUMENT_DELETE",
+            target_table="documents",
+            record_id=document.id,
+            user_id=deleted_by,
+            old_data=snapshot,
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document
@@ -449,7 +577,11 @@ def soft_delete_document(
 # RESTORE
 # --------------------------------------------------
 def restore_document(
-    db: Session, document: Document, restored_by: uuid.UUID
+    db: Session,
+    document: Document,
+    restored_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> Document:
     if not document.s3_key.startswith(ARCHIVE_PREFIX):
         raise ValueError(
@@ -466,6 +598,18 @@ def restore_document(
     try:
         db.flush()
         archive_file_in_s3(old_s3_key, new_s3_key)
+        write_audit(
+            db,
+            action_type="DOCUMENT_RESTORE",
+            target_table="documents",
+            record_id=document.id,
+            user_id=restored_by,
+            new_data={
+                "doc_type": document.doc_type.value,
+                "file_name": document.file_name,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(document)
         return document

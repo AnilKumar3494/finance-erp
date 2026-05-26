@@ -94,6 +94,24 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000"
     )
 
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def _no_wildcard_origin(cls, v: str) -> str:
+        # The CORS spec disallows `Access-Control-Allow-Origin: *` when
+        # `Access-Control-Allow-Credentials: true`. Our middleware sends
+        # credentials, so a wildcard would either be silently ignored by
+        # the browser (failing every authenticated XHR) or — worse — be
+        # accepted by a misconfigured proxy and broaden the exposure.
+        # Reject at parse time so a typo in env can't ship.
+        for raw in v.split(","):
+            origin = raw.strip()
+            if origin == "*":
+                raise ValueError(
+                    "CORS_ORIGINS must not contain '*' — allow_credentials=True "
+                    "is incompatible with wildcard origins. Set explicit URLs."
+                )
+        return v
+
     @computed_field
     @property
     def cors_origins_list(self) -> list[str]:

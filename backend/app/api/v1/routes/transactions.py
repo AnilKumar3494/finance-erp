@@ -28,17 +28,12 @@ from app.services.transaction import (
     soft_delete_transaction,
     update_transaction,
 )
-from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
+# Audit lives in the service layer — see app/services/transaction.py.
 
-# --------------------------------------------------
-# RBAC helpers — wrap the centralized access dep so existing call sites
-# keep their familiar signatures (loan_id / transaction). The actual
-# rule (ADMIN sees all; EMPLOYEE only assigned-customer loans) lives in
-# app/dependencies/access.py.
-# --------------------------------------------------
+
 def _assert_loan_in_user_scope(
     db: Session, loan_id: uuid.UUID, current_user: User
 ) -> Loan:
@@ -58,32 +53,7 @@ def _assert_loan_in_user_scope(
 def _assert_transaction_in_user_scope(
     db: Session, transaction: Transaction, current_user: User
 ) -> None:
-    """Block employees from reading/touching transactions outside their scope."""
     _assert_loan_in_user_scope(db, transaction.loan_id, current_user)
-
-
-# --------------------------------------------------
-# AUDIT — central helper so every money-touching path here records the
-# same shape. Per the code-style note we never log raw PII; for
-# transactions the sensitive number is `amount`, which IS something
-# auditors will want to see — that's fine, it's a money record. We omit
-# `notes` because admins use it as a free-text channel that can include
-# customer-supplied strings.
-# --------------------------------------------------
-def _txn_audit_snapshot(t: Transaction) -> dict:
-    return {
-        "loan_id": str(t.loan_id),
-        "amount": str(t.amount),
-        "payment_mode": t.payment_mode.value if t.payment_mode else None,
-        "status": t.status.value,
-        "transaction_type": t.transaction_type.value,
-        "punctuality_status": t.punctuality_status.value,
-        "effective_payment_date": (
-            t.effective_payment_date.isoformat() if t.effective_payment_date else None
-        ),
-        "due_cycle_id": str(t.due_cycle_id) if t.due_cycle_id else None,
-        "collected_by_id": str(t.collected_by_id) if t.collected_by_id else None,
-    }
 
 
 # --------------------------------------------------
@@ -101,27 +71,13 @@ def create_transaction_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # T1 fix: employees can only create transactions for their assigned customers' loans.
     _assert_loan_in_user_scope(db, payload.loan_id, current_user)
     try:
-        txn = create_transaction(db=db, data=payload, created_by=current_user.id)
+        return create_transaction(
+            db=db, data=payload, created_by=current_user.id, request=request,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    # The create_transaction service short-circuits on idempotency hit and
-    # returns the pre-existing row. Audit anyway — the row's history will
-    # show one CREATE and zero duplicates, which is the truth.
-    write_audit(
-        db,
-        action_type="TRANSACTION_CREATE",
-        target_table="transactions",
-        record_id=txn.id,
-        user_id=current_user.id,
-        new_data=_txn_audit_snapshot(txn),
-        request=request,
-    )
-    db.commit()
-    return txn
 
 
 # --------------------------------------------------
@@ -178,7 +134,6 @@ def get_one(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-    # T1 fix: 403 for employees reading transactions outside their scope.
     _assert_transaction_in_user_scope(db, transaction, current_user)
     return transaction
 
@@ -196,7 +151,6 @@ def loan_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # T1 fix: 403 for employees reading summaries outside their scope.
     loan = _assert_loan_in_user_scope(db, loan_id, current_user)
     return get_loan_transaction_summary(db, loan)
 
@@ -220,27 +174,15 @@ def confirm_transaction_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-
-    before = _txn_audit_snapshot(transaction)
     try:
-        updated = confirm_transaction(
-            db=db, transaction=transaction, updated_by=current_user.id
+        return confirm_transaction(
+            db=db,
+            transaction=transaction,
+            updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="TRANSACTION_CONFIRM",
-        target_table="transactions",
-        record_id=updated.id,
-        user_id=current_user.id,
-        old_data=before,
-        new_data=_txn_audit_snapshot(updated),
-        request=request,
-    )
-    db.commit()
-    return updated
 
 
 # --------------------------------------------------
@@ -263,30 +205,16 @@ def fail_transaction_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-
-    before = _txn_audit_snapshot(transaction)
     try:
-        updated = fail_transaction(
-            db=db, transaction=transaction, updated_by=current_user.id, reason=reason
+        return fail_transaction(
+            db=db,
+            transaction=transaction,
+            updated_by=current_user.id,
+            reason=reason,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="TRANSACTION_FAIL",
-        target_table="transactions",
-        record_id=updated.id,
-        user_id=current_user.id,
-        old_data=before,
-        new_data={
-            **_txn_audit_snapshot(updated),
-            "fail_reason_provided": reason is not None,
-        },
-        request=request,
-    )
-    db.commit()
-    return updated
 
 
 # --------------------------------------------------
@@ -309,30 +237,16 @@ def update_transaction_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-
-    before = {"had_notes": transaction.notes is not None}
     try:
-        updated = update_transaction(
-            db=db, transaction=transaction, data=payload, updated_by=current_user.id
+        return update_transaction(
+            db=db,
+            transaction=transaction,
+            data=payload,
+            updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    # Notes are the only mutable field today. Audit the fact that an edit
-    # happened — never the content, since admins use the field as a
-    # free-text channel that can include customer-supplied strings.
-    write_audit(
-        db,
-        action_type="TRANSACTION_UPDATE",
-        target_table="transactions",
-        record_id=updated.id,
-        user_id=current_user.id,
-        old_data=before,
-        new_data={"has_notes": updated.notes is not None},
-        request=request,
-    )
-    db.commit()
-    return updated
 
 
 # --------------------------------------------------
@@ -354,22 +268,12 @@ def delete_transaction_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
-
-    snapshot = _txn_audit_snapshot(transaction)
     try:
         soft_delete_transaction(
-            db=db, transaction=transaction, deleted_by=current_user.id
+            db=db,
+            transaction=transaction,
+            deleted_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="TRANSACTION_DELETE",
-        target_table="transactions",
-        record_id=transaction.id,
-        user_id=current_user.id,
-        old_data=snapshot,
-        request=request,
-    )
-    db.commit()

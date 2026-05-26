@@ -171,14 +171,16 @@ def readiness_check():
         checks["db"] = "fail"
         log.exception("readyz db check failed: %s", exc)
 
-    # --- S3
+    # --- S3 — uses the bounded probe client (2s connect/read, no retries)
+    # so a degraded S3 fails the probe in seconds instead of holding the
+    # worker for the default 3×60s retry chain.
     try:
-        from botocore.exceptions import ClientError
-        from app.utils.s3 import get_s3_client
+        from botocore.exceptions import BotoCoreError, ClientError
+        from app.utils.s3 import get_s3_probe_client
 
-        get_s3_client().head_bucket(Bucket=settings.S3_BUCKET_NAME)
+        get_s3_probe_client().head_bucket(Bucket=settings.S3_BUCKET_NAME)
         checks["s3"] = "ok"
-    except ClientError as exc:
+    except (ClientError, BotoCoreError) as exc:
         checks["s3"] = "fail"
         log.warning("readyz s3 check failed: %s", exc)
     except Exception as exc:  # noqa: BLE001

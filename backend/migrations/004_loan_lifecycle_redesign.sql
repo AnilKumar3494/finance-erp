@@ -34,12 +34,21 @@
 --   PART C — Verification queries (commented; run manually)
 --
 -- HOW TO RUN:
---   psql -U postgres -d <database> -f 004_loan_lifecycle_redesign.sql
+--   python migrate.py apply        # preferred — records in schema_migrations
+--   python migrate.py status       # list applied vs. pending
+--
+-- (Direct `psql -f` works but bypasses the tracker.)
 --
 -- NOTES:
 --   - ALTER TYPE ADD VALUE cannot be rolled back; it sits in PART A.
 --   - PART B is fully transactional and re-runnable via IF [NOT]
 --     EXISTS guards.
+--   - CodeRabbit flagged `closed_by_id NOT NULL` against `ON DELETE
+--     SET NULL` on loan_closures (line ~362 below). That conflict is
+--     genuine in THIS file but was resolved by migration 006
+--     (006_loan_closure_fk_fix.sql), which drops the NOT NULL. The
+--     live DB has the relaxed shape; do not "fix" 004 in place —
+--     altering an already-applied migration would create drift.
 --   - PG handles month-overflow on date+interval by falling back to
 --     the last day of the target month (so a loan approved on the
 --     31st gets 28th/29th in Feb), which matches the agreed

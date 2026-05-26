@@ -115,14 +115,8 @@ def _connect():
     return conn
 
 
-def _ensure_tracker_table(conn) -> bool:
-    """Return True if schema_migrations exists; False otherwise.
-
-    We do NOT create it here — migration 010 is the canonical place that
-    creates it. The runner just checks. If 010 hasn't been applied yet
-    and someone runs `migrate.py apply`, the runner will execute 010
-    (and every other pending file) in order.
-    """
+def _tracker_table_exists(conn) -> bool:
+    """Return True if schema_migrations is already present."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT to_regclass('public.schema_migrations') IS NOT NULL"
@@ -130,9 +124,41 @@ def _ensure_tracker_table(conn) -> bool:
         return bool(cur.fetchone()[0])
 
 
+def _bootstrap_tracker_table(conn) -> None:
+    """Create the schema_migrations table on a fresh database.
+
+    The runner records every migration it applies. On a brand-new DB the
+    first migration (001) is applied BEFORE migration 010 (which is the
+    file that creates the tracker table in its own SQL). Without this
+    bootstrap, the runner's INSERT into schema_migrations would fire
+    against a non-existent table and roll back migration 001's effects.
+
+    The CREATE TABLE here is byte-identical to migration 010's
+    definition — once 010 runs it's a no-op. Idempotent.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version     TEXT PRIMARY KEY,
+                filename    TEXT NOT NULL,
+                sha256      TEXT,
+                applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                applied_by  TEXT
+            )
+            """
+        )
+        conn.commit()
+
+
 def _fetch_applied(conn) -> dict[str, dict]:
-    """Return {version: {filename, sha256}} of applied migrations."""
-    if not _ensure_tracker_table(conn):
+    """Return {version: {filename, sha256}} of applied migrations.
+
+    Returns an empty dict on a fresh DB where the tracker table hasn't
+    been bootstrapped yet; cmd_apply() handles creating it before any
+    INSERTs land.
+    """
+    if not _tracker_table_exists(conn):
         return {}
     with conn.cursor() as cur:
         cur.execute(
@@ -214,6 +240,14 @@ def cmd_apply(only_version: Optional[str] = None) -> int:
     applied_by = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
     failures = 0
     try:
+        # Fresh-DB bootstrap: make sure the tracker table exists BEFORE we
+        # try to apply / record any migration. Migration 010's CREATE TABLE
+        # is the canonical definition; this is the byte-identical mirror
+        # for first-time setup. Idempotent.
+        if not _tracker_table_exists(conn):
+            logger.info("schema_migrations not present — bootstrapping")
+            _bootstrap_tracker_table(conn)
+
         applied = _fetch_applied(conn)
         to_run = [m for m in migrations if m.version not in applied]
 

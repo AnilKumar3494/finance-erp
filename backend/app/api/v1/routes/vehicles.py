@@ -7,10 +7,11 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.user import User, UserRole
-from app.models.vehicle import AssetStatus, AssetType, Vehicle
+from app.models.vehicle import AssetStatus, AssetType
 from app.models.loan import LoanStatus
 from app.models.document import DocCategory
-from app.utils.audit import write_audit
+
+# Audit lives in the service layer — see app/services/vehicle.py.
 from app.schemas.vehicle import (
     VehicleCreate,
     VehicleListResponse,
@@ -37,21 +38,6 @@ from app.services.document import list_documents
 from app.api.v1.routes.loans import enrich_loan
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
-
-
-# --------------------------------------------------
-# AUDIT snapshot — kept narrow on purpose. Plate / chassis numbers are
-# operationally important to capture (status change on a SEIZED vehicle
-# starts a repo trail) but cosmetic fields like make/model/year add noise
-# without compliance value.
-# --------------------------------------------------
-def _vehicle_audit_snapshot(v: Vehicle) -> dict:
-    return {
-        "plate_number": v.plate_number,
-        "chassis_number": v.chassis_number,
-        "type": v.type.value if v.type else None,
-        "status": v.status.value if v.status else None,
-    }
 
 
 # --------------------------------------------------
@@ -82,23 +68,13 @@ def create_vehicle_route(
         )
 
     try:
-        vehicle = create_vehicle(db=db, data=payload, created_by=current_user.id)
+        return create_vehicle(
+            db=db, data=payload, created_by=current_user.id, request=request,
+        )
     except ValueError as e:
         # Race-condition fallback: pre-checks above passed but the DB unique
         # constraint still fired. Surface the precise message from the service.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="VEHICLE_CREATE",
-        target_table="vehicles",
-        record_id=vehicle.id,
-        user_id=current_user.id,
-        new_data=_vehicle_audit_snapshot(vehicle),
-        request=request,
-    )
-    db.commit()
-    return vehicle
 
 
 # --------------------------------------------------
@@ -174,29 +150,16 @@ def update_vehicle_route(
                 detail="Plate number already registered to an active vehicle",
             )
 
-    before = _vehicle_audit_snapshot(vehicle)
     try:
-        updated = update_vehicle(
-            db=db, vehicle=vehicle, data=payload, updated_by=current_user.id
+        return update_vehicle(
+            db=db,
+            vehicle=vehicle,
+            data=payload,
+            updated_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-
-    # V1: status transitions matter for collateral (SEIZED/SOLD start a
-    # repo / disposal trail). Audit always, not only on status changes,
-    # so plate corrections are also traceable.
-    write_audit(
-        db,
-        action_type="VEHICLE_UPDATE",
-        target_table="vehicles",
-        record_id=updated.id,
-        user_id=current_user.id,
-        old_data=before,
-        new_data=_vehicle_audit_snapshot(updated),
-        request=request,
-    )
-    db.commit()
-    return updated
 
 
 # --------------------------------------------------
@@ -218,22 +181,15 @@ def delete_vehicle_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
         )
-    snapshot = _vehicle_audit_snapshot(vehicle)
     try:
-        soft_delete_vehicle(db=db, vehicle=vehicle, deleted_by=current_user.id)
+        soft_delete_vehicle(
+            db=db,
+            vehicle=vehicle,
+            deleted_by=current_user.id,
+            request=request,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="VEHICLE_DELETE",
-        target_table="vehicles",
-        record_id=vehicle.id,
-        user_id=current_user.id,
-        old_data=snapshot,
-        request=request,
-    )
-    db.commit()
 
 
 # --------------------------------------------------
@@ -258,23 +214,14 @@ def restore_vehicle_route(
             status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found"
         )
     try:
-        restored = restore_vehicle(
-            db=db, vehicle=vehicle, restored_by=current_user.id
+        return restore_vehicle(
+            db=db,
+            vehicle=vehicle,
+            restored_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="VEHICLE_RESTORE",
-        target_table="vehicles",
-        record_id=restored.id,
-        user_id=current_user.id,
-        new_data=_vehicle_audit_snapshot(restored),
-        request=request,
-    )
-    db.commit()
-    return restored
 
 
 # --------------------------------------------------

@@ -21,15 +21,12 @@ from app.services.stability_document import (
     list_stability_documents,
     update_stability_document,
 )
-from app.utils.audit import write_audit
 
 router = APIRouter(prefix="/loans", tags=["Stability Documents"])
 
-# NOTE on dependency declarations: `loan_for_user` already depends on
-# `get_current_user`. Re-declaring `current_user = Depends(get_current_user)`
-# in the same route does NOT cause a duplicate auth check — FastAPI dedupes
-# identical sub-dependencies for a given request. Declaring both lets each
-# handler see both the loan and the user without juggling Request manually.
+# NOTE on audit: the service layer writes the audit row inside the same
+# transaction as the mutation (see app/services/stability_document.py).
+# Route handlers no longer call write_audit themselves.
 
 
 # --------------------------------------------------
@@ -50,27 +47,14 @@ def create(
 ):
     try:
         doc = create_stability_document(
-            db=db, loan_id=loan.id, data=payload, created_by=current_user.id
+            db=db,
+            loan_id=loan.id,
+            data=payload,
+            created_by=current_user.id,
+            request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-
-    write_audit(
-        db,
-        action_type="STABILITY_DOC_CREATE",
-        target_table="stability_documents",
-        record_id=doc.id,
-        user_id=current_user.id,
-        new_data={
-            "loan_id": str(loan.id),
-            "doc_subtype": doc.doc_subtype.value,
-            "cheque_count": doc.cheque_count,
-            "has_description": doc.description is not None,
-            "document_id": str(doc.document_id) if doc.document_id else None,
-        },
-        request=request,
-    )
-    db.commit()
     return StabilityDocumentResponse.model_validate(doc)
 
 
@@ -115,31 +99,13 @@ def update(
     if not doc or doc.loan_id != loan.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-    before = {
-        "cheque_count": doc.cheque_count,
-        "had_description": doc.description is not None,
-    }
     try:
         updated = update_stability_document(
-            db, doc, payload, updated_by=current_user.id
+            db, doc, payload, updated_by=current_user.id, request=request,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    write_audit(
-        db,
-        action_type="STABILITY_DOC_UPDATE",
-        target_table="stability_documents",
-        record_id=updated.id,
-        user_id=current_user.id,
-        old_data=before,
-        new_data={
-            "cheque_count": updated.cheque_count,
-            "has_description": updated.description is not None,
-        },
-        request=request,
-    )
-    db.commit()
     return StabilityDocumentResponse.model_validate(updated)
 
 
@@ -162,19 +128,6 @@ def delete(
     if not doc or doc.loan_id != loan.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-    snapshot = {
-        "doc_subtype": doc.doc_subtype.value,
-        "loan_id": str(doc.loan_id),
-    }
-    delete_stability_document(db=db, doc=doc, deleted_by=current_user.id)
-
-    write_audit(
-        db,
-        action_type="STABILITY_DOC_DELETE",
-        target_table="stability_documents",
-        record_id=doc.id,
-        user_id=current_user.id,
-        old_data=snapshot,
-        request=request,
+    delete_stability_document(
+        db=db, doc=doc, deleted_by=current_user.id, request=request,
     )
-    db.commit()

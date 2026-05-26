@@ -17,7 +17,10 @@
 --       the single source of truth for updated_at.
 --
 -- HOW TO RUN:
---   psql -U postgres -d <your_database> -f 003_customer_hardening.sql
+--   python migrate.py apply        # preferred — records in schema_migrations
+--   python migrate.py status       # list applied vs. pending
+--
+-- (Direct `psql -f` works but bypasses the tracker.)
 --
 -- SAFETY: Fully transactional. Re-runnable via IF [NOT] EXISTS guards.
 --         If a duplicate mobile/aadhaar/pan exists among ACTIVE customers,

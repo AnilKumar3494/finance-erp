@@ -10,12 +10,14 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
+from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.models.loan import Loan, LoanStatus
 from app.models.loan_closure import ClosureType, LoanClosure
 from app.schemas.loan_closure import LoanCloseRequest
 from app.services.transaction import get_loan_transaction_summary
+from app.utils.audit import write_audit
 
 
 # Loan statuses from which closure is allowed.
@@ -31,6 +33,8 @@ def close_loan(
     loan: Loan,
     data: LoanCloseRequest,
     closed_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
 ) -> LoanClosure:
     """
     Finalise a loan. Caller must hold a `with_for_update` lock on the loan.
@@ -130,10 +134,38 @@ def close_loan(
     )
     db.add(closure)
 
+    before_status = loan.status.value
     loan.status = new_status
     loan.updated_by_id = closed_by
 
     db.flush()  # FK-safe; route owns the commit
+
+    # LC1: closure is the single most consequential admin action —
+    # write-offs, NOCs, refunds. The audit row lives in the same
+    # transaction as the closure + loan-status flip thanks to the route
+    # committing once below this call.
+    write_audit(
+        db,
+        action_type="LOAN_CLOSE",
+        target_table="loans",
+        record_id=loan.id,
+        user_id=closed_by,
+        old_data={"loan_status": before_status},
+        new_data={
+            "closure_id": str(closure.id),
+            "loan_status": loan.status.value,
+            "closure_type": closure.closure_type.value,
+            "outstanding_at_closure": str(closure.outstanding_at_closure),
+            "final_settlement_amount": str(closure.final_settlement_amount),
+            "amount_written_off": str(closure.amount_written_off),
+            "closing_charges": str(closure.closing_charges),
+            "charge_waived": closure.charge_waived,
+            "refund_due_to_customer": str(closure.refund_due_to_customer),
+            "noc_issued": closure.noc_issued,
+            "closure_date": closure.closure_date.isoformat(),
+        },
+        request=request,
+    )
     return closure
 
 

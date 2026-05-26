@@ -11,7 +11,10 @@
 -- migration only touches `users`. Re-running is safe via IF NOT EXISTS.
 --
 -- HOW TO RUN:
---   psql -U postgres -d <your_database> -f 002_auth_hardening.sql
+--   python migrate.py apply        # preferred — records in schema_migrations
+--   python migrate.py status       # list applied vs. pending
+--
+-- (Direct `psql -f` works but bypasses the tracker.)
 -- =============================================================
 
 BEGIN;

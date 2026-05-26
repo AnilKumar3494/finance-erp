@@ -14,14 +14,18 @@
 --             B7. Drop duplicate updated_at triggers
 --
 -- HOW TO RUN:
---   psql -U postgres -d <your_database> -f 001_customer_flow_redesign.sql
+--   python migrate.py apply        # preferred — records in schema_migrations
+--   python migrate.py status       # list applied vs. pending
+--
+-- (Direct `psql -f` works but bypasses the schema_migrations tracker
+-- and leaves the runner unable to reconcile state on the next run.)
 --
 -- NOTE ON ENUMS:
 --   ALTER TYPE ADD VALUE cannot be rolled back in any PG version.
 --   It is intentionally placed outside the transaction in PART A.
---   If this migration fails mid-way in PART B, re-running PART A
---   is safe (IF NOT EXISTS guards are in place). Re-run only PART B
---   after fixing the issue.
+--   The CREATE TYPE statements below are wrapped in DO blocks with an
+--   `EXCEPTION WHEN duplicate_object` guard so re-running PART A after a
+--   partial PART B failure is safe.
 -- =============================================================
 
 
@@ -29,37 +33,36 @@
 -- PART A: ENUM CHANGES  (outside transaction)
 -- =============================================================
 
+-- CREATE TYPE has no IF NOT EXISTS form in any PG version. Wrap each in
+-- a DO block with an `EXCEPTION WHEN duplicate_object` guard so PART A
+-- is re-runnable after a partial PART B failure (or after a separate
+-- apply attempt on an already-bootstrapped DB).
+
 -- New enum: role for guarantor / co-hirer (lives on loan_personnel join)
-CREATE TYPE personnel_role AS ENUM (
-    'GUARANTOR',
-    'CO_HIRER'
-);
+DO $$ BEGIN
+    CREATE TYPE personnel_role AS ENUM ('GUARANTOR', 'CO_HIRER');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- New enum: identity proof document types
-CREATE TYPE identity_proof_type AS ENUM (
-    'AADHAAR',
-    'PAN',
-    'DRIVING_LICENSE',
-    'RATION_CARD',
-    'VOTER_ID',
-    'MGNREGA_CARD',
-    'OTHER'
-);
+DO $$ BEGIN
+    CREATE TYPE identity_proof_type AS ENUM (
+        'AADHAAR', 'PAN', 'DRIVING_LICENSE',
+        'RATION_CARD', 'VOTER_ID', 'MGNREGA_CARD', 'OTHER'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- New enum: stability verification document subtypes
-CREATE TYPE stability_doc_type AS ENUM (
-    'PROPERTY_TAX',
-    'ELECTRICITY_BILL',
-    'BANK_STATEMENT',
-    'CHEQUE_PDC',
-    'OTHER'
-);
+DO $$ BEGIN
+    CREATE TYPE stability_doc_type AS ENUM (
+        'PROPERTY_TAX', 'ELECTRICITY_BILL', 'BANK_STATEMENT',
+        'CHEQUE_PDC', 'OTHER'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- New enum: distinguishes regular EMI payments from down payments in transactions
-CREATE TYPE transaction_type AS ENUM (
-    'REGULAR',
-    'DOWN_PAYMENT'
-);
+DO $$ BEGIN
+    CREATE TYPE transaction_type AS ENUM ('REGULAR', 'DOWN_PAYMENT');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Extend existing doc_category enum with new document types
 ALTER TYPE doc_category ADD VALUE IF NOT EXISTS 'IDENTITY_PROOF';   -- identity proof uploads (Aadhaar, PAN, DL, etc.)
