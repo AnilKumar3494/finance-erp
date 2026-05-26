@@ -196,14 +196,18 @@ def delete_stability_document(
     # Centralized soft-delete: keeps is_deleted/deleted_at in sync (satisfies
     # the check_soft_delete_stability_docs CHECK) and also sets updated_by_id.
     doc.soft_delete(deleted_by)
-    db.flush()
-    write_audit(
-        db,
-        action_type="STABILITY_DOC_DELETE",
-        target_table="stability_documents",
-        record_id=doc.id,
-        user_id=deleted_by,
-        old_data=snapshot,
-        request=request,
-    )
-    db.commit()
+    try:
+        db.flush()
+        write_audit(
+            db,
+            action_type="STABILITY_DOC_DELETE",
+            target_table="stability_documents",
+            record_id=doc.id,
+            user_id=deleted_by,
+            old_data=snapshot,
+            request=request,
+        )
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        raise ValueError(safe_integrity_message(e)) from None

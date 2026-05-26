@@ -38,8 +38,11 @@ def get_s3_probe_client():
         config=Config(
             connect_timeout=2,         # seconds — fail fast on network issues
             read_timeout=2,            # seconds — head_bucket is ~1 KB so 2s is generous
-            retries={"max_attempts": 1, "mode": "standard"},
-            # No signature retries; we want a single deterministic call.
+            # `total_max_attempts` is the count of TOTAL attempts (including the
+            # initial call). 1 = exactly one call, no retries. Using the
+            # `max_attempts` key here would mean "retries on top of initial"
+            # (botocore adds +1), so it would silently allow 2 calls.
+            retries={"total_max_attempts": 1, "mode": "standard"},
         ),
     )
 

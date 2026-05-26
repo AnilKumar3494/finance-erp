@@ -173,7 +173,7 @@ def readiness_check():
 
     # --- S3 — uses the bounded probe client (2s connect/read, no retries)
     # so a degraded S3 fails the probe in seconds instead of holding the
-    # worker for the default 3×60s retry chain.
+    # worker for the default multi-attempt 60s-timeout retry chain.
     try:
         from botocore.exceptions import BotoCoreError, ClientError
         from app.utils.s3 import get_s3_probe_client

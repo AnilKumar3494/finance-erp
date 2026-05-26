@@ -124,6 +124,29 @@ def _tracker_table_exists(conn) -> bool:
         return bool(cur.fetchone()[0])
 
 
+def _has_app_tables(conn) -> bool:
+    """Return True if the public schema already has app tables.
+
+    Used to distinguish a truly fresh DB (where auto-bootstrap is safe)
+    from a legacy pre-tracker DB (where auto-bootstrap would set
+    `applied = {}` and cause the runner to replay 001..009 against an
+    already-populated schema — failing loudly on the first CREATE TABLE).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name <> 'schema_migrations'
+            )
+            """
+        )
+        return bool(cur.fetchone()[0])
+
+
 def _bootstrap_tracker_table(conn) -> None:
     """Create the schema_migrations table on a fresh database.
 
@@ -244,7 +267,23 @@ def cmd_apply(only_version: Optional[str] = None) -> int:
         # try to apply / record any migration. Migration 010's CREATE TABLE
         # is the canonical definition; this is the byte-identical mirror
         # for first-time setup. Idempotent.
+        #
+        # Guard: only auto-bootstrap on a TRULY empty DB. If app tables
+        # already exist without a tracker, this is a legacy pre-MVP DB
+        # that needs migration 010 (which backfills 001..009 as applied)
+        # run by hand first — otherwise the runner would treat every
+        # historical migration as pending and re-execute it against an
+        # already-populated schema.
         if not _tracker_table_exists(conn):
+            if _has_app_tables(conn):
+                logger.error(
+                    "schema_migrations is missing but app tables already "
+                    "exist. This looks like a legacy pre-tracker database. "
+                    "Apply migrations/010_schema_migrations_tracker.sql by "
+                    "hand (psql -f ...) to backfill 001..009 as already "
+                    "applied, then re-run `migrate.py apply`."
+                )
+                return 2
             logger.info("schema_migrations not present — bootstrapping")
             _bootstrap_tracker_table(conn)
 
