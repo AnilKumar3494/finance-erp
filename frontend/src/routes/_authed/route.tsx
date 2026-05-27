@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 
 import { tokenStorage } from '@/lib/storage'
+import { AppShell } from '@/components/nav'
 
 // Layout route that protects every child path.
 // Guards on token presence only — server enforces actual authorization
@@ -15,5 +16,13 @@ export const Route = createFileRoute('/_authed')({
       })
     }
   },
-  component: () => <Outlet />,
+  component: AuthedLayout,
 })
+
+function AuthedLayout() {
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
+}
