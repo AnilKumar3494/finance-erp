@@ -20,12 +20,15 @@ class DocCategory(str, enum.Enum):
     KYC = "KYC"
     LOAN_AGREEMENT = "LOAN_AGREEMENT"
     RECEIPT = "RECEIPT"
-    VEHICLE_IMAGE = "VEHICLE_IMAGE"
     IDENTITY_PROOF = "IDENTITY_PROOF"
     STABILITY_DOC = "STABILITY_DOC"
     RC_COPY = "RC_COPY"
     INSURANCE_POLICY = "INSURANCE_POLICY"
     VEHICLE_PHOTO = "VEHICLE_PHOTO"
+    # VEHICLE_IMAGE was the original name for vehicle imagery. Migration 012
+    # backfilled every row onto VEHICLE_PHOTO and dropped the enum value;
+    # do not reintroduce it. Customer-with-vehicle is one of the
+    # VEHICLE_PHOTOs, flagged by the frontend — not a separate doc_type.
 
 
 # AKTODO: when antivirus is wired, add a ScanStatus enum here.
@@ -42,7 +45,6 @@ class Document(AuditBase):
             (doc_type = 'IDENTITY_PROOF'   AND loan_id IS NULL AND transaction_id IS NULL AND vehicle_id IS NULL) OR
             (doc_type = 'LOAN_AGREEMENT'   AND loan_id IS NOT NULL) OR
             (doc_type = 'RECEIPT'          AND transaction_id IS NOT NULL) OR
-            (doc_type = 'VEHICLE_IMAGE'    AND vehicle_id IS NOT NULL) OR
             (doc_type = 'RC_COPY'          AND vehicle_id IS NOT NULL) OR
             (doc_type = 'INSURANCE_POLICY' AND vehicle_id IS NOT NULL) OR
             (doc_type = 'VEHICLE_PHOTO'    AND vehicle_id IS NOT NULL) OR
