@@ -1,6 +1,12 @@
 import axios from 'axios'
+import { v4 as uuidv4 } from 'uuid'
 
-const AUTH_TOKEN_KEY = 'finerp_token'
+import { tokenStorage } from '@/lib/storage'
+
+// Endpoints where POSTs must carry an Idempotency-Key so retries don't
+// double-create. Backend de-dupes by this key. Match is on the path portion
+// only — collection endpoints, not sub-resources.
+const IDEMPOTENT_POST_PATHS = new Set(['/customers', '/transactions'])
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -8,10 +14,20 @@ export const apiClient = axios.create({
 })
 
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  const token = tokenStorage.get()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+
+  if (config.method?.toLowerCase() === 'post' && config.url) {
+    const path = config.url.split('?')[0].replace(/\/$/, '')
+    // .has()/.set() on AxiosHeaders are case-insensitive — bracket access is not,
+    // so a caller-supplied 'idempotency-key' could otherwise be silently overwritten.
+    if (IDEMPOTENT_POST_PATHS.has(path) && !config.headers.has('Idempotency-Key')) {
+      config.headers.set('Idempotency-Key', uuidv4())
+    }
+  }
+
   return config
 })
 
@@ -19,7 +35,7 @@ apiClient.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem(AUTH_TOKEN_KEY)
+      tokenStorage.clear()
       // Hard redirect so router state resets cleanly.
       if (window.location.pathname !== '/login') {
         window.location.assign('/login')
@@ -28,9 +44,3 @@ apiClient.interceptors.response.use(
     return Promise.reject(error)
   },
 )
-
-export const tokenStorage = {
-  get: () => localStorage.getItem(AUTH_TOKEN_KEY),
-  set: (token: string) => localStorage.setItem(AUTH_TOKEN_KEY, token),
-  clear: () => localStorage.removeItem(AUTH_TOKEN_KEY),
-}

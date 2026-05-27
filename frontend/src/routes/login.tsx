@@ -1,23 +1,31 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { Box, Container, Paper, Stack, Typography } from '@mui/material'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 
-export const Route = createFileRoute('/login')({
-  component: LoginPage,
+import { LoginPage } from '@/features/auth/pages/LoginPage'
+import { sanitizeRedirect } from '@/features/auth/redirect'
+import { tokenStorage } from '@/lib/storage'
+
+// The _authed guard appends ?redirect=<original-href> when bouncing
+// unauthenticated requests here, so the user can land back where they
+// started after signing in.
+const loginSearchSchema = z.object({
+  redirect: z.string().optional(),
 })
 
-function LoginPage() {
-  return (
-    <Container maxWidth="sm">
-      <Box sx={{ py: 8 }}>
-        <Paper sx={{ p: 4 }}>
-          <Stack spacing={2}>
-            <Typography variant="h2">Sign in</Typography>
-            <Typography color="text.secondary">
-              Login form coming in Phase 4. Wires to POST /api/v1/auth/login.
-            </Typography>
-          </Stack>
-        </Paper>
-      </Box>
-    </Container>
-  )
+export const Route = createFileRoute('/login')({
+  validateSearch: loginSearchSchema,
+  // If a token already exists, skip the form entirely and bounce to target.
+  // A stale/invalid token will get cleared by the 401 interceptor on the
+  // next request and the user will land back here.
+  beforeLoad: ({ search }) => {
+    if (tokenStorage.get()) {
+      throw redirect({ to: sanitizeRedirect(search.redirect) })
+    }
+  },
+  component: LoginRoute,
+})
+
+function LoginRoute() {
+  const { redirect: redirectAfterLogin } = Route.useSearch()
+  return <LoginPage redirectAfterLogin={redirectAfterLogin} />
 }
