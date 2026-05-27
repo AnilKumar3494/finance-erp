@@ -12,6 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedRouteRouteImport } from './routes/_authed/route'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
+import { Route as AuthedVehiclesRouteImport } from './routes/_authed/vehicles'
+import { Route as AuthedTransactionsRouteImport } from './routes/_authed/transactions'
+import { Route as AuthedReportsRouteImport } from './routes/_authed/reports'
+import { Route as AuthedLoansRouteImport } from './routes/_authed/loans'
+import { Route as AuthedCustomersRouteImport } from './routes/_authed/customers'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -27,27 +32,90 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
+const AuthedVehiclesRoute = AuthedVehiclesRouteImport.update({
+  id: '/vehicles',
+  path: '/vehicles',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedTransactionsRoute = AuthedTransactionsRouteImport.update({
+  id: '/transactions',
+  path: '/transactions',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedReportsRoute = AuthedReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedLoansRoute = AuthedLoansRouteImport.update({
+  id: '/loans',
+  path: '/loans',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedCustomersRoute = AuthedCustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/login': typeof LoginRoute
+  '/customers': typeof AuthedCustomersRoute
+  '/loans': typeof AuthedLoansRoute
+  '/reports': typeof AuthedReportsRoute
+  '/transactions': typeof AuthedTransactionsRoute
+  '/vehicles': typeof AuthedVehiclesRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/customers': typeof AuthedCustomersRoute
+  '/loans': typeof AuthedLoansRoute
+  '/reports': typeof AuthedReportsRoute
+  '/transactions': typeof AuthedTransactionsRoute
+  '/vehicles': typeof AuthedVehiclesRoute
   '/': typeof AuthedIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteRouteWithChildren
   '/login': typeof LoginRoute
+  '/_authed/customers': typeof AuthedCustomersRoute
+  '/_authed/loans': typeof AuthedLoansRoute
+  '/_authed/reports': typeof AuthedReportsRoute
+  '/_authed/transactions': typeof AuthedTransactionsRoute
+  '/_authed/vehicles': typeof AuthedVehiclesRoute
   '/_authed/': typeof AuthedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/customers'
+    | '/loans'
+    | '/reports'
+    | '/transactions'
+    | '/vehicles'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/'
-  id: '__root__' | '/_authed' | '/login' | '/_authed/'
+  to:
+    | '/login'
+    | '/customers'
+    | '/loans'
+    | '/reports'
+    | '/transactions'
+    | '/vehicles'
+    | '/'
+  id:
+    | '__root__'
+    | '/_authed'
+    | '/login'
+    | '/_authed/customers'
+    | '/_authed/loans'
+    | '/_authed/reports'
+    | '/_authed/transactions'
+    | '/_authed/vehicles'
+    | '/_authed/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -78,14 +146,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
+    '/_authed/vehicles': {
+      id: '/_authed/vehicles'
+      path: '/vehicles'
+      fullPath: '/vehicles'
+      preLoaderRoute: typeof AuthedVehiclesRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/transactions': {
+      id: '/_authed/transactions'
+      path: '/transactions'
+      fullPath: '/transactions'
+      preLoaderRoute: typeof AuthedTransactionsRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/reports': {
+      id: '/_authed/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AuthedReportsRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/loans': {
+      id: '/_authed/loans'
+      path: '/loans'
+      fullPath: '/loans'
+      preLoaderRoute: typeof AuthedLoansRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/customers': {
+      id: '/_authed/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof AuthedCustomersRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
   }
 }
 
 interface AuthedRouteRouteChildren {
+  AuthedCustomersRoute: typeof AuthedCustomersRoute
+  AuthedLoansRoute: typeof AuthedLoansRoute
+  AuthedReportsRoute: typeof AuthedReportsRoute
+  AuthedTransactionsRoute: typeof AuthedTransactionsRoute
+  AuthedVehiclesRoute: typeof AuthedVehiclesRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
 }
 
 const AuthedRouteRouteChildren: AuthedRouteRouteChildren = {
+  AuthedCustomersRoute: AuthedCustomersRoute,
+  AuthedLoansRoute: AuthedLoansRoute,
+  AuthedReportsRoute: AuthedReportsRoute,
+  AuthedTransactionsRoute: AuthedTransactionsRoute,
+  AuthedVehiclesRoute: AuthedVehiclesRoute,
   AuthedIndexRoute: AuthedIndexRoute,
 }
 

@@ -43,3 +43,4 @@ function createStringStore(suffix: string) {
 
 export const tokenStorage = createStringStore('token') // finerp_token
 export const themeStorage = createStringStore('theme') // finerp_theme
+export const sidebarStorage = createStringStore('sidebar_collapsed') // finerp_sidebar_collapsed
