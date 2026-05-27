@@ -19,7 +19,11 @@ export function fmtINR(n: number): string {
 // --------------------------------------------------
 
 export function fmtDate(d: dayjs.ConfigType): string {
-  return dayjs(d).format('DD MMM YYYY')
+  // dayjs(undefined) returns "now" — explicitly reject nullish input so a
+  // missing field doesn't render today's date silently.
+  if (d == null) return ''
+  const parsed = dayjs(d)
+  return parsed.isValid() ? parsed.format('DD MMM YYYY') : ''
 }
 
 // --------------------------------------------------

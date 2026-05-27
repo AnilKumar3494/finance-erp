@@ -21,8 +21,10 @@ apiClient.interceptors.request.use((config) => {
 
   if (config.method?.toLowerCase() === 'post' && config.url) {
     const path = config.url.split('?')[0].replace(/\/$/, '')
-    if (IDEMPOTENT_POST_PATHS.has(path) && !config.headers['Idempotency-Key']) {
-      config.headers['Idempotency-Key'] = uuidv4()
+    // .has()/.set() on AxiosHeaders are case-insensitive — bracket access is not,
+    // so a caller-supplied 'idempotency-key' could otherwise be silently overwritten.
+    if (IDEMPOTENT_POST_PATHS.has(path) && !config.headers.has('Idempotency-Key')) {
+      config.headers.set('Idempotency-Key', uuidv4())
     }
   }
 
