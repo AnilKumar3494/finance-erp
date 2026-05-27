@@ -5,9 +5,9 @@ import IconButton from '@mui/material/IconButton'
 import MenuOutlined from '@mui/icons-material/MenuOutlined'
 import LightModeOutlined from '@mui/icons-material/LightModeOutlined'
 import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined'
-import { useRouterState } from '@tanstack/react-router'
 
 import { useThemeMode } from '@/hooks/useTheme'
+import { usePageTitle } from './navUtils'
 
 interface MobileTopBarProps {
   onOpenDrawer: () => void
@@ -15,15 +15,7 @@ interface MobileTopBarProps {
 
 export function MobileTopBar({ onOpenDrawer }: MobileTopBarProps) {
   const { mode, toggle } = useThemeMode()
-  const title = useRouterState({
-    select: (s) => {
-      for (let i = s.matches.length - 1; i >= 0; i--) {
-        const t = s.matches[i]?.staticData?.title
-        if (t) return t
-      }
-      return ''
-    },
-  })
+  const title = usePageTitle()
 
   return (
     <Box

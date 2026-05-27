@@ -5,22 +5,18 @@ import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 
-import { BRAND, NAV_ITEMS, type NavItem } from './navConfig'
+import { BRAND, NAV_ITEMS } from './navConfig'
+import { isActive, useCurrentPath } from './navUtils'
 
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
 }
 
-function isActive(currentPath: string, itemPath: NavItem['path']): boolean {
-  if (itemPath === '/') return currentPath === '/'
-  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`)
-}
-
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
-  const currentPath = useRouterState({ select: (s) => s.location.pathname })
+  const currentPath = useCurrentPath()
   const width = collapsed ? 'var(--sidebar-w-collapsed)' : 'var(--sidebar-w)'
 
   return (

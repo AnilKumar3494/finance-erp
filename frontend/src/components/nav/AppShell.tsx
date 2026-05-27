@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
@@ -23,6 +23,11 @@ export function AppShell({ children }: AppShellProps) {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'))
   const [collapsed, setCollapsedRaw] = useState<boolean>(readInitialCollapsed)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // Remember the element that opened the drawer so we can return focus to
+  // it after close. MUI's auto-restore-focus relies on the trigger being
+  // focused when the Modal mounts, but we blur it first to avoid the
+  // aria-hidden warning, so we own the restore explicitly.
+  const triggerRef = useRef<HTMLElement | null>(null)
 
   const toggleCollapsed = useCallback(() => {
     setCollapsedRaw((prev) => {
@@ -33,15 +38,20 @@ export function AppShell({ children }: AppShellProps) {
   }, [])
 
   const openDrawer = useCallback(() => {
-    // Blur the trigger before the Modal mounts. Without this, MUI sets
-    // aria-hidden on the page root while the trigger button still holds
-    // focus inside it, which Chrome flags as an a11y violation.
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      triggerRef.current = document.activeElement
       document.activeElement.blur()
     }
     setDrawerOpen(true)
   }, [])
-  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false)
+    const t = triggerRef.current
+    triggerRef.current = null
+    if (t) {
+      requestAnimationFrame(() => t.focus())
+    }
+  }, [])
 
   if (isDesktop) {
     return (

@@ -2,23 +2,19 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import MoreHorizOutlined from '@mui/icons-material/MoreHorizOutlined'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 
-import { NAV_ITEMS, type NavItem } from './navConfig'
+import { NAV_ITEMS } from './navConfig'
+import { isActive, useCurrentPath } from './navUtils'
 
 interface MobileBottomBarProps {
   onOpenDrawer: () => void
 }
 
-function isActive(currentPath: string, itemPath: NavItem['path']): boolean {
-  if (itemPath === '/') return currentPath === '/'
-  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`)
-}
-
 const BOTTOM_ITEMS = NAV_ITEMS.filter((i) => i.showInBottomBar)
 
 export function MobileBottomBar({ onOpenDrawer }: MobileBottomBarProps) {
-  const currentPath = useRouterState({ select: (s) => s.location.pathname })
+  const currentPath = useCurrentPath()
   const otherActive = NAV_ITEMS.some(
     (i) => !i.showInBottomBar && isActive(currentPath, i.path),
   )

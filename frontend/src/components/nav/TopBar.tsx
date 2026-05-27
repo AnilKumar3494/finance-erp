@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from 'react'
+import { useRef, useState, type MouseEvent } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -12,46 +12,41 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import LightModeOutlined from '@mui/icons-material/LightModeOutlined'
 import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 
 import { useAuth } from '@/app/auth-context'
 import { useThemeMode } from '@/hooks/useTheme'
-
-function getInitials(source: string | null | undefined, fallback: string): string {
-  const name = (source ?? '').trim()
-  if (!name) return fallback.slice(0, 2).toUpperCase()
-  const parts = name.split(/\s+/).filter(Boolean)
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
-}
+import { getInitials, usePageTitle } from './navUtils'
 
 export function TopBar() {
   const { user, logout } = useAuth()
   const { mode, toggle } = useThemeMode()
   const navigate = useNavigate()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-
-  const title = useRouterState({
-    select: (s) => {
-      for (let i = s.matches.length - 1; i >= 0; i--) {
-        const t = s.matches[i]?.staticData?.title
-        if (t) return t
-      }
-      return ''
-    },
-  })
+  const triggerRef = useRef<HTMLElement | null>(null)
+  const title = usePageTitle()
 
   const open = Boolean(anchor)
   const openMenu = (e: MouseEvent<HTMLElement>) => {
     const trigger = e.currentTarget
+    triggerRef.current = trigger
     setAnchor(trigger)
-    // Same a11y reason as the mobile drawer: blur the trigger so it isn't
-    // focused inside an aria-hidden subtree while the Menu mounts.
+    // Blur the trigger BEFORE Menu mounts so it isn't focused inside an
+    // aria-hidden subtree (Chrome a11y warning). Focus is restored in
+    // closeMenu via the stored ref so keyboard users don't lose context.
     trigger.blur()
   }
-  const closeMenu = () => setAnchor(null)
+  const closeMenu = () => {
+    setAnchor(null)
+    const t = triggerRef.current
+    triggerRef.current = null
+    if (t) {
+      requestAnimationFrame(() => t.focus())
+    }
+  }
   const handleLogout = () => {
-    closeMenu()
+    setAnchor(null)
+    triggerRef.current = null
     logout()
     navigate({ to: '/login' })
   }

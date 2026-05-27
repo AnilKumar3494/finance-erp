@@ -7,33 +7,21 @@ import Divider from '@mui/material/Divider'
 import Avatar from '@mui/material/Avatar'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
-import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 
 import { useAuth } from '@/app/auth-context'
-import { BRAND, NAV_ITEMS, type NavItem } from './navConfig'
+import { BRAND, NAV_ITEMS } from './navConfig'
+import { getInitials, isActive, useCurrentPath } from './navUtils'
 
 interface MobileDrawerProps {
   open: boolean
   onClose: () => void
 }
 
-function isActive(currentPath: string, itemPath: NavItem['path']): boolean {
-  if (itemPath === '/') return currentPath === '/'
-  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`)
-}
-
-function getInitials(source: string | null | undefined, fallback: string): string {
-  const name = (source ?? '').trim()
-  if (!name) return fallback.slice(0, 2).toUpperCase()
-  const parts = name.split(/\s+/).filter(Boolean)
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
-}
-
 export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const currentPath = useRouterState({ select: (s) => s.location.pathname })
+  const currentPath = useCurrentPath()
 
   const handleLogout = () => {
     onClose()
