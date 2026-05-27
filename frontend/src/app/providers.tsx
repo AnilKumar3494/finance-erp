@@ -2,12 +2,15 @@
  * Root providers.
  *
  * Wraps the entire app with:
+ *   - ThemeModeProvider (single source of truth for light/dark)
  *   - React Query (server-state cache; persists during the SPA session)
  *   - MUI ThemeProvider + CssBaseline (built from CSS variables in tokens.css)
  *   - MUI LocalizationProvider (dayjs)
+ *   - AuthProvider (user + login/logout)
  *
- * Theme mode (light/dark) is owned by useThemeMode, which also writes
- * `data-theme` on <html> so non-MUI styles pick up the swap.
+ * ThemeModeProvider sits OUTSIDE the inner providers so every consumer of
+ * useThemeMode — including buttons buried deep in the route tree — reads
+ * the same state. The MUI theme rebuild listens to that state.
  */
 
 import { useMemo, type ReactNode } from 'react'
@@ -19,7 +22,8 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 
 import { buildMuiTheme } from '@/styles/mui-theme'
-import { useThemeMode } from '@/hooks/useTheme'
+import { ThemeModeProvider, useThemeMode } from '@/hooks/useTheme'
+import { AuthProvider } from '@/app/auth-context'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +40,14 @@ export const queryClient = new QueryClient({
 })
 
 export function Providers({ children }: { children: ReactNode }) {
+  return (
+    <ThemeModeProvider>
+      <InnerProviders>{children}</InnerProviders>
+    </ThemeModeProvider>
+  )
+}
+
+function InnerProviders({ children }: { children: ReactNode }) {
   const { mode } = useThemeMode()
 
   // Rebuild the MUI theme when mode changes so it re-reads CSS variables.
@@ -45,7 +57,9 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <LocalizationProvider dateAdapter={AdapterDayjs}>{children}</LocalizationProvider>
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <AuthProvider>{children}</AuthProvider>
+        </LocalizationProvider>
       </ThemeProvider>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
