@@ -31,9 +31,10 @@ ACTIVE_PREFIX = "customers/"
 ARCHIVE_PREFIX = "archives/"
 
 # doc_types that REQUIRE a vehicle link and forbid loan/transaction links.
+# VEHICLE_IMAGE was collapsed into VEHICLE_PHOTO by migration 012 — they
+# meant the same thing; keeping both forced every reader to know that.
 _VEHICLE_LINKED = frozenset(
     {
-        DocCategory.VEHICLE_IMAGE,
         DocCategory.RC_COPY,
         DocCategory.INSURANCE_POLICY,
         DocCategory.VEHICLE_PHOTO,
