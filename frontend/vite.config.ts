@@ -5,16 +5,14 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    TanStackRouterVite({ target: 'react', autoCodeSplitting: true }),
-    react(),
-  ],
+  plugins: [TanStackRouterVite({ target: 'react', autoCodeSplitting: true }), react()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
   server: {
-    port: 3000,
+    port: 5173,
+    strictPort: true,
   },
 })

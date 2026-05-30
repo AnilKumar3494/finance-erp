@@ -11,10 +11,12 @@ export interface InputProps extends Omit<TextFieldProps, 'label' | 'error' | 'he
   // String message (not boolean) — TextField gets `error={!!error}` for the
   // red-border state, and we render the message below per §7 style spec.
   error?: string
+  // Muted helper text shown below the input when no error is present.
+  hint?: string
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, required, error, id, ...rest },
+  { label, required, error, hint, id, ...rest },
   ref,
 ) {
   return (
@@ -25,7 +27,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         </FieldLabel>
       )}
       <TextField id={id} inputRef={ref} error={!!error} fullWidth size="small" {...rest} />
-      {error && (
+      {error ? (
         <Typography
           role="alert"
           sx={{
@@ -37,7 +39,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         >
           {error}
         </Typography>
-      )}
+      ) : hint ? (
+        <Typography
+          sx={{
+            mt: 0.5,
+            fontSize: 11,
+            color: 'text.secondary',
+          }}
+        >
+          {hint}
+        </Typography>
+      ) : null}
     </Box>
   )
 })

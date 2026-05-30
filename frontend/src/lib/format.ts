@@ -26,6 +26,28 @@ export function fmtDate(d: dayjs.ConfigType): string {
   return parsed.isValid() ? parsed.format('DD MMM YYYY') : ''
 }
 
+// Date + time formatted in India Standard Time, regardless of the user's
+// system timezone. Backend timestamps are UTC ISO strings; we pin display
+// to IST so operations staff in different states see the same wall-clock
+// audit trail. Uses Intl directly to avoid pulling in the dayjs timezone
+// plugin.
+const istDateTimeFormatter = new Intl.DateTimeFormat('en-IN', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+  timeZone: 'Asia/Kolkata',
+})
+
+export function fmtDateTime(d: dayjs.ConfigType): string {
+  if (d == null) return ''
+  const parsed = dayjs(d)
+  if (!parsed.isValid()) return ''
+  return `${istDateTimeFormatter.format(parsed.toDate())} IST`
+}
+
 // --------------------------------------------------
 // File size
 // --------------------------------------------------
