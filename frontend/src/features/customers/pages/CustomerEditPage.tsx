@@ -238,6 +238,7 @@ function EditForm({ customer, onCancel, onSaved }: EditFormProps) {
       original: customer,
       assignee,
       canPickAssignee,
+      assigneeTouched,
     })
 
     if (Object.keys(payload).length === 0) {
@@ -479,6 +480,12 @@ interface BuildPayloadArgs {
   original: CustomerResponse
   assignee: EmployeeResponse | null
   canPickAssignee: boolean
+  // Whether the user has actually interacted with the assignee picker.
+  // Without this gate, an unrelated edit submitted before /auth/employees
+  // hydration finishes would compute `assignee=null` against a non-null
+  // original assignee, sending `assigned_employee_id: null` and silently
+  // unassigning the customer.
+  assigneeTouched: boolean
 }
 
 function buildDiffPayload({
@@ -486,6 +493,7 @@ function buildDiffPayload({
   original,
   assignee,
   canPickAssignee,
+  assigneeTouched,
 }: BuildPayloadArgs): CustomerUpdate {
   const payload: CustomerUpdate = {}
 
@@ -529,7 +537,7 @@ function buildDiffPayload({
     payload.date_of_birth = dob
   }
 
-  if (canPickAssignee) {
+  if (canPickAssignee && assigneeTouched) {
     const next = assignee?.id ?? null
     if (next !== original.assigned_employee_id) {
       payload.assigned_employee_id = next

@@ -35,10 +35,12 @@ export function CustomersListPage() {
 
   const [draft, setDraft] = useState(() => searchTerm ?? '')
   const isFirstRun = useRef(true)
+  // Track the last value we wrote to the URL so the URL→draft sync below
+  // can distinguish "echo of our own debounced write" from a genuinely
+  // external nav (browser back/forward, deep link). Echoes are ignored.
+  const lastWrittenSearch = useRef<string | undefined>(searchTerm)
 
-  // Debounced write of the search input into the URL. Intentionally one-way:
-  // local draft → URL. Avoids the bidirectional-sync loop that bites when a
-  // browser back/forward also tries to push URL changes back into the input.
+  // Local draft → URL (debounced).
   useEffect(() => {
     if (isFirstRun.current) {
       isFirstRun.current = false
@@ -46,6 +48,7 @@ export function CustomersListPage() {
     }
     const t = setTimeout(() => {
       const next = draft.trim() || undefined
+      lastWrittenSearch.current = next
       navigate({
         search: (prev) => ({ ...prev, page: 1, search: next }),
         replace: true,
@@ -53,6 +56,15 @@ export function CustomersListPage() {
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [draft, navigate])
+
+  // URL → draft, but ONLY when the URL value differs from what we last
+  // wrote. Otherwise we'd overwrite mid-typing on every debounced commit.
+  useEffect(() => {
+    if (searchTerm !== lastWrittenSearch.current) {
+      lastWrittenSearch.current = searchTerm
+      setDraft(searchTerm ?? '')
+    }
+  }, [searchTerm])
 
   const query = useCustomers({ page, page_size: PAGE_SIZE, search: searchTerm })
 
@@ -160,6 +172,8 @@ export function CustomersListPage() {
 
 function DesktopTable({ rows }: { rows: CustomerResponse[] }) {
   const navigate = routeApi.useNavigate()
+  const goToDetail = (id: string) =>
+    navigate({ to: '/customers/$customerId', params: { customerId: id } })
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
@@ -178,13 +192,24 @@ function DesktopTable({ rows }: { rows: CustomerResponse[] }) {
                 <TableRow
                   key={c.id}
                   hover
-                  onClick={() =>
-                    navigate({
-                      to: '/customers/$customerId',
-                      params: { customerId: c.id },
-                    })
-                  }
-                  sx={{ cursor: 'pointer' }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Open ${c.full_name}`}
+                  onClick={() => goToDetail(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      goToDetail(c.id)
+                    }
+                  }}
+                  sx={{
+                    cursor: 'pointer',
+                    '&:focus-visible': {
+                      outline: '2px solid',
+                      outlineColor: 'primary.main',
+                      outlineOffset: -2,
+                    },
+                  }}
                 >
                   <TableCell>{c.full_name}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
@@ -218,17 +243,23 @@ function DesktopTable({ rows }: { rows: CustomerResponse[] }) {
 
 function MobileCards({ rows }: { rows: CustomerResponse[] }) {
   const navigate = routeApi.useNavigate()
+  const goToDetail = (id: string) =>
+    navigate({ to: '/customers/$customerId', params: { customerId: id } })
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((c) => (
         <Card
           key={c.id}
-          onClick={() =>
-            navigate({
-              to: '/customers/$customerId',
-              params: { customerId: c.id },
-            })
-          }
+          tabIndex={0}
+          role="button"
+          aria-label={`Open ${c.full_name}`}
+          onClick={() => goToDetail(c.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              goToDetail(c.id)
+            }
+          }}
           sx={{
             p: 2,
             cursor: 'pointer',
@@ -238,6 +269,11 @@ function MobileCards({ rows }: { rows: CustomerResponse[] }) {
             },
             '&:active': {
               boxShadow: 'var(--shadow-hover)',
+            },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: -2,
             },
           }}
         >
