@@ -6,7 +6,7 @@ import { tokenStorage } from '@/lib/storage'
 // Endpoints where POSTs must carry an Idempotency-Key so retries don't
 // double-create. Backend de-dupes by this key. Match is on the path portion
 // only — collection endpoints, not sub-resources.
-const IDEMPOTENT_POST_PATHS = new Set(['/customers', '/transactions'])
+const IDEMPOTENT_POST_PATHS = new Set(['/customers', '/transactions', '/loans'])
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
