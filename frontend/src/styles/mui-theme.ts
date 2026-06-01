@@ -177,35 +177,61 @@ export function buildMuiTheme(mode: Mode) {
       },
 
       // ---- Paper / Card -----------------------------------------------
-      // In dark mode tokens.surface is rgba(255,255,255,0.05) — translucent
-      // by design so cards "frost" over the opaque body bg. That visual
-      // breaks for floating UI (Dialog, Popover, Menu, Autocomplete listbox,
-      // DatePicker calendar) which stack over a dim backdrop and/or
-      // arbitrary content — the translucent layer muddies the contents.
-      //
-      // Fix universally: opaque `bg` base + a linear-gradient overlay of
-      // the same translucent `surface` token. Cards on body bg look
-      // identical (same blended tone, no glass-over-glass needed). Floating
-      // surfaces now render opaque and stay readable.
       MuiPaper: {
         defaultProps: { elevation: 1 },
         styleOverrides: {
           root: {
+            backgroundImage: 'none',
             border: `1px solid ${tokens.border}`,
             borderRadius: 14,
-            backgroundColor: tokens.bg,
-            backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
           },
         },
       },
 
-      // ---- Dialog (modals) --------------------------------------------
+      // ---- Floating surfaces ------------------------------------------
+      // In dark mode `tokens.surface` is rgba(255,255,255,0.05) — translucent
+      // by design so cards "frost" over the opaque body bg. That breaks
+      // for floating UI which stacks over a dim backdrop and/or arbitrary
+      // content: a translucent layer + backdrop = muddy text.
+      //
+      // We target only the floating surfaces (NOT Paper universally, which
+      // would also break Alert.filled — Alert extends Paper, and a white
+      // gradient overlay covers Alert's severity-tinted background in
+      // light mode). Opaque `bg` base + a linear-gradient overlay of the
+      // same `surface` token gives the same blended tone as cards but
+      // opaque underneath.
       MuiDialog: {
         styleOverrides: {
           paper: {
             borderRadius: 16,
             padding: 28,
             border: `1px solid ${tokens.border}`,
+            backgroundColor: tokens.bg,
+            backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
+          },
+        },
+      },
+      MuiPopover: {
+        styleOverrides: {
+          paper: {
+            backgroundColor: tokens.bg,
+            backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
+          },
+        },
+      },
+      MuiMenu: {
+        styleOverrides: {
+          paper: {
+            backgroundColor: tokens.bg,
+            backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
+          },
+        },
+      },
+      MuiAutocomplete: {
+        styleOverrides: {
+          paper: {
+            backgroundColor: tokens.bg,
+            backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
           },
         },
       },
