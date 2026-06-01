@@ -108,6 +108,8 @@ class CustomerResponse(CustomerBase):
     created_by_id: Optional[uuid.UUID]
     assigned_employee_id: Optional[uuid.UUID]
     assigned_employee_name: Optional[str] = None
+    primary_loan_number: Optional[str] = None
+    primary_vehicle_number: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

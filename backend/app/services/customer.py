@@ -2,13 +2,14 @@ import uuid
 from typing import Optional
 
 from fastapi import Request
-from sqlalchemy import or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.models.customer import Customer
 from app.models.loan import Loan, LoanStatus
 from app.models.user import User, UserRole
+from app.models.vehicle import Vehicle
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
@@ -116,11 +117,17 @@ def _customer_has_active_loan(db: Session, customer_id: uuid.UUID) -> bool:
 # READS
 # --------------------------------------------------
 def get_customer(db: Session, customer_id: uuid.UUID) -> Optional[Customer]:
-    return (
-        db.query(Customer)
+    row = (
+        db.query(Customer, User.full_name)
+        .outerjoin(User, Customer.assigned_employee_id == User.id)
         .filter(Customer.id == customer_id, Customer.is_deleted == False)  # noqa: E712
         .first()
     )
+    if row is None:
+        return None
+    customer, emp_name = row
+    customer.assigned_employee_name = emp_name
+    return customer
 
 
 def get_customer_by_idempotency_key(
@@ -144,9 +151,43 @@ def list_customers(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Customer], int]:
+    # Per-customer "primary" loan: ACTIVE wins over any other status; within a
+    # group, the most-recently created wins. ROW_NUMBER + filter to rank=1.
+    loan_rank = (
+        db.query(
+            Loan.id.label("loan_id"),
+            Loan.customer_id.label("customer_id"),
+            Loan.loan_number.label("loan_number"),
+            Loan.vehicle_id.label("vehicle_id"),
+            func.row_number()
+            .over(
+                partition_by=Loan.customer_id,
+                order_by=[
+                    case((Loan.status == LoanStatus.ACTIVE, 0), else_=1),
+                    Loan.created_at.desc(),
+                ],
+            )
+            .label("rn"),
+        )
+        .filter(Loan.is_deleted == False)  # noqa: E712
+        .subquery()
+    )
+    primary_loan = aliased(loan_rank, name="primary_loan")
+
     query = (
-        db.query(Customer, User.full_name)
+        db.query(
+            Customer,
+            User.full_name,
+            primary_loan.c.loan_number,
+            Vehicle.plate_number,
+        )
         .outerjoin(User, Customer.assigned_employee_id == User.id)
+        .outerjoin(
+            primary_loan,
+            (primary_loan.c.customer_id == Customer.id)
+            & (primary_loan.c.rn == 1),
+        )
+        .outerjoin(Vehicle, Vehicle.id == primary_loan.c.vehicle_id)
         .filter(Customer.is_deleted == False)  # noqa: E712
     )
 
@@ -167,8 +208,11 @@ def list_customers(
     raw_results = query.offset((page - 1) * page_size).limit(page_size).all()
 
     results = []
-    for customer, emp_name in raw_results:
+    for customer, emp_name, loan_number, plate_number in raw_results:
         customer.assigned_employee_name = emp_name
+        # Transient fields the response schema picks up via from_attributes.
+        customer.primary_loan_number = loan_number
+        customer.primary_vehicle_number = plate_number
         results.append(customer)
 
     return results, total
