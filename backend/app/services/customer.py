@@ -312,6 +312,12 @@ def update_customer(
     customer.updated_by_id = updated_by
 
     try:
+        # Flush BEFORE the audit write so a unique-constraint violation
+        # (duplicate mobile/aadhaar/pan) surfaces here as IntegrityError —
+        # not later inside write_audit's SAVEPOINT, which would leave the
+        # session in PendingRollbackError and our `except IntegrityError`
+        # would never see it. Mirrors create_customer's ordering.
+        db.flush()
         write_audit(
             db,
             action_type="CUSTOMER_UPDATE",
