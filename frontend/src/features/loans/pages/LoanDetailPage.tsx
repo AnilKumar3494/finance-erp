@@ -15,6 +15,7 @@ import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { LoanActions } from '../components/LoanActions'
+import { LoanSubResources } from '../components/LoanSubResources'
 
 interface LoanDetailPageProps {
   loanId: string
@@ -92,6 +93,7 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
       <PartiesCard loan={loan} />
       <FeesCard loan={loan} />
       <LifecycleCard loan={loan} />
+      <LoanSubResources loan={loan} />
       <AuditCard loan={loan} />
     </Stack>
   )
