@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
@@ -60,18 +60,26 @@ export function useLogin() {
   })
 }
 
+// Reactive read of the token via React 18's useSyncExternalStore. The store
+// emits an event on every write, so /auth/me fires immediately after login
+// (no manual reload) and clears on logout the same way.
+function useToken(): string | null {
+  return useSyncExternalStore(
+    tokenStorage.subscribe,
+    tokenStorage.get,
+    () => null,
+  )
+}
+
 export function useMe() {
-  // Gate the request on token presence so we don't fire /auth/me before login.
-  // Reactivity relies on the consuming component re-rendering when the token
-  // state changes — AuthProvider owns that state.
-  const tokenPresent = !!tokenStorage.get()
+  const token = useToken()
   return useQuery({
     queryKey: authKeys.me,
     queryFn: async () => {
       const { data } = await apiClient.get<MeResponse>('/auth/me')
       return data
     },
-    enabled: tokenPresent,
+    enabled: !!token,
     staleTime: Infinity,
     retry: false,
   })
