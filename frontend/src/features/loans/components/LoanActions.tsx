@@ -1,0 +1,395 @@
+import { useCallback, useRef, useState } from 'react'
+import { AxiosError } from 'axios'
+import Box from '@mui/material/Box'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import MenuItem from '@mui/material/MenuItem'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
+
+import { useApproveLoan, type LoanResponse } from '@/api/queries/loans'
+import {
+  useOpenBadDebtProposal,
+  useProposeBadDebt,
+  useReviewBadDebt,
+} from '@/api/queries/badDebt'
+import { useAuth } from '@/app/auth-context'
+import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { PaymentMethod } from '@/schemas/enums'
+import { fmtDateTime } from '@/lib/format'
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  CASH: 'Cash',
+  GPAY: 'Google Pay',
+  PHONEPE: 'PhonePe',
+  BANK_TRANSFER: 'Bank transfer',
+}
+
+function mapActionError(error: unknown): string {
+  if (error instanceof AxiosError) {
+    const status = error.response?.status
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (status === 400) return detail ?? 'This action cannot be completed right now.'
+    if (status === 403) return detail ?? 'You do not have permission for this action.'
+    if (status === 404) return detail ?? 'Loan not found.'
+    if (status === 409) return detail ?? 'This action conflicts with the loan’s current state.'
+    if (status === 422) return detail ?? 'Please check the details and try again.'
+    if (status === 429) return 'Too many requests. Please wait a moment.'
+    if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
+  }
+  return 'Something went wrong. Please try again.'
+}
+
+// Focus-restore: capture the trigger, blur it (silences the aria-hidden
+// warning), and restore focus on close inside a rAF (load-bearing — focus
+// in the same tick gets stolen by MUI's FocusTrap unmount).
+function useFocusRestore() {
+  const triggerRef = useRef<HTMLElement | null>(null)
+  const capture = useCallback(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      triggerRef.current = document.activeElement
+      document.activeElement.blur()
+    }
+  }, [])
+  const restore = useCallback(() => {
+    const t = triggerRef.current
+    triggerRef.current = null
+    if (t) requestAnimationFrame(() => t.focus())
+  }, [])
+  return { capture, restore }
+}
+
+export function LoanActions({ loan }: { loan: LoanResponse }) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+
+  const showApprove = isAdmin && loan.status === 'DRAFT'
+  const showPropose = loan.status === 'ACTIVE'
+  const showReview = isAdmin && loan.status === 'BAD_DEBT_PROPOSED'
+
+  if (!showApprove && !showPropose && !showReview) return null
+
+  return (
+    <Card>
+      <Typography variant="h3" sx={{ mb: 2 }}>
+        Loan actions
+      </Typography>
+      <Stack spacing={2}>
+        {showApprove && <ApproveAction loan={loan} />}
+        {showPropose && <ProposeAction loan={loan} />}
+        {showReview && <ReviewAction loan={loan} />}
+      </Stack>
+    </Card>
+  )
+}
+
+// --------------------------------------------------
+// Approve (DRAFT -> ACTIVE)
+// --------------------------------------------------
+
+function ApproveAction({ loan }: { loan: LoanResponse }) {
+  const approve = useApproveLoan(loan.id)
+  const { capture, restore } = useFocusRestore()
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState('')
+  const [modeError, setModeError] = useState<string>()
+
+  const requireMode = Number(loan.down_payment) > 0
+
+  const openDialog = () => {
+    capture()
+    approve.reset()
+    setMode('')
+    setModeError(undefined)
+    setOpen(true)
+  }
+  const closeDialog = () => {
+    setOpen(false)
+    restore()
+  }
+
+  const confirm = () => {
+    if (requireMode && !PaymentMethod.safeParse(mode).success) {
+      setModeError('Select how the down payment was received')
+      return
+    }
+    approve.mutate(
+      { down_payment_mode: requireMode ? (mode as PaymentMethod) : undefined },
+      { onSuccess: () => closeDialog() },
+    )
+  }
+
+  return (
+    <Box>
+      <Stack spacing={0.5} sx={{ mb: 1.5 }}>
+        <Typography variant="body2" color="text.secondary">
+          Approving generates the repayment schedule and records the down payment.
+          This is logged in the audit trail.
+        </Typography>
+      </Stack>
+      <Btn variant="success" onClick={openDialog}>
+        Approve loan
+      </Btn>
+
+      <Dialog
+        open={open}
+        onClose={approve.isPending ? undefined : closeDialog}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Approve this loan?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: requireMode ? 2 : 0 }}>
+            This sets the approval date, generates {loan.tenure} due cycles, and
+            {requireMode ? ' records the down payment. ' : ' '}
+            cannot be undone. The action is audited.
+          </Typography>
+          {requireMode && (
+            <Input
+              select
+              id="approve_dp_mode"
+              label="Down payment mode"
+              required
+              value={mode}
+              onChange={(e) => {
+                setMode(e.target.value)
+                if (e.target.value) setModeError(undefined)
+              }}
+              error={modeError}
+            >
+              {PaymentMethod.options.map((m) => (
+                <MenuItem key={m} value={m}>
+                  {PAYMENT_METHOD_LABELS[m]}
+                </MenuItem>
+              ))}
+            </Input>
+          )}
+          {approve.isError && (
+            <Box sx={{ mt: 2 }}>
+              <ErrorBanner message={mapActionError(approve.error)} />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Btn variant="ghost" onClick={closeDialog} disabled={approve.isPending}>
+            Cancel
+          </Btn>
+          <Btn variant="success" onClick={confirm} loading={approve.isPending}>
+            Approve &amp; generate
+          </Btn>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
+// --------------------------------------------------
+// Propose bad debt (ACTIVE -> BAD_DEBT_PROPOSED)
+// --------------------------------------------------
+
+function ProposeAction({ loan }: { loan: LoanResponse }) {
+  const propose = useProposeBadDebt(loan.id)
+  const { capture, restore } = useFocusRestore()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState<string>()
+
+  const openDialog = () => {
+    capture()
+    propose.reset()
+    setReason('')
+    setReasonError(undefined)
+    setOpen(true)
+  }
+  const closeDialog = () => {
+    setOpen(false)
+    restore()
+  }
+
+  const confirm = () => {
+    const trimmed = reason.trim()
+    if (trimmed.length < 10) {
+      setReasonError('Give a reason of at least 10 characters')
+      return
+    }
+    propose.mutate({ proposed_reason: trimmed }, { onSuccess: () => closeDialog() })
+  }
+
+  return (
+    <Box>
+      <Stack spacing={0.5} sx={{ mb: 1.5 }}>
+        <Typography variant="body2" color="text.secondary">
+          Flag this loan for bad-debt review. An admin must approve the proposal
+          before any write-off. This is logged in the audit trail.
+        </Typography>
+      </Stack>
+      <Btn variant="danger" onClick={openDialog}>
+        Propose bad debt
+      </Btn>
+
+      <Dialog
+        open={open}
+        onClose={propose.isPending ? undefined : closeDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Propose this loan for bad debt?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            This moves the loan to “Bad debt proposed” and notifies admins for
+            review. Explain why recovery is unlikely.
+          </Typography>
+          <Input
+            id="propose_reason"
+            label="Reason"
+            required
+            multiline
+            minRows={3}
+            maxRows={8}
+            value={reason}
+            onChange={(e) => {
+              setReason(e.target.value)
+              if (e.target.value.trim().length >= 10) setReasonError(undefined)
+            }}
+            error={reasonError}
+          />
+          {propose.isError && (
+            <Box sx={{ mt: 2 }}>
+              <ErrorBanner message={mapActionError(propose.error)} />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Btn variant="ghost" onClick={closeDialog} disabled={propose.isPending}>
+            Cancel
+          </Btn>
+          <Btn variant="danger" onClick={confirm} loading={propose.isPending}>
+            Propose
+          </Btn>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
+// --------------------------------------------------
+// Review proposal (admin): APPROVE keeps the loan BAD_DEBT_PROPOSED (write-off
+// is then a separate Close action); REJECT returns it to ACTIVE.
+// --------------------------------------------------
+
+function ReviewAction({ loan }: { loan: LoanResponse }) {
+  const proposalQuery = useOpenBadDebtProposal(loan.id, true)
+  const review = useReviewBadDebt(loan.id)
+  const { capture, restore } = useFocusRestore()
+  const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | null>(null)
+  const [notes, setNotes] = useState('')
+
+  const proposal = proposalQuery.data
+
+  const openDialog = (d: 'APPROVE' | 'REJECT') => {
+    capture()
+    review.reset()
+    setNotes('')
+    setDecision(d)
+  }
+  const closeDialog = () => {
+    setDecision(null)
+    restore()
+  }
+
+  const confirm = () => {
+    if (!proposal || !decision) return
+    review.mutate(
+      { proposalId: proposal.id, decision, review_notes: notes.trim() || undefined },
+      { onSuccess: () => closeDialog() },
+    )
+  }
+
+  return (
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        This loan has an open bad-debt proposal awaiting your review.
+      </Typography>
+
+      {proposalQuery.isLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+          <Spinner size={22} />
+        </Box>
+      ) : proposal ? (
+        <Stack spacing={1.5}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Reason {proposal.auto_proposed ? '(auto-proposed)' : ''}
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>
+              {proposal.proposed_reason}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              Proposed {fmtDateTime(proposal.proposed_at)}
+            </Typography>
+          </Box>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <Btn variant="success" onClick={() => openDialog('APPROVE')}>
+              Approve proposal
+            </Btn>
+            <Btn variant="ghost" onClick={() => openDialog('REJECT')}>
+              Reject proposal
+            </Btn>
+          </Stack>
+        </Stack>
+      ) : proposalQuery.isError ? (
+        <ErrorBanner message={mapActionError(proposalQuery.error)} />
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          No open proposal found for this loan.
+        </Typography>
+      )}
+
+      <Dialog
+        open={decision !== null}
+        onClose={review.isPending ? undefined : closeDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {decision === 'APPROVE' ? 'Approve bad-debt proposal?' : 'Reject bad-debt proposal?'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {decision === 'APPROVE'
+              ? 'Approving marks the loan eligible for write-off. To finalise, close the loan with a write-off. This is audited.'
+              : 'Rejecting returns the loan to ACTIVE. This is audited.'}
+          </Typography>
+          <Input
+            id="review_notes"
+            label="Review notes"
+            multiline
+            minRows={2}
+            maxRows={6}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          {review.isError && (
+            <Box sx={{ mt: 2 }}>
+              <ErrorBanner message={mapActionError(review.error)} />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Btn variant="ghost" onClick={closeDialog} disabled={review.isPending}>
+            Cancel
+          </Btn>
+          <Btn
+            variant={decision === 'APPROVE' ? 'success' : 'danger'}
+            onClick={confirm}
+            loading={review.isPending}
+          >
+            {decision === 'APPROVE' ? 'Approve' : 'Reject'}
+          </Btn>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}

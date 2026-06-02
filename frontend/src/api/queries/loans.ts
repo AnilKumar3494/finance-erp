@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import type { LoanStatus, PaymentMethod, UserRole } from '@/schemas/enums'
@@ -199,6 +200,32 @@ export function useDeleteLoan(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: loanKeys.lists() })
       qc.removeQueries({ queryKey: loanKeys.detail(id) })
+    },
+  })
+}
+
+export interface LoanApproveRequest {
+  // Required by the backend only when the loan has a down_payment > 0.
+  down_payment_mode?: PaymentMethod | null
+}
+
+// Approve DRAFT -> ACTIVE. This is a member-path POST, so the global
+// idempotency interceptor (which matches collection paths only) doesn't
+// cover it — we attach the key explicitly to make the schedule + down-payment
+// generation safe against double-submit.
+export function useApproveLoan(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: LoanApproveRequest) => {
+      const { data } = await apiClient.post<LoanResponse>(`/loans/${id}/approve`, payload, {
+        headers: { 'Idempotency-Key': uuidv4() },
+      })
+      return data
+    },
+    onSuccess: (updated) => {
+      qc.setQueryData(loanKeys.detail(id), updated)
+      qc.invalidateQueries({ queryKey: loanKeys.lists() })
+      qc.invalidateQueries({ queryKey: loanKeys.byCustomer(updated.customer_id) })
     },
   })
 }

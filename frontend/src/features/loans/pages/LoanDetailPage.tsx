@@ -14,6 +14,7 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
+import { LoanActions } from '../components/LoanActions'
 
 interface LoanDetailPageProps {
   loanId: string
@@ -86,6 +87,7 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
   return (
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
+      <LoanActions loan={loan} />
       <TermsCard loan={loan} />
       <PartiesCard loan={loan} />
       <FeesCard loan={loan} />
