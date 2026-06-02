@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -147,6 +147,8 @@ class LoanResponse(LoanBase):
     is_deleted: bool
     created_by_id: Optional[uuid.UUID] = None
     updated_by_id: Optional[uuid.UUID] = None
+    created_at: datetime
+    updated_at: datetime
 
     # Lifecycle (populated after approval)
     penalty_rate: Optional[Decimal] = None
