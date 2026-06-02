@@ -7,6 +7,7 @@ import type { LoanResponse } from '@/api/queries/loans'
 import { Card } from '@/components/primitives'
 import { DueCyclesTab } from './DueCyclesTab'
 import { TransactionsTab } from './TransactionsTab'
+import { PersonnelTab } from './PersonnelTab'
 
 export function LoanSubResources({ loan }: { loan: LoanResponse }) {
   const [tab, setTab] = useState(0)
@@ -22,10 +23,12 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
       >
         <Tab label="Due cycles" />
         <Tab label="Transactions" />
+        <Tab label="Personnel" />
       </Tabs>
       <Box sx={{ p: { xs: 2, sm: 3 } }}>
         {tab === 0 && <DueCyclesTab loanId={loan.id} />}
         {tab === 1 && <TransactionsTab loanId={loan.id} />}
+        {tab === 2 && <PersonnelTab loanId={loan.id} />}
       </Box>
     </Card>
   )
