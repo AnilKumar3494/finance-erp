@@ -9,7 +9,6 @@ import { TopBar } from './TopBar'
 import { MobileTopBar } from './MobileTopBar'
 import { MobileBottomBar } from './MobileBottomBar'
 import { MobileDrawer } from './MobileDrawer'
-import { SessionChangeBanner } from './SessionChangeBanner'
 
 function readInitialCollapsed(): boolean {
   return sidebarStorage.get() === '1'
@@ -67,7 +66,6 @@ export function AppShell({ children }: AppShellProps) {
             flexDirection: 'column',
           }}
         >
-          <SessionChangeBanner />
           <TopBar />
           <Box
             component="main"
@@ -87,7 +85,6 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-      <SessionChangeBanner />
       <MobileTopBar onOpenDrawer={openDrawer} />
       <Box
         component="main"
