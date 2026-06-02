@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
-import type { LoanStatus, PaymentMethod, UserRole } from '@/schemas/enums'
+import type { ClosureType, LoanStatus, PaymentMethod, UserRole } from '@/schemas/enums'
 
 // --------------------------------------------------
 // Types — mirror backend/app/schemas/loan.py exactly.
@@ -226,6 +226,72 @@ export function useApproveLoan(id: string) {
       qc.setQueryData(loanKeys.detail(id), updated)
       qc.invalidateQueries({ queryKey: loanKeys.lists() })
       qc.invalidateQueries({ queryKey: loanKeys.byCustomer(updated.customer_id) })
+    },
+  })
+}
+
+// --------------------------------------------------
+// Close — mirror backend/app/schemas/loan_closure.py. Money fields are
+// strings. final_settlement_amount is required by the backend.
+// --------------------------------------------------
+
+export interface LoanCloseRequest {
+  closure_type: ClosureType
+  final_settlement_amount: string
+  closing_charges?: string
+  charge_waived?: boolean
+  waiver_reason?: string | null
+  amount_written_off?: string
+  refund_due_to_customer?: string
+  refund_status?: string | null
+  closure_date?: string | null
+  noc_issued?: boolean
+  noc_reference?: string | null
+  closure_remarks?: string | null
+  supporting_document_id?: string | null
+}
+
+export interface LoanClosureResponse {
+  id: string
+  loan_id: string
+  closure_type: ClosureType
+  closing_charges: string
+  charge_waived: boolean
+  waiver_reason: string | null
+  final_settlement_amount: string
+  outstanding_at_closure: string
+  amount_written_off: string
+  refund_due_to_customer: string
+  refund_status: string | null
+  closure_date: string
+  noc_issued: boolean
+  noc_reference: string | null
+  closure_remarks: string | null
+  supporting_document_id: string | null
+  closed_by_id: string | null
+  superseded_by_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function useCloseLoan(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: LoanCloseRequest) => {
+      const { data } = await apiClient.post<LoanClosureResponse>(
+        `/loans/${id}/close`,
+        payload,
+        { headers: { 'Idempotency-Key': uuidv4() } },
+      )
+      return data
+    },
+    onSuccess: (closure) => {
+      // The response is a closure, not the loan — refetch the loan so its new
+      // terminal status (CLOSED / BAD_DEBT) is reflected.
+      qc.invalidateQueries({ queryKey: loanKeys.detail(id) })
+      qc.invalidateQueries({ queryKey: loanKeys.lists() })
+      qc.invalidateQueries({ queryKey: ['transactions', 'summary', id] })
+      qc.invalidateQueries({ queryKey: loanKeys.byCustomer(closure.loan_id) })
     },
   })
 }

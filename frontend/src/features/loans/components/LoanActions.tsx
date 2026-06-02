@@ -5,6 +5,7 @@ import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
+import Divider from '@mui/material/Divider'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -19,6 +20,7 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { PaymentMethod } from '@/schemas/enums'
 import { fmtDateTime } from '@/lib/format'
+import { CloseAction } from './CloseLoanAction'
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: 'Cash',
@@ -68,18 +70,28 @@ export function LoanActions({ loan }: { loan: LoanResponse }) {
   const showApprove = isAdmin && loan.status === 'DRAFT'
   const showPropose = loan.status === 'ACTIVE'
   const showReview = isAdmin && loan.status === 'BAD_DEBT_PROPOSED'
+  const showClose =
+    isAdmin &&
+    (loan.status === 'ACTIVE' ||
+      loan.status === 'AWAITING_CLOSURE' ||
+      loan.status === 'BAD_DEBT_PROPOSED')
 
-  if (!showApprove && !showPropose && !showReview) return null
+  const actions = [
+    showApprove && <ApproveAction key="approve" loan={loan} />,
+    showReview && <ReviewAction key="review" loan={loan} />,
+    showClose && <CloseAction key="close" loan={loan} />,
+    showPropose && <ProposeAction key="propose" loan={loan} />,
+  ].filter(Boolean)
+
+  if (actions.length === 0) return null
 
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 2 }}>
         Loan actions
       </Typography>
-      <Stack spacing={2}>
-        {showApprove && <ApproveAction loan={loan} />}
-        {showPropose && <ProposeAction loan={loan} />}
-        {showReview && <ReviewAction loan={loan} />}
+      <Stack spacing={2} divider={<Divider flexItem />}>
+        {actions}
       </Stack>
     </Card>
   )
