@@ -15,6 +15,7 @@ import type { VehicleResponse } from '@/api/queries/vehicles'
 import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
 import { VehiclePicker } from '@/features/loans/components/VehiclePicker'
+import { PAYMENT_METHOD_LABELS } from '@/features/loans/paymentMethodLabels'
 import { PaymentMethod } from '@/schemas/enums'
 import {
   PRINCIPAL_RANGE,
@@ -36,13 +37,6 @@ function parseAmount(s: string): number | null {
   if (t === '') return null
   const n = Number(t)
   return Number.isFinite(n) ? n : null
-}
-
-const PAYMENT_METHOD_LABELS: Record<z.infer<typeof PaymentMethod>, string> = {
-  CASH: 'Cash',
-  GPAY: 'Google Pay',
-  PHONEPE: 'PhonePe',
-  BANK_TRANSFER: 'Bank transfer',
 }
 
 const Schema = z

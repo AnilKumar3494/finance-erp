@@ -20,14 +20,8 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { PaymentMethod } from '@/schemas/enums'
 import { fmtDateTime } from '@/lib/format'
+import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 import { CloseAction } from './CloseLoanAction'
-
-const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
-  CASH: 'Cash',
-  GPAY: 'Google Pay',
-  PHONEPE: 'PhonePe',
-  BANK_TRANSFER: 'Bank transfer',
-}
 
 function mapActionError(error: unknown): string {
   if (error instanceof AxiosError) {
