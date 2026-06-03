@@ -21,6 +21,7 @@ class AssetStatus(str, enum.Enum):
     SEIZED = "SEIZED"
     MAINTENANCE = "MAINTENANCE"
     SOLD = "SOLD"
+    WITH_CUSTOMER = "WITH_CUSTOMER"  # pledged collateral physically held by the hirer
 
 
 class Vehicle(AuditBase):
