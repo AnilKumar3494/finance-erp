@@ -53,7 +53,13 @@ export function EmployeePicker({
         getOptionLabel={(o) => o.full_name?.trim() || o.username}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         filterOptions={(x) => x}
-        noOptionsText={debouncedQuery ? 'No matching employees' : 'Type to search'}
+        noOptionsText={
+          query.isError
+            ? 'Could not load employees. Check your connection and try again.'
+            : debouncedQuery
+              ? 'No matching employees'
+              : 'Type to search'
+        }
         renderOption={(props, option) => {
           const { key, ...rest } = props as typeof props & { key?: React.Key }
           return (

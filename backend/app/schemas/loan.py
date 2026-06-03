@@ -53,11 +53,11 @@ class VehicleNested(BaseModel):
 class LoanBase(BaseModel):
     customer_id: uuid.UUID
     vehicle_id: Optional[uuid.UUID] = None
-    # Financial terms are optional at create so a DRAFT finance can be started
-    # before the wizard's financial step. They are required at approval (the
-    # service enforces it). When present they must still be in range.
+    # Financial terms are optional: a DRAFT loan may be created before they're
+    # entered (New Finance wizard). They become mandatory at approval — see
+    # services/loan.approve_loan.
     principal: Optional[Decimal] = Field(
-        default=None, gt=0, description="Loan amount; required before approval"
+        default=None, gt=0, description="Loan amount must be positive"
     )
     interest_rate: Optional[Decimal] = Field(
         default=None, gt=0, le=100, description="Annual interest rate"

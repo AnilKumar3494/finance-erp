@@ -47,9 +47,9 @@ class Loan(AuditBase):
         String(30), unique=True, nullable=False, index=True
     )
 
-    # Financial terms are nullable so a DRAFT finance can be created before the
-    # financial step of the New Finance wizard. They are mandatory (validated)
-    # at approval — see services/loan.approve_loan.
+    # Financial terms are nullable on DRAFT rows: the New Finance wizard creates
+    # the loan when a customer is chosen and fills these in last. approve_loan
+    # rejects a DRAFT with any of them NULL, so no ACTIVE loan lacks a schedule.
     principal: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 2), nullable=True)
 
     interest_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)

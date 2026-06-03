@@ -54,8 +54,9 @@ def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
     If includes is provided, populate nested objects from eagerly-loaded relationships.
     """
     response = LoanResponse.model_validate(loan)
-    # Financial terms are nullable on a DRAFT (filled in the wizard's last step).
-    # Computed amounts only make sense once they are set.
+    # Financial terms are nullable on DRAFT loans (New Finance wizard fills them
+    # in last). Only compute the derived fields once they're all present;
+    # otherwise they stay None.
     if (
         loan.principal is not None
         and loan.interest_rate is not None
@@ -67,13 +68,9 @@ def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
         response.total_payable = calculate_total_payable(
             loan.principal, loan.interest_rate, loan.tenure
         )
-    if loan.principal is not None:
         response.net_loan_principal = loan.principal - loan.down_payment
         response.net_disbursed_amount = (
-            loan.principal
-            - loan.down_payment
-            - loan.processing_fee
-            - loan.documentation_fee
+            loan.principal - loan.down_payment - loan.processing_fee - loan.documentation_fee
         )
 
     if includes:
@@ -311,9 +308,9 @@ def update_loan_route(
             ),
         )
 
-    # RBAC. A DRAFT finance is built by the field employee (New Finance wizard),
-    # so the assigned employee may edit their own DRAFT; any admin may too. Once
-    # ACTIVE, only admins (with the SUPER_ADMIN rule below) can edit.
+    # Access control: a DRAFT loan can be edited by any admin, or by the
+    # employee the loan's customer is assigned to. An ACTIVE loan is admin-only
+    # (the super-admin sensitive-field rule below adds a further gate).
     is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
     if loan.status == LoanStatus.DRAFT:
         if not is_admin:
