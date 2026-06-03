@@ -176,7 +176,7 @@ interface LoanEditPageProps {
 export function LoanEditPage({ loanId }: LoanEditPageProps) {
   const navigate = useNavigate()
   const query = useLoan(loanId)
-  const back = () => navigate({ to: '/loans/$loanId', params: { loanId } })
+  const back = () => navigate({ to: '/finances/$loanId', params: { loanId } })
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto' }}>

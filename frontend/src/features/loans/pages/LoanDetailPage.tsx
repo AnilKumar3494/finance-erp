@@ -55,7 +55,7 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
           variant="ghost"
           size="sm"
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate({ to: '/loans', search: { page: 1 } })}
+          onClick={() => navigate({ to: '/finances', search: { page: 1 } })}
         >
           Loans
         </Btn>
@@ -64,7 +64,7 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
             variant="ghost"
             size="sm"
             startIcon={<EditIcon />}
-            onClick={() => navigate({ to: '/loans/$loanId/edit', params: { loanId } })}
+            onClick={() => navigate({ to: '/finances/$loanId/edit', params: { loanId } })}
           >
             Edit
           </Btn>

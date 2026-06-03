@@ -9,8 +9,8 @@ export interface LoansListSearch {
   customer_id?: string
 }
 
-export const Route = createFileRoute('/_authed/loans/')({
-  staticData: { title: 'Loans' },
+export const Route = createFileRoute('/_authed/finances/')({
+  staticData: { title: 'Finances' },
   validateSearch: (raw: Record<string, unknown>): LoansListSearch => {
     const page = Number(raw.page)
     const status = LoanStatus.safeParse(raw.status)

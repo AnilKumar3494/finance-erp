@@ -194,7 +194,7 @@ export function LoanCreatePage() {
 
     createMutation.mutate(payload, {
       onSuccess: (created) => {
-        navigate({ to: '/loans/$loanId', params: { loanId: created.id } })
+        navigate({ to: '/finances/$loanId', params: { loanId: created.id } })
       },
       onError: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
     })
@@ -341,7 +341,7 @@ export function LoanCreatePage() {
           <Btn
             type="button"
             variant="ghost"
-            onClick={() => navigate({ to: '/loans', search: { page: 1 } })}
+            onClick={() => navigate({ to: '/finances', search: { page: 1 } })}
             disabled={createMutation.isPending}
           >
             Cancel

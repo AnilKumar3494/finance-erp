@@ -17,11 +17,9 @@ import { useLoans, type LoanResponse } from '@/api/queries/loans'
 import { useCustomer } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import type { LoanStatus } from '@/schemas/enums'
-import { fmtDate, fmtINR } from '@/lib/format'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
-import { LoanStatusChip } from '../components/LoanStatusChip'
 
-const routeApi = getRouteApi('/_authed/loans/')
+const routeApi = getRouteApi('/_authed/finances/')
 
 const PAGE_SIZE = 20
 
@@ -30,7 +28,7 @@ function mapListError(error: unknown): string {
     if (error.response?.status === 429) return 'Too many requests. Please wait a moment.'
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
   }
-  return 'Something went wrong loading loans.'
+  return 'Something went wrong loading finances.'
 }
 
 const Dash = () => (
@@ -48,7 +46,7 @@ export function LoansListPage() {
     page_size: PAGE_SIZE,
     status,
     customer_id,
-    include: 'customer',
+    include: 'customer,vehicle',
   })
 
   // Only to label the customer filter chip; cheap and cached.
@@ -58,7 +56,7 @@ export function LoansListPage() {
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
   const rows = query.data?.results ?? []
 
-  const goToCreate = () => navigate({ to: '/loans/new' })
+  const goToCreate = () => navigate({ to: '/finances/new' })
 
   const setStatus = (next: LoanStatus | undefined) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, status: next }) })
@@ -74,7 +72,7 @@ export function LoansListPage() {
         sx={{ mb: 2.5, alignItems: { xs: 'stretch', sm: 'center' } }}
       >
         <Typography variant="h2" sx={{ flex: 1 }}>
-          Loans
+          Finances
         </Typography>
         <Btn
           variant="primary"
@@ -82,7 +80,7 @@ export function LoansListPage() {
           onClick={goToCreate}
           sx={{ whiteSpace: 'nowrap' }}
         >
-          New loan
+          New finance
         </Btn>
       </Stack>
 
@@ -142,8 +140,8 @@ export function LoansListPage() {
             <EmptyState filtered={!!status || !!customer_id} onCreate={goToCreate} />
           ) : (
             <>
-              <DesktopTable rows={rows} />
-              <MobileCards rows={rows} />
+              <DesktopTable rows={rows} page={page} />
+              <MobileCards rows={rows} page={page} />
             </>
           )}
 
@@ -167,7 +165,7 @@ export function LoansListPage() {
                 ‹ Prev
               </Btn>
               <Typography variant="body2" color="text.secondary">
-                Page {page} of {totalPages} · {total} loan{total === 1 ? '' : 's'}
+                Page {page} of {totalPages} · {total} finance{total === 1 ? '' : 's'}
               </Typography>
               <Btn
                 variant="ghost"
@@ -185,11 +183,15 @@ export function LoansListPage() {
   )
 }
 
+function serialNumber(page: number, index: number) {
+  return (page - 1) * PAGE_SIZE + index + 1
+}
+
 // --------------------------------------------------
 // Desktop table — md and up
 // --------------------------------------------------
 
-function DesktopTable({ rows }: { rows: LoanResponse[] }) {
+function DesktopTable({ rows, page }: { rows: LoanResponse[]; page: number }) {
   const navigate = routeApi.useNavigate()
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -198,34 +200,34 @@ function DesktopTable({ rows }: { rows: LoanResponse[] }) {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Loan #</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                <TableCell sx={{ fontWeight: 600 }} align="right">
-                  Principal
-                </TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Created</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>SNO</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Loan ID</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Customer Name</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Mobile</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>REG No</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((l) => (
+              {rows.map((l, i) => (
                 <TableRow
                   key={l.id}
                   hover
                   onClick={() =>
-                    navigate({ to: '/loans/$loanId', params: { loanId: l.id } })
+                    navigate({ to: '/finances/$loanId', params: { loanId: l.id } })
                   }
                   sx={{ cursor: 'pointer' }}
                 >
+                  <TableCell>{serialNumber(page, i)}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {l.loan_number}
                   </TableCell>
                   <TableCell>{l.customer?.full_name ?? <Dash />}</TableCell>
-                  <TableCell align="right">{fmtINR(Number(l.principal))}</TableCell>
-                  <TableCell>
-                    <LoanStatusChip status={l.status} />
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                    {l.customer?.mobile_number ?? <Dash />}
                   </TableCell>
-                  <TableCell>{fmtDate(l.created_at)}</TableCell>
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                    {l.vehicle?.plate_number ?? <Dash />}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -240,14 +242,14 @@ function DesktopTable({ rows }: { rows: LoanResponse[] }) {
 // Mobile cards — below md
 // --------------------------------------------------
 
-function MobileCards({ rows }: { rows: LoanResponse[] }) {
+function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
   const navigate = routeApi.useNavigate()
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((l) => (
+      {rows.map((l, i) => (
         <Card
           key={l.id}
-          onClick={() => navigate({ to: '/loans/$loanId', params: { loanId: l.id } })}
+          onClick={() => navigate({ to: '/finances/$loanId', params: { loanId: l.id } })}
           sx={{
             p: 2,
             cursor: 'pointer',
@@ -268,22 +270,19 @@ function MobileCards({ rows }: { rows: LoanResponse[] }) {
               {l.loan_number}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {fmtDate(l.created_at)}
+              #{serialNumber(page, i)}
             </Typography>
           </Stack>
           <Typography variant="body2" sx={{ mt: 0.5 }}>
             {l.customer?.full_name ?? <Dash />}
           </Typography>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ mt: 1, alignItems: 'center', justifyContent: 'space-between' }}
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mt: 0.25, fontFamily: 'var(--font-mono)' }}
           >
-            <Typography variant="body1" sx={{ fontWeight: 600 }}>
-              {fmtINR(Number(l.principal))}
-            </Typography>
-            <LoanStatusChip status={l.status} />
-          </Stack>
+            {l.customer?.mobile_number ?? '—'} · REG {l.vehicle?.plate_number ?? '—'}
+          </Typography>
         </Card>
       ))}
     </Stack>
@@ -304,9 +303,9 @@ function EmptyState({ filtered, onCreate }: EmptyStateProps) {
     return (
       <Card>
         <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-          <Typography variant="h3">No matching loans</Typography>
+          <Typography variant="h3">No matching finances</Typography>
           <Typography variant="body2" color="text.secondary">
-            No loans match the current filters. Clear them to see all loans.
+            No finances match the current filters. Clear them to see all finances.
           </Typography>
         </Stack>
       </Card>
@@ -315,12 +314,12 @@ function EmptyState({ filtered, onCreate }: EmptyStateProps) {
   return (
     <Card>
       <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-        <Typography variant="h3">No loans yet</Typography>
+        <Typography variant="h3">No finances yet</Typography>
         <Typography variant="body2" color="text.secondary">
-          Create your first loan as a draft, then approve it to generate the schedule.
+          Start a new finance to capture the customer, vehicle, documents, and loan terms.
         </Typography>
         <Btn variant="primary" startIcon={<AddIcon />} onClick={onCreate} sx={{ mt: 1 }}>
-          New loan
+          New finance
         </Btn>
       </Stack>
     </Card>
