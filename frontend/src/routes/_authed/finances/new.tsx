@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { LoanCreatePage } from '@/features/loans/pages/LoanCreatePage'
+import { FinanceWizardPage } from '@/features/loans/pages/FinanceWizardPage'
 
 export const Route = createFileRoute('/_authed/finances/new')({
   staticData: { title: 'New finance' },
-  component: LoanCreatePage,
+  component: FinanceWizardPage,
 })
