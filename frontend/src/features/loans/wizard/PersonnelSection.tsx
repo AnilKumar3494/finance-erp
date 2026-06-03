@@ -20,6 +20,7 @@ import {
   usePersonnelIdentityProofs,
   useCreateIdentityProof,
 } from '@/api/queries/identityProofs'
+import type { DocumentResponse } from '@/api/queries/documents'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { AADHAAR_RE, MOBILE_RE, PAN_RE } from '@/schemas/primitives'
@@ -129,6 +130,7 @@ function RoleBlock({
       {adding ? (
         <AddPersonnelForm
           financeId={financeId}
+          customerId={customerId}
           role={role}
           onDone={() => setAdding(false)}
           onCancel={() => setAdding(false)}
@@ -290,17 +292,22 @@ interface AddFormValues {
 
 function AddPersonnelForm({
   financeId,
+  customerId,
   role,
   onDone,
   onCancel,
 }: {
   financeId: string
+  customerId: string
   role: PersonnelRole
   onDone: () => void
   onCancel: () => void
 }) {
   const createPerson = useCreatePersonnel()
   const link = useAddPersonnelToLoan(financeId)
+  const createProof = useCreateIdentityProof()
+  const [aadhaarDoc, setAadhaarDoc] = useState<DocumentResponse | null>(null)
+  const [panDoc, setPanDoc] = useState<DocumentResponse | null>(null)
 
   const schema = useMemo(
     () =>
@@ -351,7 +358,30 @@ function AddPersonnelForm({
               role,
               relationship_to_hirer: orNull(v.relationship_to_hirer),
             },
-            { onSuccess: () => onDone() },
+            {
+              onSuccess: () => {
+                // Link the documents uploaded in this form to the new person.
+                if (aadhaarDoc) {
+                  createProof.mutate({
+                    entity_type: 'personnel',
+                    entity_id: person.id,
+                    proof_type: 'AADHAAR',
+                    id_number: orNull(v.aadhaar_number),
+                    document_id: aadhaarDoc.id,
+                  })
+                }
+                if (panDoc) {
+                  createProof.mutate({
+                    entity_type: 'personnel',
+                    entity_id: person.id,
+                    proof_type: 'PAN',
+                    id_number: v.pan_number.trim() ? v.pan_number.trim().toUpperCase() : null,
+                    document_id: panDoc.id,
+                  })
+                }
+                onDone()
+              },
+            },
           )
         },
       },
@@ -406,6 +436,22 @@ function AddPersonnelForm({
             error={errors.aadhaar_number?.message}
           />
           <Input id="pn_pan" label="PAN" placeholder="Optional" {...register('pan_number')} error={errors.pan_number?.message} />
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2.5 }}>
+          <FileUpload
+            label="Aadhaar document"
+            customerId={customerId}
+            docType="IDENTITY_PROOF"
+            initialDocument={aadhaarDoc}
+            onUploaded={setAadhaarDoc}
+          />
+          <FileUpload
+            label="PAN document"
+            customerId={customerId}
+            docType="IDENTITY_PROOF"
+            initialDocument={panDoc}
+            onUploaded={setPanDoc}
+          />
         </Box>
         <Input
           id="pn_addr"

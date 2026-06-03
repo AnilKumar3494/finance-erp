@@ -15,6 +15,8 @@ import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
 import { CustomerKycSection } from '@/features/loans/wizard/CustomerKycSection'
 import { VehicleSection } from '@/features/loans/wizard/VehicleSection'
 import { PersonnelSection } from '@/features/loans/wizard/PersonnelSection'
+import { PhotosSection } from '@/features/loans/wizard/PhotosSection'
+import { FinancialsSection } from '@/features/loans/wizard/FinancialsSection'
 
 // Index 0 is the customer gate that creates the DRAFT; 1..5 are content sections.
 // Customer & KYC includes identity-proof and stability-proof documents.
@@ -140,7 +142,8 @@ export function FinanceWizardPage() {
           {step === 1 && <CustomerKycSection financeId={financeId} customerId={customer.id} />}
           {step === 2 && <VehicleSection financeId={financeId} customerId={customer.id} />}
           {step === 3 && <PersonnelSection financeId={financeId} customerId={customer.id} />}
-          {step >= 4 && <SectionComingSoon title={STEPS[step]} />}
+          {step === 4 && <PhotosSection financeId={financeId} customerId={customer.id} />}
+          {step === 5 && <FinancialsSection financeId={financeId} />}
 
           <Stack
             direction="row"
@@ -169,16 +172,3 @@ export function FinanceWizardPage() {
   )
 }
 
-function SectionComingSoon({ title }: { title: string }) {
-  return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 1 }}>
-        {title}
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        This section is being built. The draft finance is saved — you can continue
-        through the other sections or open the finance to review it.
-      </Typography>
-    </Card>
-  )
-}
