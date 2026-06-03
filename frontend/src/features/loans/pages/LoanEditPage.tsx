@@ -113,9 +113,9 @@ type FormValues = z.infer<typeof Schema>
 
 function defaultsFromLoan(loan: LoanResponse): FormValues {
   return {
-    principal: loan.principal,
-    interest_rate: loan.interest_rate,
-    tenure: String(loan.tenure),
+    principal: loan.principal ?? '',
+    interest_rate: loan.interest_rate ?? '',
+    tenure: loan.tenure != null ? String(loan.tenure) : '',
     down_payment: loan.down_payment,
     processing_fee: loan.processing_fee,
     documentation_fee: loan.documentation_fee,
@@ -416,11 +416,11 @@ function buildDiff(
   const numChanged = (input: string, orig: string) => Number(input) !== Number(orig)
 
   if (flags.canEditSensitive) {
-    if (numChanged(values.principal, loan.principal)) p.principal = values.principal.trim()
-    if (numChanged(values.interest_rate, loan.interest_rate)) {
+    if (numChanged(values.principal, loan.principal ?? '')) p.principal = values.principal.trim()
+    if (numChanged(values.interest_rate, loan.interest_rate ?? '')) {
       p.interest_rate = values.interest_rate.trim()
     }
-    if (Number(values.tenure) !== loan.tenure) p.tenure = Number(values.tenure)
+    if (Number(values.tenure) !== (loan.tenure ?? NaN)) p.tenure = Number(values.tenure)
     if (numChanged(values.down_payment, loan.down_payment)) {
       p.down_payment = values.down_payment.trim()
     }

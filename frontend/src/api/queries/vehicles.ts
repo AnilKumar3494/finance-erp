@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import type { AssetStatus, AssetType } from '@/schemas/enums'
@@ -74,5 +75,37 @@ export function useVehicle(id: string | undefined) {
       return data
     },
     enabled: !!id,
+  })
+}
+
+// Mirror backend VehicleBase/VehicleCreate. Monetary values are strings.
+// The New Finance wizard defaults type=COLLATERAL and status=WITH_CUSTOMER.
+export interface VehicleCreate {
+  type: AssetType
+  plate_number: string
+  make?: string | null
+  model?: string | null
+  year?: number | null
+  color?: string | null
+  chassis_number?: string | null
+  engine_number?: string | null
+  market_value?: string
+  purchase_cost?: string
+  status?: AssetStatus
+}
+
+export function useCreateVehicle() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: VehicleCreate) => {
+      const { data } = await apiClient.post<VehicleResponse>('/vehicles/', payload, {
+        headers: { 'Idempotency-Key': uuidv4() },
+      })
+      return data
+    },
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: vehicleKeys.lists() })
+      qc.setQueryData(vehicleKeys.detail(created.id), created)
+    },
   })
 }

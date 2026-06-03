@@ -148,7 +148,8 @@ function ApproveAction({ loan }: { loan: LoanResponse }) {
         <DialogTitle>Approve this loan?</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: requireMode ? 2 : 0 }}>
-            This sets the approval date, generates {loan.tenure} due cycles, and
+            This sets the approval date, generates the repayment schedule
+            {loan.tenure != null ? ` (${loan.tenure} cycles)` : ''}, and
             {requireMode ? ' records the down payment. ' : ' '}
             cannot be undone. The action is audited.
           </Typography>

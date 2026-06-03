@@ -39,9 +39,10 @@ export interface LoanResponse {
   customer_id: string
   vehicle_id: string | null
   loan_number: string
-  principal: string
-  interest_rate: string
-  tenure: number
+  // Financial terms are null on a DRAFT until the wizard's financial step.
+  principal: string | null
+  interest_rate: string | null
+  tenure: number | null
   down_payment: string
   processing_fee: string
   documentation_fee: string
@@ -80,9 +81,11 @@ export interface LoanListResponse {
 export interface LoanCreate {
   customer_id: string
   vehicle_id?: string | null
-  principal: string
-  interest_rate: string
-  tenure: number
+  // Optional at create: a DRAFT finance starts with just a customer; the
+  // financial step fills these in later via PATCH.
+  principal?: string
+  interest_rate?: string
+  tenure?: number
   down_payment?: string
   processing_fee?: string
   documentation_fee?: string

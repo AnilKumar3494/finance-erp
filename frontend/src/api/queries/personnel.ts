@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import type { PersonnelRole } from '@/schemas/enums'
@@ -59,5 +60,70 @@ export function useLoanPersonnel(loanId: string | undefined, enabled = true) {
       return data
     },
     enabled: !!loanId && enabled,
+  })
+}
+
+// --------------------------------------------------
+// Write — mirror backend PersonnelCreate / LoanPersonnelCreate.
+// full_name + mobile_number are required; the rest optional.
+// --------------------------------------------------
+
+export interface PersonnelCreate {
+  full_name: string
+  mobile_number: string
+  date_of_birth?: string | null
+  alt_mobile_number?: string | null
+  aadhaar_number?: string | null
+  pan_number?: string | null
+  address_line_1?: string | null
+  address_line_2?: string | null
+  mandal_village?: string | null
+  pincode?: string | null
+  remarks?: string | null
+}
+
+export interface LoanPersonnelCreate {
+  personnel_id: string
+  role: PersonnelRole
+  relationship_to_hirer?: string | null
+}
+
+export function useCreatePersonnel() {
+  return useMutation({
+    mutationFn: async (payload: PersonnelCreate) => {
+      const { data } = await apiClient.post<PersonnelResponse>('/personnel/', payload, {
+        headers: { 'Idempotency-Key': uuidv4() },
+      })
+      return data
+    },
+  })
+}
+
+export function useAddPersonnelToLoan(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: LoanPersonnelCreate) => {
+      const { data } = await apiClient.post<LoanPersonnelResponse>(
+        `/loans/${loanId}/personnel`,
+        payload,
+        { headers: { 'Idempotency-Key': uuidv4() } },
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personnelKeys.byLoan(loanId) })
+    },
+  })
+}
+
+export function useRemovePersonnelFromLoan(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (loanPersonnelId: string) => {
+      await apiClient.delete(`/loans/${loanId}/personnel/${loanPersonnelId}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personnelKeys.byLoan(loanId) })
+    },
   })
 }

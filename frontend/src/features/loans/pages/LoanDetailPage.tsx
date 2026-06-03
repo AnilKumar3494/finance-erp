@@ -130,7 +130,9 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
           <Typography variant="caption" color="text.secondary">
             Principal
           </Typography>
-          <Typography variant="h2">{fmtINR(Number(loan.principal))}</Typography>
+          <Typography variant="h2">
+            {loan.principal != null ? fmtINR(Number(loan.principal)) : '—'}
+          </Typography>
         </Box>
       </Stack>
     </Card>
@@ -148,9 +150,18 @@ function TermsCard({ loan }: { loan: LoanResponse }) {
         Loan terms
       </Typography>
       <FieldGrid>
-        <FieldRow label="Principal" value={fmtINR(Number(loan.principal))} />
-        <FieldRow label="Interest rate" value={`${loan.interest_rate}% p.a.`} />
-        <FieldRow label="Tenure" value={`${loan.tenure} months`} />
+        <FieldRow
+          label="Principal"
+          value={loan.principal != null ? fmtINR(Number(loan.principal)) : undefined}
+        />
+        <FieldRow
+          label="Interest rate"
+          value={loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : undefined}
+        />
+        <FieldRow
+          label="Tenure"
+          value={loan.tenure != null ? `${loan.tenure} months` : undefined}
+        />
         <FieldRow label="Monthly interest" value={money(loan.monthly_interest)} />
         <FieldRow label="Total payable" value={money(loan.total_payable)} />
       </FieldGrid>
