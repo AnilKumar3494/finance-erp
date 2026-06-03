@@ -7,24 +7,24 @@ import Step from '@mui/material/Step'
 import StepLabel from '@mui/material/StepLabel'
 import Stepper from '@mui/material/Stepper'
 import Typography from '@mui/material/Typography'
-import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 
 import { useCreateLoan } from '@/api/queries/loans'
 import type { CustomerResponse } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
+import { CustomerKycSection } from '@/features/loans/wizard/CustomerKycSection'
 
-// The section roadmap. Index 0 is the customer-selection gate that creates the
-// DRAFT finance; the rest are built section by section.
+// Index 0 is the customer gate that creates the DRAFT; 1..5 are content sections.
+// Customer & KYC includes identity-proof and stability-proof documents.
 const STEPS = [
   'Customer',
   'Customer & KYC',
-  'Stability docs',
   'Vehicle',
   'Personnel',
   'Photos',
   'Financials',
 ] as const
+const LAST_STEP = STEPS.length - 1
 
 function mapCreateError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -67,6 +67,10 @@ export function FinanceWizardPage() {
     )
   }
 
+  const exit = () => navigate({ to: '/finances', search: { page: 1 } })
+  const openFinance = () =>
+    financeId && navigate({ to: '/finances/$loanId', params: { loanId: financeId } })
+
   const submitError = create.isError ? mapCreateError(create.error) : null
 
   return (
@@ -76,13 +80,15 @@ export function FinanceWizardPage() {
         spacing={2}
         sx={{ mb: 3, alignItems: 'center', justifyContent: 'space-between' }}
       >
-        <Typography variant="h2">New finance</Typography>
-        <Btn
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate({ to: '/finances', search: { page: 1 } })}
-          disabled={create.isPending}
-        >
+        <Box>
+          <Typography variant="h2">New finance</Typography>
+          {loanNumber && (
+            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+              {loanNumber}
+            </Typography>
+          )}
+        </Box>
+        <Btn variant="ghost" size="sm" onClick={exit} disabled={create.isPending}>
           Exit
         </Btn>
       </Stack>
@@ -103,7 +109,7 @@ export function FinanceWizardPage() {
         </Box>
       )}
 
-      {financeId == null ? (
+      {financeId == null || customer == null ? (
         <Card>
           <Typography variant="h3" sx={{ mb: 1 }}>
             Select the customer
@@ -128,42 +134,47 @@ export function FinanceWizardPage() {
           </Stack>
         </Card>
       ) : (
-        <Card>
-          <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <CheckCircleIcon sx={{ color: 'success.main' }} />
-              <Typography variant="h3">Draft finance created</Typography>
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              {customer?.full_name} ·{' '}
-              <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}>
-                {loanNumber}
-              </Box>
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              The remaining sections (customer KYC, stability documents, vehicle,
-              personnel, photos, and financials) are built next. You can open the
-              finance now to review it.
-            </Typography>
-            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={2} sx={{ mt: 1 }}>
-              <Btn
-                variant="ghost"
-                onClick={() => navigate({ to: '/finances', search: { page: 1 } })}
-              >
-                Back to finances
+        <>
+          {step === 1 && <CustomerKycSection financeId={financeId} customerId={customer.id} />}
+          {step >= 2 && <SectionComingSoon title={STEPS[step]} />}
+
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ mt: 3, alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <Btn variant="ghost" onClick={() => setStep((s) => Math.max(1, s - 1))} disabled={step <= 1}>
+              ‹ Back
+            </Btn>
+            <Btn variant="ghost" size="sm" onClick={openFinance}>
+              Open finance
+            </Btn>
+            {step < LAST_STEP ? (
+              <Btn variant="primary" onClick={() => setStep((s) => Math.min(LAST_STEP, s + 1))}>
+                Continue ›
               </Btn>
-              <Btn
-                variant="primary"
-                onClick={() =>
-                  navigate({ to: '/finances/$loanId', params: { loanId: financeId } })
-                }
-              >
-                Open finance
+            ) : (
+              <Btn variant="primary" onClick={openFinance}>
+                Finish
               </Btn>
-            </Stack>
+            )}
           </Stack>
-        </Card>
+        </>
       )}
     </Box>
+  )
+}
+
+function SectionComingSoon({ title }: { title: string }) {
+  return (
+    <Card>
+      <Typography variant="h3" sx={{ mb: 1 }}>
+        {title}
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        This section is being built. The draft finance is saved — you can continue
+        through the other sections or open the finance to review it.
+      </Typography>
+    </Card>
   )
 }
