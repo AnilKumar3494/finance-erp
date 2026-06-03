@@ -75,11 +75,22 @@ export interface CustomerUnmaskedPII {
   pan_number: string | null
 }
 
+export type CustomerSortField =
+  | 'full_name'
+  | 'mobile_number'
+  | 'created_at'
+  | 'updated_at'
+  | 'assigned_employee_name'
+
+export type SortOrder = 'asc' | 'desc'
+
 export interface CustomerListParams {
   page: number
   page_size?: number
   search?: string
   assigned_employee_id?: string
+  sort_by?: CustomerSortField
+  sort_order?: SortOrder
 }
 
 // --------------------------------------------------
