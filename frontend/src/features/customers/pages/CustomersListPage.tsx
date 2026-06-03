@@ -109,7 +109,7 @@ export function CustomersListPage() {
           active loans count, overdue cycles, customers added this month, etc.
           Needs a backend aggregate endpoint and a small Stat-tile primitive. */}
       <Stack
-        direction={{ xs: 'row', sm: 'row' }}
+        direction="row"
         spacing={1.5}
         sx={{ mb: 3, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}
       >
@@ -239,6 +239,16 @@ const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
   { label: 'Created', sortable: true, field: 'created_at', defaultDir: 'desc' },
 ]
 
+// MUI hides the sort arrow on inactive columns by default and only fades
+// it in on hover, which makes the "this column is sortable" affordance
+// invisible until you mouse over it. Pin the icon at reduced opacity so
+// every sortable header advertises itself; the active column still gets
+// full opacity for emphasis.
+const sortLabelSx = {
+  '& .MuiTableSortLabel-icon': { opacity: 0.4 },
+  '&.Mui-active .MuiTableSortLabel-icon': { opacity: 1 },
+} as const
+
 function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
   const goToDetail = (id: string) =>
@@ -251,7 +261,8 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
     field: CustomerSortField,
     defaultDir: SortOrder,
   ) => {
-    const isActive = sort_by === field || (sort_by === undefined && field === 'created_at')
+    const isActive =
+      sort_by === field || (sort_by === undefined && field === 'created_at')
     const effectiveOrder = sort_by === undefined ? 'desc' : sort_order ?? 'desc'
     const next: SortOrder = isActive
       ? effectiveOrder === 'asc'
@@ -261,8 +272,8 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
     onSortChange({ sort_by: field, sort_order: next })
   }
 
-  // Reflects the URL state. When no URL sort is set, "created_at desc" is
-  // the implicit active sort (matches the backend default).
+  // Reflects URL state. When no URL sort is set, "created_at desc" is the
+  // implicit active sort (matches the backend default).
   const activeField: CustomerSortField = sort_by ?? 'created_at'
   const activeOrder: SortOrder = sort_by === undefined ? 'desc' : sort_order ?? 'desc'
 
@@ -282,6 +293,7 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
                           activeField === h.field ? activeOrder : h.defaultDir
                         }
                         onClick={() => handleHeaderClick(h.field!, h.defaultDir!)}
+                        sx={sortLabelSx}
                       >
                         {h.label}
                       </TableSortLabel>

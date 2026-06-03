@@ -158,9 +158,8 @@ def list_all(
     sort_by: Optional[str] = Query(
         None,
         description=(
-            "Column to sort by. One of: full_name, mobile_number, "
-            "created_at, updated_at, assigned_employee_name. "
-            "Unknown values fall back to created_at."
+            "Column to sort by. One of: full_name, created_at, "
+            "assigned_employee_name. Unknown values fall back to created_at."
         ),
     ),
     sort_order: Optional[str] = Query(

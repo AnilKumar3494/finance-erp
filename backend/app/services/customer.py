@@ -15,16 +15,6 @@ from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
 from app.utils.time import utcnow
 
-_SORTABLE_COLUMNS: dict[str, Any] = {
-    "full_name": Customer.full_name,
-    "mobile_number": Customer.mobile_number,
-    "created_at": Customer.created_at,
-    "updated_at": Customer.updated_at,
-    "assigned_employee_name": User.full_name,
-}
-
-
-
 _IDEMPOTENCY_COMPARE_FIELDS = (
     "full_name",
     "mobile_number",
@@ -80,6 +70,13 @@ _AUDIT_SAFE_FIELDS = (
     "mandal_village",
     "pincode",
 )
+
+
+_SORTABLE_COLUMNS: dict[str, Any] = {
+    "full_name": Customer.full_name,
+    "created_at": Customer.created_at,
+    "assigned_employee_name": User.full_name,
+}
 
 
 def _audit_snapshot(customer: Customer) -> dict:
