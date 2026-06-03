@@ -53,9 +53,14 @@ VALID_INCLUDES = {"customer", "vehicle", "created_by", "updated_by"}
 # A vehicle can be attached to a loan only when it is:
 #   - not soft-deleted
 #   - typed as COLLATERAL (INVENTORY assets are company stock, not pledged)
-#   - in a status where pledging makes sense (IN_YARD or MAINTENANCE).
+#   - in a status where pledging makes sense (IN_YARD, MAINTENANCE, or
+#     WITH_CUSTOMER — collateral physically held by the hirer).
 # SOLD / SEIZED vehicles must never back a loan.
-_PLEDGEABLE_STATUSES = (AssetStatus.IN_YARD, AssetStatus.MAINTENANCE)
+_PLEDGEABLE_STATUSES = (
+    AssetStatus.IN_YARD,
+    AssetStatus.MAINTENANCE,
+    AssetStatus.WITH_CUSTOMER,
+)
 
 
 def is_blocking_vehicle(db: Session, vehicle_id: uuid.UUID) -> bool:
