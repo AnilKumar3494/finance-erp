@@ -11,16 +11,27 @@ export interface SortOption {
   sort_order: SortOrder
 }
 
-// Pre-combined field+direction pairs. Six options is the upper bound for
-// a single-tap mobile picker; if more sort criteria land later, consider
-// splitting into a field Select + a direction toggle.
+// One option per state the column headers can produce. Keeping these
+// 1-1 with the sortable headers means the Select always faithfully
+// reflects the URL — there's no combination of header clicks that lands
+// in a state the dropdown can't label.
 export const SORT_OPTIONS: readonly SortOption[] = [
   { value: 'created_at:desc', label: 'Newest first', sort_by: 'created_at', sort_order: 'desc' },
   { value: 'created_at:asc', label: 'Oldest first', sort_by: 'created_at', sort_order: 'asc' },
   { value: 'full_name:asc', label: 'Name (A → Z)', sort_by: 'full_name', sort_order: 'asc' },
   { value: 'full_name:desc', label: 'Name (Z → A)', sort_by: 'full_name', sort_order: 'desc' },
-  { value: 'updated_at:desc', label: 'Recently updated', sort_by: 'updated_at', sort_order: 'desc' },
-  { value: 'mobile_number:asc', label: 'Mobile number', sort_by: 'mobile_number', sort_order: 'asc' },
+  {
+    value: 'assigned_employee_name:asc',
+    label: 'Assigned (A → Z)',
+    sort_by: 'assigned_employee_name',
+    sort_order: 'asc',
+  },
+  {
+    value: 'assigned_employee_name:desc',
+    label: 'Assigned (Z → A)',
+    sort_by: 'assigned_employee_name',
+    sort_order: 'desc',
+  },
 ]
 
 const DEFAULT_VALUE = 'created_at:desc'

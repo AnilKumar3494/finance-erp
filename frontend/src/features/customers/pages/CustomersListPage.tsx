@@ -216,15 +216,27 @@ interface DesktopTableProps {
   onSortChange: (next: { sort_by: CustomerSortField; sort_order: SortOrder }) => void
 }
 
-const SORTABLE_HEADERS: ReadonlyArray<{
-  field: CustomerSortField
+// Headers in column order. `sortable` controls whether the header is
+// wrapped in TableSortLabel — mobile_number is shown but intentionally
+// not sortable because there's no useful product story for ordering by
+// phone number.
+interface ColumnHeader {
   label: string
-  defaultDir: SortOrder
-}> = [
-  { field: 'full_name', label: 'Name', defaultDir: 'asc' },
-  { field: 'mobile_number', label: 'Mobile', defaultDir: 'asc' },
-  { field: 'assigned_employee_name', label: 'Assigned to', defaultDir: 'asc' },
-  { field: 'created_at', label: 'Created', defaultDir: 'desc' },
+  sortable: boolean
+  field?: CustomerSortField
+  defaultDir?: SortOrder
+}
+
+const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
+  { label: 'Name', sortable: true, field: 'full_name', defaultDir: 'asc' },
+  { label: 'Mobile', sortable: false },
+  {
+    label: 'Assigned to',
+    sortable: true,
+    field: 'assigned_employee_name',
+    defaultDir: 'asc',
+  },
+  { label: 'Created', sortable: true, field: 'created_at', defaultDir: 'desc' },
 ]
 
 function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableProps) {
@@ -233,8 +245,8 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
     navigate({ to: '/customers/$customerId', params: { customerId: id } })
 
   // Clicking the active column flips the direction. Clicking an inactive
-  // column applies that field's default direction (asc for names/mobile,
-  // desc for created).
+  // column applies that field's default direction (asc for names, desc
+  // for created).
   const handleHeaderClick = (
     field: CustomerSortField,
     defaultDir: SortOrder,
@@ -261,17 +273,25 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
           <Table size="small">
             <TableHead>
               <TableRow>
-                {SORTABLE_HEADERS.map((h) => (
-                  <TableCell key={h.field} sx={{ fontWeight: 600 }}>
-                    <TableSortLabel
-                      active={activeField === h.field}
-                      direction={activeField === h.field ? activeOrder : h.defaultDir}
-                      onClick={() => handleHeaderClick(h.field, h.defaultDir)}
-                    >
+                {COLUMN_HEADERS.map((h) =>
+                  h.sortable && h.field && h.defaultDir ? (
+                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
+                      <TableSortLabel
+                        active={activeField === h.field}
+                        direction={
+                          activeField === h.field ? activeOrder : h.defaultDir
+                        }
+                        onClick={() => handleHeaderClick(h.field!, h.defaultDir!)}
+                      >
+                        {h.label}
+                      </TableSortLabel>
+                    </TableCell>
+                  ) : (
+                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
                       {h.label}
-                    </TableSortLabel>
-                  </TableCell>
-                ))}
+                    </TableCell>
+                  ),
+                )}
               </TableRow>
             </TableHead>
             <TableBody>
