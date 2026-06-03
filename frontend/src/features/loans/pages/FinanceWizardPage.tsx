@@ -14,6 +14,7 @@ import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
 import { CustomerKycSection } from '@/features/loans/wizard/CustomerKycSection'
 import { VehicleSection } from '@/features/loans/wizard/VehicleSection'
+import { PersonnelSection } from '@/features/loans/wizard/PersonnelSection'
 
 // Index 0 is the customer gate that creates the DRAFT; 1..5 are content sections.
 // Customer & KYC includes identity-proof and stability-proof documents.
@@ -138,7 +139,8 @@ export function FinanceWizardPage() {
         <>
           {step === 1 && <CustomerKycSection financeId={financeId} customerId={customer.id} />}
           {step === 2 && <VehicleSection financeId={financeId} customerId={customer.id} />}
-          {step >= 3 && <SectionComingSoon title={STEPS[step]} />}
+          {step === 3 && <PersonnelSection financeId={financeId} customerId={customer.id} />}
+          {step >= 4 && <SectionComingSoon title={STEPS[step]} />}
 
           <Stack
             direction="row"
