@@ -75,11 +75,27 @@ export interface CustomerUnmaskedPII {
   pan_number: string | null
 }
 
+// Source of truth: the runtime array. The type is derived from it so
+// adding/removing a field updates both the type system and the URL/state
+// whitelist atomically — no drift possible. Must match the backend
+// _SORTABLE_COLUMNS dict in services/customer.py.
+export const CUSTOMER_SORT_FIELDS = [
+  'full_name',
+  'created_at',
+  'assigned_employee_name',
+] as const
+
+export type CustomerSortField = (typeof CUSTOMER_SORT_FIELDS)[number]
+
+export type SortOrder = 'asc' | 'desc'
+
 export interface CustomerListParams {
   page: number
   page_size?: number
   search?: string
   assigned_employee_id?: string
+  sort_by?: CustomerSortField
+  sort_order?: SortOrder
 }
 
 // --------------------------------------------------
