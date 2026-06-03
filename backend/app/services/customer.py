@@ -17,7 +17,9 @@ from app.utils.time import utcnow
 
 _SORTABLE_COLUMNS: dict[str, Any] = {
     "full_name": Customer.full_name,
+    "mobile_number": Customer.mobile_number,
     "created_at": Customer.created_at,
+    "updated_at": Customer.updated_at,
     "assigned_employee_name": User.full_name,
 }
 
