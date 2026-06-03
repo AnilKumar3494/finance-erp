@@ -47,11 +47,14 @@ class Loan(AuditBase):
         String(30), unique=True, nullable=False, index=True
     )
 
-    principal: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    # Financial terms are nullable so a DRAFT finance can be created before the
+    # financial step of the New Finance wizard. They are mandatory (validated)
+    # at approval — see services/loan.approve_loan.
+    principal: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 2), nullable=True)
 
-    interest_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    interest_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
 
-    tenure: Mapped[int] = mapped_column(Integer, nullable=False)  # In months
+    tenure: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # In months
 
     down_payment: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"

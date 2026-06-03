@@ -53,7 +53,7 @@ def create_vehicle_route(
     request: Request,
     payload: VehicleCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # Admin only
+    current_user: User = Depends(get_current_user),  # employees create collateral via New Finance
 ):
     if payload.plate_number and get_vehicle_by_plate(db, payload.plate_number):
         raise HTTPException(
