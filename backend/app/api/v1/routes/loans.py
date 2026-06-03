@@ -54,16 +54,24 @@ def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
     If includes is provided, populate nested objects from eagerly-loaded relationships.
     """
     response = LoanResponse.model_validate(loan)
-    response.monthly_interest = calculate_monthly_interest(
-        loan.principal, loan.interest_rate
-    )
-    response.total_payable = calculate_total_payable(
-        loan.principal, loan.interest_rate, loan.tenure
-    )
-    response.net_loan_principal = loan.principal - loan.down_payment
-    response.net_disbursed_amount = (
-        loan.principal - loan.down_payment - loan.processing_fee - loan.documentation_fee
-    )
+    # Financial terms are nullable on DRAFT loans (New Finance wizard fills them
+    # in last). Only compute the derived fields once they're all present;
+    # otherwise they stay None.
+    if (
+        loan.principal is not None
+        and loan.interest_rate is not None
+        and loan.tenure is not None
+    ):
+        response.monthly_interest = calculate_monthly_interest(
+            loan.principal, loan.interest_rate
+        )
+        response.total_payable = calculate_total_payable(
+            loan.principal, loan.interest_rate, loan.tenure
+        )
+        response.net_loan_principal = loan.principal - loan.down_payment
+        response.net_disbursed_amount = (
+            loan.principal - loan.down_payment - loan.processing_fee - loan.documentation_fee
+        )
 
     if includes:
         if "customer" in includes and loan.customer:
@@ -277,7 +285,7 @@ def update_loan_route(
     loan_id: uuid.UUID,
     payload: LoanUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),  # admin / super-admin only
+    current_user: User = Depends(get_current_user),
 ):
     loan = get_loan(db, loan_id)
     if not loan:
@@ -298,6 +306,19 @@ def update_loan_route(
                 f"Loan in status {loan.status.value} is immutable. "
                 "Edits are only permitted in DRAFT or ACTIVE."
             ),
+        )
+
+    # Access control: a DRAFT loan can be edited by any admin, or by the
+    # employee the loan's customer is assigned to. An ACTIVE loan is admin-only
+    # (the super-admin sensitive-field rule below adds a further gate).
+    is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    if loan.status == LoanStatus.DRAFT:
+        if not is_admin:
+            _assert_loan_access(loan, current_user, db)  # 403 if not their customer
+    elif loan.status == LoanStatus.ACTIVE and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an admin can edit an ACTIVE loan.",
         )
 
     # SUPER_ADMIN-only fields (extra-sensitive on an ACTIVE loan, since changing

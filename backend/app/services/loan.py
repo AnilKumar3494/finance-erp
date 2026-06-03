@@ -245,7 +245,11 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
     # GUARD: down payment cannot meet or exceed principal
     # (review item — produces negative net values otherwise)
     # --------------------------------------------------
-    if data.down_payment is not None and data.down_payment >= data.principal:
+    if (
+        data.down_payment is not None
+        and data.principal is not None
+        and data.down_payment >= data.principal
+    ):
         raise ValueError(
             "Down payment must be strictly less than principal"
         )
@@ -304,6 +308,11 @@ def approve_loan(
     if loan.status != LoanStatus.DRAFT:
         raise ValueError(
             f"Only DRAFT loans can be approved; this loan is {loan.status.value}"
+        )
+
+    if loan.principal is None or loan.interest_rate is None or loan.tenure is None:
+        raise ValueError(
+            "Set the loan's financial terms (principal, interest rate, tenure) before approving"
         )
 
     if loan.down_payment and loan.down_payment > 0 and not down_payment_mode:

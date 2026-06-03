@@ -53,25 +53,36 @@ class VehicleNested(BaseModel):
 class LoanBase(BaseModel):
     customer_id: uuid.UUID
     vehicle_id: Optional[uuid.UUID] = None
-    principal: Decimal = Field(..., gt=0, description="Loan amount must be positive")
-    interest_rate: Decimal = Field(
-        ..., gt=0, le=100, description="Annual interest rate"
+    # Financial terms are optional: a DRAFT loan may be created before they're
+    # entered (New Finance wizard). They become mandatory at approval — see
+    # services/loan.approve_loan.
+    principal: Optional[Decimal] = Field(
+        default=None, gt=0, description="Loan amount must be positive"
     )
-    tenure: int = Field(..., gt=0, le=360, description="Tenure in months")
+    interest_rate: Optional[Decimal] = Field(
+        default=None, gt=0, le=100, description="Annual interest rate"
+    )
+    tenure: Optional[int] = Field(
+        default=None, gt=0, le=360, description="Tenure in months"
+    )
     down_payment: Decimal = Field(default=Decimal("0.00"), ge=0)
     processing_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     documentation_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
 
     @field_validator("principal")
     @classmethod
-    def validate_principal(cls, v: Decimal) -> Decimal:
+    def validate_principal(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is None:
+            return v
         if v <= 0:
             raise ValueError("Principal must be greater than 0")
         return v.quantize((Decimal("0.01")))
 
     @field_validator("interest_rate")
     @classmethod
-    def validate_interest_rate(cls, v: Decimal) -> Decimal:
+    def validate_interest_rate(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is None:
+            return v
         if v <= 0 or v > 100:
             raise ValueError("Interest rate must be between 0 and 100")
         return v.quantize((Decimal("0.01")))
@@ -103,7 +114,11 @@ class LoanCreate(LoanBase):
 
     @model_validator(mode="after")
     def validate_down_payment_below_principal(self) -> "LoanCreate":
-        if self.down_payment is not None and self.down_payment >= self.principal:
+        if (
+            self.down_payment is not None
+            and self.principal is not None
+            and self.down_payment >= self.principal
+        ):
             raise ValueError("Down payment must be strictly less than principal")
         return self
 
