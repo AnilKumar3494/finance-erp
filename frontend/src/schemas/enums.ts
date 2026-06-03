@@ -31,7 +31,7 @@ export type PunctualityStatus = z.infer<typeof PunctualityStatus>
 export const AssetType = z.enum(['INVENTORY', 'COLLATERAL'])
 export type AssetType = z.infer<typeof AssetType>
 
-export const AssetStatus = z.enum(['IN_YARD', 'SEIZED', 'MAINTENANCE', 'SOLD'])
+export const AssetStatus = z.enum(['IN_YARD', 'SEIZED', 'MAINTENANCE', 'SOLD', 'WITH_CUSTOMER'])
 export type AssetStatus = z.infer<typeof AssetStatus>
 
 export const CycleStatus = z.enum([
