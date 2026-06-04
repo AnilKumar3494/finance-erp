@@ -18,6 +18,7 @@ import { useCustomer } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
+import { LoanStatusChip } from '../components/LoanStatusChip'
 
 const routeApi = getRouteApi('/_authed/finances/')
 
@@ -205,6 +206,7 @@ function DesktopTable({ rows, page }: { rows: LoanResponse[]; page: number }) {
                 <TableCell sx={{ fontWeight: 600 }}>Customer Name</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Mobile</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>REG No</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -227,6 +229,9 @@ function DesktopTable({ rows, page }: { rows: LoanResponse[]; page: number }) {
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {l.vehicle?.plate_number ?? <Dash />}
+                  </TableCell>
+                  <TableCell>
+                    <LoanStatusChip status={l.status} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -269,9 +274,12 @@ function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
             >
               {l.loan_number}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              #{serialNumber(page, i)}
-            </Typography>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <LoanStatusChip status={l.status} />
+              <Typography variant="caption" color="text.secondary">
+                #{serialNumber(page, i)}
+              </Typography>
+            </Stack>
           </Stack>
           <Typography variant="body2" sx={{ mt: 0.5 }}>
             {l.customer?.full_name ?? <Dash />}
