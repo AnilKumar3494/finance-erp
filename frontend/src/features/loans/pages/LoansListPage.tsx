@@ -395,21 +395,36 @@ function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
               </Typography>
             </Stack>
           </Stack>
-          <Typography variant="body2" sx={{ mt: 0.5 }}>
-            {l.customer?.full_name ?? <Dash />}
+          <Typography variant="body2" sx={{ mt: 0.75 }}>
+            <Box component="span" sx={{ color: 'text.secondary' }}>
+              Name:{' '}
+            </Box>
+            <Box component="span" sx={{ fontWeight: 600 }}>
+              {l.customer?.full_name ?? '—'}
+            </Box>
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.25 }}>
+            <Box component="span" sx={{ color: 'text.secondary' }}>
+              Phone No:{' '}
+            </Box>
+            <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+              {l.customer?.mobile_number ?? '—'}
+            </Box>
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.25 }}>
+            <Box component="span" sx={{ color: 'text.secondary' }}>
+              Mandal/Village:{' '}
+            </Box>
+            <Box component="span" sx={{ fontWeight: 600 }}>
+              {l.customer?.mandal_village ?? '—'}
+            </Box>
           </Typography>
           <Typography
             variant="body2"
-            color="text.secondary"
-            sx={{ mt: 0.25, fontFamily: 'var(--font-mono)' }}
+            sx={{ mt: 0.75, fontWeight: 700, fontFamily: 'var(--font-mono)' }}
           >
-            {l.customer?.mobile_number ?? '—'} · REG {l.vehicle?.plate_number ?? '—'}
+            REG {l.vehicle?.plate_number ?? '—'}
           </Typography>
-          {l.customer?.mandal_village && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-              {l.customer.mandal_village}
-            </Typography>
-          )}
         </Card>
       ))}
     </Stack>
