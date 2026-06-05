@@ -116,6 +116,8 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
+      {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
+
       <AuditCard loan={loan} />
     </Stack>
   )
@@ -196,9 +198,7 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
               hint={`due ${fmtDate(nextEmi.due_date)}`}
             />
           )}
-          {loan.tenure != null && (
-            <HeaderStat label="Tenure" value={`${loan.tenure} months`} />
-          )}
+          {loan.tenure != null && <HeaderStat label="Tenure" value={`${loan.tenure} months`} />}
           {loan.interest_rate != null && (
             <HeaderStat label="Interest rate" value={`${loan.interest_rate}% p.a.`} />
           )}

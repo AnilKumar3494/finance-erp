@@ -109,10 +109,12 @@ export function CustomersListPage() {
           active loans count, overdue cycles, customers added this month, etc.
           Needs a backend aggregate endpoint and a small Stat-tile primitive. */}
       <Stack
-        direction="row"
+        direction={{ xs: 'column', sm: 'row' }}
         spacing={1.5}
-        sx={{ mb: 3, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}
+        sx={{ mb: 3, alignItems: { xs: 'stretch', sm: 'center' } }}
       >
+        {/* Search gets its own full-width block on small screens; on sm+ it
+            flexes alongside the sort + create controls. */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Input
             id="customer-search"
@@ -122,19 +124,25 @@ export function CustomersListPage() {
             autoComplete="off"
           />
         </Box>
-        <SortSelect
-          sort_by={sort_by}
-          sort_order={sort_order}
-          onChange={setSort}
-        />
-        <Btn
-          variant="primary"
-          startIcon={<AddIcon />}
-          onClick={goToCreate}
-          sx={{ whiteSpace: 'nowrap' }}
+        <Stack
+          direction="row"
+          spacing={1.5}
+          sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
         >
-          New customer
-        </Btn>
+          <SortSelect
+            sort_by={sort_by}
+            sort_order={sort_order}
+            onChange={setSort}
+          />
+          <Btn
+            variant="primary"
+            startIcon={<AddIcon />}
+            onClick={goToCreate}
+            sx={{ whiteSpace: 'nowrap' }}
+          >
+            New customer
+          </Btn>
+        </Stack>
       </Stack>
 
       {query.isError && (
