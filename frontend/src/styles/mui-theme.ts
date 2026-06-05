@@ -247,6 +247,33 @@ export function buildMuiTheme(mode: Mode) {
         },
       },
 
+      // ---- Alert -------------------------------------------------------
+      // In dark mode the `*-light` tokens are low-alpha rgba tints (used as
+      // subtle backgrounds). MUI derives the outlined/standard Alert TEXT
+      // colour from `palette.<sev>.light`, so that alpha tint yields a nearly
+      // invisible label. Pin the text/border/icon to the solid severity token
+      // so warnings et al. stay legible in both themes.
+      MuiAlert: {
+        styleOverrides: {
+          root: ({ ownerState }) => {
+            const sev: Record<string, string> = {
+              warning: tokens.warning,
+              error: tokens.danger,
+              success: tokens.success,
+            }
+            const c = ownerState.severity ? sev[ownerState.severity] : undefined
+            if (!c || (ownerState.variant !== 'outlined' && ownerState.variant !== 'standard')) {
+              return {}
+            }
+            return {
+              color: c,
+              '& .MuiAlert-icon': { color: c },
+              ...(ownerState.variant === 'outlined' ? { borderColor: c } : {}),
+            }
+          },
+        },
+      },
+
       // ---- Chip (used by our Badge family underneath) ------------------
       MuiChip: {
         styleOverrides: {

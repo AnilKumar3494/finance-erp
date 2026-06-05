@@ -1,13 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { LoanEditPage } from '@/features/loans/pages/LoanEditPage'
-
+// Editing is now in-place on the finance detail page; this route redirects
+// there for any existing links/bookmarks.
 export const Route = createFileRoute('/_authed/finances/$loanId/edit')({
-  staticData: { title: 'Edit finance' },
-  component: RouteComponent,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/finances/$loanId', params: { loanId: params.loanId } })
+  },
 })
-
-function RouteComponent() {
-  const { loanId } = Route.useParams()
-  return <LoanEditPage loanId={loanId} />
-}

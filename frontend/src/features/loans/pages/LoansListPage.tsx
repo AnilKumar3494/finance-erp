@@ -10,19 +10,58 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
+import TableSortLabel from '@mui/material/TableSortLabel'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 
-import { useLoans, type LoanResponse } from '@/api/queries/loans'
+import {
+  useLoans,
+  type LoanResponse,
+  type LoanSortField,
+  type SortOrder,
+} from '@/api/queries/loans'
 import { useCustomer } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
+import { SortSelect } from '../components/SortSelect'
 
 const routeApi = getRouteApi('/_authed/finances/')
 
 const PAGE_SIZE = 20
+
+// Server-side sort (mirrors the customers list). The backend default is
+// created_at desc, which the SNO column reflects when no sort is in the URL.
+const DEFAULT_SORT_FIELD: LoanSortField = 'created_at'
+const DEFAULT_SORT_ORDER: SortOrder = 'desc'
+
+// Headers in column order. `sortable` headers map to a backend LoanSortField;
+// the rest (Loan ID, Mobile, REG No) are display-only.
+interface ColumnHeader {
+  label: string
+  sortable: boolean
+  field?: LoanSortField
+  defaultDir?: SortOrder
+}
+
+const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
+  { label: 'SNO', sortable: true, field: 'created_at', defaultDir: 'desc' },
+  { label: 'Loan ID', sortable: false },
+  { label: 'Customer Name', sortable: true, field: 'full_name', defaultDir: 'asc' },
+  { label: 'Mobile', sortable: false },
+  { label: 'Mandal/Village', sortable: true, field: 'mandal_village', defaultDir: 'asc' },
+  { label: 'REG No', sortable: false },
+  { label: 'Status', sortable: true, field: 'status', defaultDir: 'asc' },
+]
+
+// MUI hides the sort arrow on inactive columns and only fades it in on hover,
+// which hides the "sortable" affordance. Pin it at reduced opacity so every
+// sortable header advertises itself; the active column gets full opacity.
+const sortLabelSx = {
+  '& .MuiTableSortLabel-icon': { opacity: 0.4 },
+  '&.Mui-active .MuiTableSortLabel-icon': { opacity: 1 },
+} as const
 
 function mapListError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -39,8 +78,19 @@ const Dash = () => (
 )
 
 export function LoansListPage() {
-  const { page, status, customer_id } = routeApi.useSearch()
+  const { page, status, customer_id, sort_by, sort_order } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
+
+  const setSort = (next: { sort_by: LoanSortField; sort_order: SortOrder }) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: 1,
+        sort_by: next.sort_by,
+        sort_order: next.sort_order,
+      }),
+      replace: true,
+    })
 
   const query = useLoans({
     page,
@@ -48,6 +98,8 @@ export function LoansListPage() {
     status,
     customer_id,
     include: 'customer,vehicle',
+    sort_by,
+    sort_order,
   })
 
   // Only to label the customer filter chip; cheap and cached.
@@ -67,63 +119,78 @@ export function LoansListPage() {
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={2}
-        sx={{ mb: 2.5, alignItems: { xs: 'stretch', sm: 'center' } }}
+      {/* Responsive toolbar. On mobile the controls reorder to:
+          New finance → filter chips → sort. On sm+ it's a single row
+          (title · sort · new finance) with the chips below. */}
+      <Box
+        sx={{
+          mb: 3,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          columnGap: 2,
+          rowGap: 2,
+        }}
       >
-        <Typography variant="h2" sx={{ flex: 1 }}>
+        <Typography
+          variant="h2"
+          sx={{ order: 0, width: { xs: '100%', sm: 'auto' }, flexGrow: { sm: 1 } }}
+        >
           Finances
         </Typography>
-        <Btn
-          variant="primary"
-          startIcon={<AddIcon />}
-          onClick={goToCreate}
-          sx={{ whiteSpace: 'nowrap' }}
-        >
-          New finance
-        </Btn>
-      </Stack>
 
-      {customer_id && (
-        <Box sx={{ mb: 2 }}>
-          <Chip
-            label={`Customer: ${customerQuery.data?.full_name ?? '…'}`}
-            onDelete={clearCustomer}
-            deleteIcon={<CloseIcon />}
-            color="primary"
-            variant="outlined"
-            sx={{ height: 36, fontWeight: 500 }}
-          />
+        <Box sx={{ order: { xs: 1, sm: 3 }, width: { xs: '100%', sm: 'auto' } }}>
+          <Btn
+            variant="primary"
+            startIcon={<AddIcon />}
+            onClick={goToCreate}
+            sx={{ whiteSpace: 'nowrap', width: { xs: '100%', sm: 'auto' } }}
+          >
+            New finance
+          </Btn>
         </Box>
-      )}
 
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{ mb: 3, flexWrap: 'wrap', gap: 1, rowGap: 1 }}
-      >
-        <Chip
-          label="All"
-          onClick={() => setStatus(undefined)}
-          color={status ? 'default' : 'primary'}
-          variant={status ? 'outlined' : 'filled'}
-          sx={{ height: 36 }}
-        />
-        {LOAN_STATUS_ORDER.map((s) => {
-          const selected = status === s
-          return (
+        <Box sx={{ order: { xs: 3, sm: 2 }, width: { xs: '100%', sm: 'auto' } }}>
+          <SortSelect sort_by={sort_by} sort_order={sort_order} onChange={setSort} />
+        </Box>
+
+        <Box sx={{ order: { xs: 2, sm: 4 }, width: '100%' }}>
+          {customer_id && (
+            <Box sx={{ mb: 2 }}>
+              <Chip
+                label={`Customer: ${customerQuery.data?.full_name ?? '…'}`}
+                onDelete={clearCustomer}
+                deleteIcon={<CloseIcon />}
+                color="primary"
+                variant="outlined"
+                sx={{ height: 36, fontWeight: 500 }}
+              />
+            </Box>
+          )}
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, rowGap: 1 }}>
             <Chip
-              key={s}
-              label={LOAN_STATUS_META[s].label}
-              onClick={() => setStatus(selected ? undefined : s)}
-              color={selected ? 'primary' : 'default'}
-              variant={selected ? 'filled' : 'outlined'}
+              label="All"
+              onClick={() => setStatus(undefined)}
+              color={status ? 'default' : 'primary'}
+              variant={status ? 'outlined' : 'filled'}
               sx={{ height: 36 }}
             />
-          )
-        })}
-      </Stack>
+            {LOAN_STATUS_ORDER.map((s) => {
+              const selected = status === s
+              return (
+                <Chip
+                  key={s}
+                  label={LOAN_STATUS_META[s].label}
+                  onClick={() => setStatus(selected ? undefined : s)}
+                  color={selected ? 'primary' : 'default'}
+                  variant={selected ? 'filled' : 'outlined'}
+                  sx={{ height: 36 }}
+                />
+              )
+            })}
+          </Stack>
+        </Box>
+      </Box>
 
       {query.isError && (
         <Box sx={{ mb: 2 }}>
@@ -141,7 +208,13 @@ export function LoansListPage() {
             <EmptyState filtered={!!status || !!customer_id} onCreate={goToCreate} />
           ) : (
             <>
-              <DesktopTable rows={rows} page={page} />
+              <DesktopTable
+                rows={rows}
+                page={page}
+                sort_by={sort_by}
+                sort_order={sort_order}
+                onSortChange={setSort}
+              />
               <MobileCards rows={rows} page={page} />
             </>
           )}
@@ -192,8 +265,32 @@ function serialNumber(page: number, index: number) {
 // Desktop table — md and up
 // --------------------------------------------------
 
-function DesktopTable({ rows, page }: { rows: LoanResponse[]; page: number }) {
+interface DesktopTableProps {
+  rows: LoanResponse[]
+  page: number
+  sort_by: LoanSortField | undefined
+  sort_order: SortOrder | undefined
+  onSortChange: (next: { sort_by: LoanSortField; sort_order: SortOrder }) => void
+}
+
+function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
+
+  // Clicking the active column flips direction; clicking an inactive column
+  // applies that column's default direction.
+  const handleHeaderClick = (field: LoanSortField, defaultDir: SortOrder) => {
+    const isActive =
+      sort_by === field || (sort_by === undefined && field === DEFAULT_SORT_FIELD)
+    const effectiveOrder = sort_by === undefined ? DEFAULT_SORT_ORDER : sort_order ?? DEFAULT_SORT_ORDER
+    const next: SortOrder = isActive ? (effectiveOrder === 'asc' ? 'desc' : 'asc') : defaultDir
+    onSortChange({ sort_by: field, sort_order: next })
+  }
+
+  // Reflects URL state; with no URL sort, created_at desc is the implicit
+  // active sort (matches the backend default).
+  const activeField: LoanSortField = sort_by ?? DEFAULT_SORT_FIELD
+  const activeOrder: SortOrder = sort_by === undefined ? DEFAULT_SORT_ORDER : sort_order ?? DEFAULT_SORT_ORDER
+
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
@@ -201,12 +298,28 @@ function DesktopTable({ rows, page }: { rows: LoanResponse[]; page: number }) {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>SNO</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Loan ID</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Customer Name</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Mobile</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>REG No</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                {COLUMN_HEADERS.map((h) =>
+                  h.sortable && h.field && h.defaultDir ? (
+                    <TableCell
+                      key={h.label}
+                      sx={{ fontWeight: 600 }}
+                      sortDirection={activeField === h.field ? activeOrder : false}
+                    >
+                      <TableSortLabel
+                        active={activeField === h.field}
+                        direction={activeField === h.field ? activeOrder : h.defaultDir}
+                        onClick={() => handleHeaderClick(h.field!, h.defaultDir!)}
+                        sx={sortLabelSx}
+                      >
+                        {h.label}
+                      </TableSortLabel>
+                    </TableCell>
+                  ) : (
+                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
+                      {h.label}
+                    </TableCell>
+                  ),
+                )}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -227,6 +340,7 @@ function DesktopTable({ rows, page }: { rows: LoanResponse[]; page: number }) {
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {l.customer?.mobile_number ?? <Dash />}
                   </TableCell>
+                  <TableCell>{l.customer?.mandal_village ?? <Dash />}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {l.vehicle?.plate_number ?? <Dash />}
                   </TableCell>
@@ -291,6 +405,11 @@ function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
           >
             {l.customer?.mobile_number ?? '—'} · REG {l.vehicle?.plate_number ?? '—'}
           </Typography>
+          {l.customer?.mandal_village && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+              {l.customer.mandal_village}
+            </Typography>
+          )}
         </Card>
       ))}
     </Stack>

@@ -45,6 +45,11 @@ export interface IdentityProofCreate {
   document_id?: string | null
 }
 
+// PATCH /identity-proofs/{id} — only the transcribed id_number is mutable.
+export interface IdentityProofUpdate {
+  id_number?: string | null
+}
+
 export const identityProofKeys = {
   all: ['identityProofs'] as const,
   byCustomer: (customerId: string) => [...identityProofKeys.all, 'customer', customerId] as const,
@@ -76,6 +81,33 @@ export function usePersonnelIdentityProofs(personnelId: string | undefined, enab
       return data
     },
     enabled: !!personnelId && enabled,
+  })
+}
+
+export function useUpdateIdentityProof() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      proofId,
+      payload,
+    }: {
+      proofId: string
+      payload: IdentityProofUpdate
+    }) => {
+      const { data } = await apiClient.patch<IdentityProofResponse>(
+        `/identity-proofs/${proofId}`,
+        payload,
+      )
+      return data
+    },
+    onSuccess: (updated) => {
+      if (updated.customer_id) {
+        qc.invalidateQueries({ queryKey: identityProofKeys.byCustomer(updated.customer_id) })
+      }
+      if (updated.personnel_id) {
+        qc.invalidateQueries({ queryKey: identityProofKeys.byPersonnel(updated.personnel_id) })
+      }
+    },
   })
 }
 

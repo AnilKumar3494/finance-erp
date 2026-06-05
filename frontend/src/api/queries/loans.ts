@@ -16,6 +16,9 @@ export interface LoanCustomerNested {
   id: string
   full_name: string
   mobile_number: string
+  // Exposed by the backend CustomerNested schema; may be absent until that
+  // change is deployed, so treat as optional.
+  mandal_village?: string | null
   assigned_employee_id: string | null
 }
 
@@ -109,6 +112,19 @@ export interface LoanUpdate {
   penalty_rate?: string
 }
 
+// Sortable columns — keep in lockstep with the backend _SORTABLE_COLUMNS dict
+// in services/loan.py. "created_at" backs the SNO column.
+export const LOAN_SORT_FIELDS = [
+  'created_at',
+  'full_name',
+  'mandal_village',
+  'status',
+] as const
+
+export type LoanSortField = (typeof LOAN_SORT_FIELDS)[number]
+
+export type SortOrder = 'asc' | 'desc'
+
 export interface LoanListParams {
   page: number
   page_size?: number
@@ -116,6 +132,8 @@ export interface LoanListParams {
   vehicle_id?: string
   status?: LoanStatus
   include?: string
+  sort_by?: LoanSortField
+  sort_order?: SortOrder
 }
 
 // --------------------------------------------------

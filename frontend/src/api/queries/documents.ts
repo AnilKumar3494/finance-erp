@@ -104,6 +104,20 @@ export function useUploadDocument() {
   })
 }
 
+// Soft-delete a document (DELETE /documents/{id}). Used by "replace" flows to
+// retire the previous file after a new one is uploaded.
+export function useDeleteDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (documentId: string) => {
+      await apiClient.delete(`/documents/${documentId}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentKeys.lists() })
+    },
+  })
+}
+
 // Fetches a short-lived presigned URL; caller opens it. Mutation (not query)
 // because each call is an explicit user action and the URL expires.
 export function useDocumentDownloadUrl() {

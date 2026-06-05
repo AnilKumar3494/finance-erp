@@ -1,4 +1,3 @@
-import { type ReactNode } from 'react'
 import { AxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
@@ -6,16 +5,21 @@ import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
-import EditIcon from '@mui/icons-material/EditOutlined'
-import PersonIcon from '@mui/icons-material/PersonOutlineOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
-import { useAuth } from '@/app/auth-context'
+import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
+import { FieldGrid, FieldRow } from '../components/DetailFields'
+import { useFinancePermissions } from '../financePermissions'
+import { VehicleInfoSection } from '../sections/VehicleInfoSection'
+import { FinanceInfoSection } from '../sections/FinanceInfoSection'
+import { CustomerInfoSection } from '../sections/CustomerInfoSection'
+import { PersonnelInfoSection } from '../sections/PersonnelInfoSection'
+import { AllDocumentsSection } from '../sections/AllDocumentsSection'
 
 interface LoanDetailPageProps {
   loanId: string
@@ -24,51 +28,29 @@ interface LoanDetailPageProps {
 function mapDetailError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    if (status === 404) return 'Loan not found.'
-    if (status === 403) return 'You do not have access to this loan.'
+    if (status === 404) return 'Finance not found.'
+    if (status === 403) return 'You do not have access to this finance.'
     if (status === 429) return 'Too many requests. Please wait a moment.'
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
   }
-  return 'Something went wrong loading this loan.'
+  return 'Something went wrong loading this finance.'
 }
-
-const money = (v: string | null) => (v === null ? undefined : fmtINR(Number(v)))
 
 export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
   const navigate = useNavigate()
-  const { user } = useAuth()
   const query = useLoan(loanId)
-
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
-  const editableStatus =
-    query.data?.status === 'DRAFT' || query.data?.status === 'ACTIVE'
-  const canEdit = isAdmin && editableStatus
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto' }}>
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}
-      >
+      <Stack direction="row" sx={{ mb: 2 }}>
         <Btn
           variant="ghost"
           size="sm"
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate({ to: '/finances', search: { page: 1 } })}
         >
-          Loans
+          Finances
         </Btn>
-        {canEdit && (
-          <Btn
-            variant="ghost"
-            size="sm"
-            startIcon={<EditIcon />}
-            onClick={() => navigate({ to: '/finances/$loanId/edit', params: { loanId } })}
-          >
-            Edit
-          </Btn>
-        )}
       </Stack>
 
       {query.isLoading ? (
@@ -85,14 +67,18 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
 }
 
 function DetailBody({ loan }: { loan: LoanResponse }) {
+  const perms = useFinancePermissions(loan)
   return (
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
       <LoanActions loan={loan} />
-      <TermsCard loan={loan} />
-      <PartiesCard loan={loan} />
-      <FeesCard loan={loan} />
-      <LifecycleCard loan={loan} />
+
+      <VehicleInfoSection loan={loan} perm={perms.vehicle} />
+      <FinanceInfoSection loan={loan} perm={perms.finance} />
+      <CustomerInfoSection loan={loan} perm={perms.customer} />
+      <PersonnelInfoSection loan={loan} perm={perms.personnel} />
+      <AllDocumentsSection loan={loan} perm={perms.documents} />
+
       <LoanSubResources loan={loan} />
       <AuditCard loan={loan} />
     </Stack>
@@ -104,6 +90,14 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 // --------------------------------------------------
 
 function HeaderCard({ loan }: { loan: LoanResponse }) {
+  // Due cycles only exist after approval; the next UPCOMING one is the EMI to
+  // collect next.
+  const cyclesQuery = useDueCycles(loan.id, loan.status !== 'DRAFT')
+  const nextEmi =
+    (cyclesQuery.data?.results ?? [])
+      .filter((c) => c.cycle_status === 'UPCOMING')
+      .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null
+
   return (
     <Card>
       <Stack spacing={1.5}>
@@ -112,9 +106,9 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
           spacing={2}
           sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}
         >
-          <Box>
+          <Box sx={{ minWidth: 0 }}>
             <Typography variant="overline" color="text.secondary">
-              Loan
+              Finance
             </Typography>
             <Typography
               variant="h1"
@@ -122,121 +116,58 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
             >
               {loan.loan_number}
             </Typography>
+            {loan.customer?.full_name && (
+              <Box sx={{ mt: 0.75 }}>
+                <Typography variant="body2">
+                  <Box component="span" sx={{ color: 'text.secondary' }}>
+                    Name:{' '}
+                  </Box>
+                  <Box component="span" sx={{ fontWeight: 600 }}>
+                    {loan.customer.full_name}
+                  </Box>
+                </Typography>
+                {loan.customer.mobile_number && (
+                  <Typography variant="body2">
+                    <Box component="span" sx={{ color: 'text.secondary' }}>
+                      Phone Number:{' '}
+                    </Box>
+                    <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      {loan.customer.mobile_number}
+                    </Box>
+                  </Typography>
+                )}
+              </Box>
+            )}
           </Box>
           <LoanStatusChip status={loan.status} size="medium" />
         </Stack>
         <Divider />
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Principal
-          </Typography>
-          <Typography variant="h2">
-            {loan.principal != null ? fmtINR(Number(loan.principal)) : '—'}
-          </Typography>
-        </Box>
-      </Stack>
-    </Card>
-  )
-}
-
-// --------------------------------------------------
-// Loan terms + computed amounts
-// --------------------------------------------------
-
-function TermsCard({ loan }: { loan: LoanResponse }) {
-  return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 2 }}>
-        Loan terms
-      </Typography>
-      <FieldGrid>
-        <FieldRow
-          label="Principal"
-          value={loan.principal != null ? fmtINR(Number(loan.principal)) : undefined}
-        />
-        <FieldRow
-          label="Interest rate"
-          value={loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : undefined}
-        />
-        <FieldRow
-          label="Tenure"
-          value={loan.tenure != null ? `${loan.tenure} months` : undefined}
-        />
-        <FieldRow label="Monthly interest" value={money(loan.monthly_interest)} />
-        <FieldRow label="Total payable" value={money(loan.total_payable)} />
-      </FieldGrid>
-    </Card>
-  )
-}
-
-// --------------------------------------------------
-// Parties — customer (linked) + vehicle (read-only)
-// --------------------------------------------------
-
-function PartiesCard({ loan }: { loan: LoanResponse }) {
-  const navigate = useNavigate()
-  const vehicle = loan.vehicle
-  return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 2 }}>
-        Parties
-      </Typography>
-      <Stack spacing={2.5}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Customer
-          </Typography>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ mt: 0.5, alignItems: 'center', justifyContent: 'space-between' }}
-          >
-            <Box>
-              <Typography variant="body1">{loan.customer?.full_name ?? '—'}</Typography>
-              {loan.customer?.mobile_number && (
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ fontFamily: 'var(--font-mono)' }}
-                >
-                  {loan.customer.mobile_number}
-                </Typography>
-              )}
-            </Box>
-            <Btn
-              variant="ghost"
-              size="sm"
-              startIcon={<PersonIcon />}
-              onClick={() =>
-                navigate({
-                  to: '/customers/$customerId',
-                  params: { customerId: loan.customer_id },
-                })
-              }
-            >
-              View
-            </Btn>
-          </Stack>
-        </Box>
-        <Divider />
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Vehicle (collateral)
-          </Typography>
-          {vehicle ? (
-            <Box sx={{ mt: 0.5 }}>
-              <Typography variant="body1" sx={{ fontFamily: 'var(--font-mono)' }}>
-                {vehicle.plate_number}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {[vehicle.make, vehicle.model].filter(Boolean).join(' ') || '—'}
-                {vehicle.year ? ` · ${vehicle.year}` : ''}
-              </Typography>
-            </Box>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              No collateral attached.
-            </Typography>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' },
+            gap: { xs: 1.5, sm: 2.5 },
+          }}
+        >
+          <HeaderStat
+            label="Principal"
+            value={loan.principal != null ? fmtINR(Number(loan.principal)) : '—'}
+          />
+          {nextEmi && (
+            <HeaderStat
+              label="Next EMI"
+              value={fmtINR(Number(nextEmi.base_emi))}
+              hint={`due ${fmtDate(nextEmi.due_date)}`}
+            />
+          )}
+          {loan.tenure != null && (
+            <HeaderStat label="Tenure" value={`${loan.tenure} months`} />
+          )}
+          {loan.interest_rate != null && (
+            <HeaderStat label="Interest rate" value={`${loan.interest_rate}% p.a.`} />
+          )}
+          {loan.total_payable != null && (
+            <HeaderStat label="Total payable" value={fmtINR(Number(loan.total_payable))} />
           )}
         </Box>
       </Stack>
@@ -244,52 +175,21 @@ function PartiesCard({ loan }: { loan: LoanResponse }) {
   )
 }
 
-// --------------------------------------------------
-// Fees and disbursement breakdown
-// --------------------------------------------------
-
-function FeesCard({ loan }: { loan: LoanResponse }) {
+function HeaderStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 2 }}>
-        Fees and disbursement
+    <Box>
+      <Typography variant="caption" color="text.secondary">
+        {label}
       </Typography>
-      <FieldGrid>
-        <FieldRow label="Down payment" value={fmtINR(Number(loan.down_payment))} />
-        <FieldRow label="Processing fee" value={fmtINR(Number(loan.processing_fee))} />
-        <FieldRow
-          label="Documentation fee"
-          value={fmtINR(Number(loan.documentation_fee))}
-        />
-        <FieldRow label="Net loan principal" value={money(loan.net_loan_principal)} />
-        <FieldRow label="Net disbursed amount" value={money(loan.net_disbursed_amount)} />
-      </FieldGrid>
-    </Card>
-  )
-}
-
-// --------------------------------------------------
-// Lifecycle — status, approval, penalty
-// --------------------------------------------------
-
-function LifecycleCard({ loan }: { loan: LoanResponse }) {
-  return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 2 }}>
-        Lifecycle
+      <Typography variant="h3" sx={{ fontSize: { xs: 16, sm: 18 } }}>
+        {value}
       </Typography>
-      <FieldGrid>
-        <FieldRow label="Approval date" value={fmtDate(loan.approval_date) || undefined} />
-        <FieldRow
-          label="Due day of month"
-          value={loan.due_day_of_month != null ? String(loan.due_day_of_month) : undefined}
-        />
-        <FieldRow
-          label="Penalty rate"
-          value={loan.penalty_rate != null ? `${loan.penalty_rate}% per month` : undefined}
-        />
-      </FieldGrid>
-    </Card>
+      {hint && (
+        <Typography variant="caption" color="text.secondary">
+          {hint}
+        </Typography>
+      )}
+    </Box>
   )
 }
 
@@ -317,52 +217,5 @@ function AuditCard({ loan }: { loan: LoanResponse }) {
         <FieldRow label="Updated by" value={actor(loan.updated_by, loan.updated_by_id)} />
       </FieldGrid>
     </Card>
-  )
-}
-
-// --------------------------------------------------
-// Layout helpers
-// --------------------------------------------------
-
-function FieldGrid({ children }: { children: ReactNode }) {
-  return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
-        gap: { xs: 1.5, sm: 2.5 },
-      }}
-    >
-      {children}
-    </Box>
-  )
-}
-
-function FieldRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string
-  value: string | null | undefined
-  mono?: boolean
-}) {
-  const hasValue = value !== null && value !== undefined && value !== ''
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          mt: 0.5,
-          fontFamily: mono ? 'var(--font-mono)' : undefined,
-          color: hasValue ? 'text.primary' : 'text.secondary',
-        }}
-      >
-        {hasValue ? value : '—'}
-      </Typography>
-    </Box>
   )
 }

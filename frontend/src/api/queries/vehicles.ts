@@ -109,3 +109,37 @@ export function useCreateVehicle() {
     },
   })
 }
+
+// Partial update — mirror backend VehicleUpdate (PATCH /vehicles/{id}). All
+// fields optional; the backend uses model_dump(exclude_unset=True). Monetary
+// values are strings. Plate edits cascade to any loan that embeds this vehicle,
+// so we invalidate loan queries too.
+export interface VehicleUpdate {
+  plate_number?: string
+  make?: string | null
+  model?: string | null
+  year?: number | null
+  color?: string | null
+  chassis_number?: string | null
+  engine_number?: string | null
+  market_value?: string
+  purchase_cost?: string
+  status?: AssetStatus
+}
+
+export function useUpdateVehicle(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: VehicleUpdate) => {
+      const { data } = await apiClient.patch<VehicleResponse>(`/vehicles/${id}`, payload)
+      return data
+    },
+    onSuccess: (updated) => {
+      qc.setQueryData(vehicleKeys.detail(id), updated)
+      qc.invalidateQueries({ queryKey: vehicleKeys.lists() })
+      // Loan responses embed the vehicle (plate/make/model/year); refresh them
+      // so detail/list cards reflect the change.
+      qc.invalidateQueries({ queryKey: ['loans'] })
+    },
+  })
+}

@@ -176,6 +176,16 @@ def list_all(
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: Optional[str] = Query(
+        None,
+        description=(
+            "Column to sort by. One of: created_at, full_name, "
+            "mandal_village, status. Unknown values fall back to created_at."
+        ),
+    ),
+    sort_order: Optional[str] = Query(
+        None, description="asc or desc. Defaults to desc."
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -192,6 +202,8 @@ def list_all(
         page_size=page_size,
         assigned_employee_id=assigned_employee_id,
         include=include,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     return LoanListResponse(
         total=total,
