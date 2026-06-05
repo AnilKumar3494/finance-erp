@@ -24,6 +24,7 @@ import type { DocumentResponse } from '@/api/queries/documents'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { AADHAAR_RE, MOBILE_RE, PAN_RE } from '@/schemas/primitives'
+import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { IdentityProofType, type PersonnelRole } from '@/schemas/enums'
 
 const IDENTITY_LABELS: Record<z.infer<typeof IdentityProofType>, string> = {
@@ -327,7 +328,7 @@ function AddPersonnelForm({
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<AddFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -339,6 +340,10 @@ function AddPersonnelForm({
       address_line_1: '',
     },
   })
+
+  // The form is created (and then closed) on submit; stop reporting dirty once
+  // the person has been created so the unsaved-changes guard doesn't fire.
+  useReportDirty(isDirty && !createPerson.isSuccess)
 
   const onSubmit = (v: AddFormValues) => {
     const orNull = (s: string) => (s.trim() === '' ? null : s.trim())

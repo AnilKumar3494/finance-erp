@@ -28,7 +28,8 @@ import {
 } from '@/api/queries/stabilityDocs'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
-import { AADHAAR_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
+import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
+import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { IdentityProofType, StabilityDocType } from '@/schemas/enums'
 
 const IDENTITY_LABELS: Record<z.infer<typeof IdentityProofType>, string> = {
@@ -94,21 +95,30 @@ export function CustomerKycSection({
 // --------------------------------------------------
 
 interface InfoFormValues {
+  full_name: string
+  mobile_number: string
   aadhaar: string
   pan: string
   date_of_birth: Dayjs | null
   address_line_1: string
+  mandal_village: string
   pincode: string
 }
 
 function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
   const update = useUpdateCustomer(customer.id)
 
+  // Full name + mobile are NOT NULL at creation, so they are normally already
+  // on file; they are validated here only for completeness. The rest may be
+  // absent on a freshly created customer and are mandatory to continue.
   const missing = {
+    full_name: !customer.full_name,
+    mobile: !customer.mobile_number,
     aadhaar: customer.aadhaar_number == null,
     pan: customer.pan_number == null,
     dob: customer.date_of_birth == null,
     address: !customer.address_line_1,
+    mandal_village: !customer.mandal_village,
     pincode: !customer.pincode,
   }
   const nothingMissing = !Object.values(missing).some(Boolean)
@@ -117,13 +127,22 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
     () =>
       z
         .object({
+          full_name: z.string(),
+          mobile_number: z.string(),
           aadhaar: z.string(),
           pan: z.string(),
           date_of_birth: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
           address_line_1: z.string(),
+          mandal_village: z.string(),
           pincode: z.string(),
         })
         .superRefine((v, ctx) => {
+          if (missing.full_name && v.full_name.trim() === '') {
+            ctx.addIssue({ code: 'custom', path: ['full_name'], message: 'Full name is required' })
+          }
+          if (missing.mobile && !MOBILE_RE.test(v.mobile_number.trim())) {
+            ctx.addIssue({ code: 'custom', path: ['mobile_number'], message: 'Enter a 10-digit mobile number starting with 6, 7, 8, or 9' })
+          }
           if (missing.aadhaar && !AADHAAR_RE.test(v.aadhaar.trim())) {
             ctx.addIssue({ code: 'custom', path: ['aadhaar'], message: 'Aadhaar must be exactly 12 digits' })
           }
@@ -136,29 +155,57 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
           if (missing.address && v.address_line_1.trim() === '') {
             ctx.addIssue({ code: 'custom', path: ['address_line_1'], message: 'Address is required' })
           }
+          if (missing.mandal_village && v.mandal_village.trim() === '') {
+            ctx.addIssue({ code: 'custom', path: ['mandal_village'], message: 'Mandal / village is required' })
+          }
           if (missing.pincode && !PIN_RE.test(v.pincode.trim())) {
             ctx.addIssue({ code: 'custom', path: ['pincode'], message: 'PIN code must be 6 digits and cannot start with 0' })
           }
         }),
-    [missing.aadhaar, missing.pan, missing.dob, missing.address, missing.pincode],
+    [
+      missing.full_name,
+      missing.mobile,
+      missing.aadhaar,
+      missing.pan,
+      missing.dob,
+      missing.address,
+      missing.mandal_village,
+      missing.pincode,
+    ],
   )
 
   const {
     register,
     handleSubmit,
     control,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<InfoFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { aadhaar: '', pan: '', date_of_birth: null, address_line_1: '', pincode: '' },
+    defaultValues: {
+      full_name: '',
+      mobile_number: '',
+      aadhaar: '',
+      pan: '',
+      date_of_birth: null,
+      address_line_1: '',
+      mandal_village: '',
+      pincode: '',
+    },
   })
+
+  // Once saved, the card collapses to the read-only summary, so a lingering
+  // dirty flag would falsely trip the wizard's unsaved-changes guard.
+  useReportDirty(isDirty && !update.isSuccess)
 
   const onSubmit = (v: InfoFormValues) => {
     const payload: CustomerUpdate = {}
+    if (missing.full_name) payload.full_name = v.full_name.trim()
+    if (missing.mobile) payload.mobile_number = v.mobile_number.trim()
     if (missing.aadhaar) payload.aadhaar_number = v.aadhaar.trim()
     if (missing.pan) payload.pan_number = v.pan.trim().toUpperCase()
     if (missing.dob && v.date_of_birth) payload.date_of_birth = v.date_of_birth.format('YYYY-MM-DD')
     if (missing.address) payload.address_line_1 = v.address_line_1.trim()
+    if (missing.mandal_village) payload.mandal_village = v.mandal_village.trim()
     if (missing.pincode) payload.pincode = v.pincode.trim()
     update.mutate(payload)
   }
@@ -191,6 +238,26 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
               Some required details are missing. Please complete them to continue.
             </Typography>
 
+            {missing.full_name && (
+              <Input
+                id="kyc_full_name"
+                label="Full name"
+                required
+                {...register('full_name')}
+                error={errors.full_name?.message}
+              />
+            )}
+            {missing.mobile && (
+              <Input
+                id="kyc_mobile"
+                label="Mobile number"
+                required
+                inputMode="numeric"
+                placeholder="10 digits"
+                {...register('mobile_number')}
+                error={errors.mobile_number?.message}
+              />
+            )}
             {missing.aadhaar && (
               <Input
                 id="kyc_aadhaar"
@@ -248,6 +315,15 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
                 required
                 {...register('address_line_1')}
                 error={errors.address_line_1?.message}
+              />
+            )}
+            {missing.mandal_village && (
+              <Input
+                id="kyc_mandal_village"
+                label="Mandal / village"
+                required
+                {...register('mandal_village')}
+                error={errors.mandal_village?.message}
               />
             )}
             {missing.pincode && (
