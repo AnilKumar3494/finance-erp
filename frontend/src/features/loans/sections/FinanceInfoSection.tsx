@@ -18,6 +18,7 @@ import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/prim
 import { EditableSection } from '../components/EditableSection'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import type { SectionPermission } from '../financePermissions'
+import type { ApprovalMissingField } from '../approvalReadiness'
 
 const PENALTY_MAX = 1000
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`
@@ -44,10 +45,15 @@ function mapErr(error: unknown): string {
 export function FinanceInfoSection({
   loan,
   perm,
+  openSignal,
+  missing,
 }: {
   loan: LoanResponse
   perm: SectionPermission
+  openSignal?: number
+  missing?: ApprovalMissingField[]
 }) {
+  const highlight = new Set(missing?.map((m) => m.field))
   // Sensitive terms (principal/rate/tenure/down payment) follow the backend
   // rule: editable on DRAFT, or on ACTIVE only by a super-admin.
   const { user } = useAuth()
@@ -61,11 +67,19 @@ export function FinanceInfoSection({
   return (
     <EditableSection
       title="Finance terms"
+      sectionId="sec-finance"
+      openSignal={openSignal}
+      missing={missing?.map((m) => m.label)}
       canEdit={perm.canEdit}
       warning={warning}
       view={<FinanceView loan={loan} />}
       edit={(done) => (
-        <FinanceEditForm loan={loan} canEditSensitive={canEditSensitive} onDone={done} />
+        <FinanceEditForm
+          loan={loan}
+          canEditSensitive={canEditSensitive}
+          onDone={done}
+          highlight={highlight}
+        />
       )}
     />
   )
@@ -121,10 +135,12 @@ function FinanceEditForm({
   loan,
   canEditSensitive,
   onDone,
+  highlight,
 }: {
   loan: LoanResponse
   canEditSensitive: boolean
   onDone: () => void
+  highlight?: Set<string>
 }) {
   const update = useUpdateLoan(loan.id)
 
@@ -240,6 +256,7 @@ function FinanceEditForm({
               label="Principal"
               required
               inputMode="decimal"
+              highlight={highlight?.has('principal')}
               {...register('principal')}
               error={errors.principal?.message}
             />
@@ -249,6 +266,7 @@ function FinanceEditForm({
                 label="Interest rate (% p.a.)"
                 required
                 inputMode="decimal"
+                highlight={highlight?.has('interest_rate')}
                 {...register('interest_rate')}
                 error={errors.interest_rate?.message}
               />
@@ -257,6 +275,7 @@ function FinanceEditForm({
                 label="Tenure (months)"
                 required
                 inputMode="numeric"
+                highlight={highlight?.has('tenure')}
                 {...register('tenure')}
                 error={errors.tenure?.message}
               />

@@ -16,11 +16,13 @@ import {
   useProposeBadDebt,
   useReviewBadDebt,
 } from '@/api/queries/badDebt'
+import { useCustomer } from '@/api/queries/customers'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { PaymentMethod } from '@/schemas/enums'
 import { fmtDateTime } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
+import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
 import { CloseAction } from './CloseLoanAction'
 
 function mapActionError(error: unknown): string {
@@ -57,7 +59,14 @@ function useFocusRestore() {
   return { capture, restore }
 }
 
-export function LoanActions({ loan }: { loan: LoanResponse }) {
+export function LoanActions({
+  loan,
+  onGuideSection,
+}: {
+  loan: LoanResponse
+  // Jump to and open an incomplete section's editor (approval walk-through).
+  onGuideSection?: (key: ApprovalSectionKey) => void
+}) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
 
@@ -71,7 +80,7 @@ export function LoanActions({ loan }: { loan: LoanResponse }) {
       loan.status === 'BAD_DEBT_PROPOSED')
 
   const actions = [
-    showApprove && <ApproveAction key="approve" loan={loan} />,
+    showApprove && <ApproveAction key="approve" loan={loan} onGuide={onGuideSection} />,
     showReview && <ReviewAction key="review" loan={loan} />,
     showClose && <CloseAction key="close" loan={loan} />,
     showPropose && <ProposeAction key="propose" loan={loan} />,
@@ -95,14 +104,26 @@ export function LoanActions({ loan }: { loan: LoanResponse }) {
 // Approve (DRAFT -> ACTIVE)
 // --------------------------------------------------
 
-function ApproveAction({ loan }: { loan: LoanResponse }) {
+function ApproveAction({
+  loan,
+  onGuide,
+}: {
+  loan: LoanResponse
+  onGuide?: (key: ApprovalSectionKey) => void
+}) {
   const approve = useApproveLoan(loan.id)
+  const customerQuery = useCustomer(loan.customer_id)
   const { capture, restore } = useFocusRestore()
   const [open, setOpen] = useState(false)
+  const [gapsOpen, setGapsOpen] = useState(false)
   const [mode, setMode] = useState('')
   const [modeError, setModeError] = useState<string>()
 
   const requireMode = Number(loan.down_payment) > 0
+
+  // Live readiness — recomputes as the admin fills sections (cache updates).
+  const gaps = computeApprovalGaps(loan, customerQuery.data ?? null)
+  const checking = customerQuery.isLoading
 
   const openDialog = () => {
     capture()
@@ -114,6 +135,29 @@ function ApproveAction({ loan }: { loan: LoanResponse }) {
   const closeDialog = () => {
     setOpen(false)
     restore()
+  }
+  const closeGaps = () => {
+    setGapsOpen(false)
+    restore()
+  }
+
+  // Gate the approve flow on completeness. Incomplete → walk-through checklist;
+  // complete → the confirm dialog.
+  const handleApprove = () => {
+    if (checking) return
+    if (gaps.length > 0) {
+      capture()
+      setGapsOpen(true)
+      return
+    }
+    openDialog()
+  }
+
+  const fixSection = (key: ApprovalSectionKey) => {
+    // Don't restore focus to the Approve button here — it would scroll back up
+    // and fight the smooth-scroll to the target section.
+    setGapsOpen(false)
+    onGuide?.(key)
   }
 
   const confirm = () => {
@@ -134,10 +178,66 @@ function ApproveAction({ loan }: { loan: LoanResponse }) {
           Approving generates the repayment schedule and records the down payment.
           This is logged in the audit trail.
         </Typography>
+        {!checking && gaps.length > 0 && (
+          <Typography variant="body2" sx={{ color: 'warning.main' }}>
+            {gaps.reduce((n, g) => n + g.missing.length, 0)} required detail
+            {gaps.reduce((n, g) => n + g.missing.length, 0) === 1 ? '' : 's'} still needed before
+            approval.
+          </Typography>
+        )}
       </Stack>
-      <Btn variant="success" onClick={openDialog}>
+      <Btn variant="success" onClick={handleApprove} loading={checking}>
         Approve loan
       </Btn>
+
+      {/* Walk-through: what's missing + jump to each section's editor. */}
+      <Dialog open={gapsOpen} onClose={closeGaps} maxWidth="sm" fullWidth>
+        <DialogTitle>Complete required details to approve</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            This finance can’t be approved until these are filled in. Use “Fix” to jump to
+            each section, complete it, then approve again.
+          </Typography>
+          <Stack spacing={2} divider={<Divider flexItem />}>
+            {gaps.map((g) => (
+              <Stack
+                key={g.key}
+                direction="row"
+                spacing={2}
+                sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {g.title}
+                  </Typography>
+                  <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                    {g.missing.map((m) => (
+                      <Typography key={m.field} variant="body2" color="text.secondary">
+                        • {m.label}
+                      </Typography>
+                    ))}
+                  </Stack>
+                </Box>
+                {onGuide && (
+                  <Btn
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fixSection(g.key)}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    Fix
+                  </Btn>
+                )}
+              </Stack>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Btn variant="ghost" onClick={closeGaps}>
+            Close
+          </Btn>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={open}

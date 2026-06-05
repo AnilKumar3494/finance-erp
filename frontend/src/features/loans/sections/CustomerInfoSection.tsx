@@ -35,6 +35,7 @@ import { Collapsible } from '../components/Collapsible'
 import { RevealPii } from '../components/RevealPii'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import type { SectionPermission } from '../financePermissions'
+import type { ApprovalMissingField } from '../approvalReadiness'
 
 const IDENTITY_LABELS: Record<z.infer<typeof IdentityProofType>, string> = {
   AADHAAR: 'Aadhaar',
@@ -60,11 +61,16 @@ function mapErr(error: unknown, fallback: string): string {
 export function CustomerInfoSection({
   loan,
   perm,
+  openSignal,
+  missing,
 }: {
   loan: LoanResponse
   perm: SectionPermission
+  openSignal?: number
+  missing?: ApprovalMissingField[]
 }) {
   const customerQuery = useCustomer(loan.customer_id)
+  const highlight = new Set(missing?.map((m) => m.field))
 
   const inner = () => {
     if (customerQuery.isLoading) {
@@ -85,12 +91,15 @@ export function CustomerInfoSection({
   return (
     <EditableSection
       title="Customer"
+      sectionId="sec-customer"
+      openSignal={openSignal}
+      missing={missing?.map((m) => m.label)}
       subtitle={customer ? `${customer.full_name} · ${customer.mobile_number}` : undefined}
       canEdit={perm.canEdit && !!customer}
       warning={perm.warning}
       view={inner() ?? (customer ? <CustomerView customer={customer} /> : null)}
       edit={(done) =>
-        customer ? <CustomerEditForm customer={customer} onDone={done} /> : null
+        customer ? <CustomerEditForm customer={customer} onDone={done} highlight={highlight} /> : null
       }
       footer={
         customer ? (
@@ -142,9 +151,11 @@ interface FormValues {
 function CustomerEditForm({
   customer,
   onDone,
+  highlight,
 }: {
   customer: CustomerResponse
   onDone: () => void
+  highlight?: Set<string>
 }) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
@@ -222,12 +233,13 @@ function CustomerEditForm({
       )}
       <Stack spacing={2.5}>
         <TwoCol>
-          <Input id="cust_name" label="Full name" required {...register('full_name')} error={errors.full_name?.message} />
+          <Input id="cust_name" label="Full name" required highlight={highlight?.has('full_name')} {...register('full_name')} error={errors.full_name?.message} />
           <Input
             id="cust_mobile"
             label="Mobile number"
             required
             inputMode="numeric"
+            highlight={highlight?.has('mobile_number')}
             {...register('mobile_number')}
             error={errors.mobile_number?.message}
           />
@@ -275,6 +287,7 @@ function CustomerEditForm({
                 label="Aadhaar number"
                 inputMode="numeric"
                 placeholder="Enter to update"
+                highlight={highlight?.has('identity')}
                 {...register('aadhaar_number')}
                 error={errors.aadhaar_number?.message}
               />
@@ -282,6 +295,7 @@ function CustomerEditForm({
                 id="cust_pan"
                 label="PAN"
                 placeholder="Enter to update"
+                highlight={highlight?.has('identity')}
                 {...register('pan_number')}
                 error={errors.pan_number?.message}
               />
@@ -295,15 +309,16 @@ function CustomerEditForm({
             />
           </>
         )}
-        <Input id="cust_addr1" label="Address line 1" placeholder="Optional" {...register('address_line_1')} error={errors.address_line_1?.message} />
+        <Input id="cust_addr1" label="Address line 1" placeholder="Optional" highlight={highlight?.has('address_line_1')} {...register('address_line_1')} error={errors.address_line_1?.message} />
         <Input id="cust_addr2" label="Address line 2" placeholder="Optional" {...register('address_line_2')} error={errors.address_line_2?.message} />
         <TwoCol>
-          <Input id="cust_mandal" label="Mandal / village" placeholder="Optional" {...register('mandal_village')} error={errors.mandal_village?.message} />
+          <Input id="cust_mandal" label="Mandal / village" placeholder="Optional" highlight={highlight?.has('mandal_village')} {...register('mandal_village')} error={errors.mandal_village?.message} />
           <Input
             id="cust_pin"
             label="PIN code"
             inputMode="numeric"
             placeholder="Optional"
+            highlight={highlight?.has('pincode')}
             {...register('pincode')}
             error={errors.pincode?.message}
           />

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
@@ -7,6 +8,7 @@ import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
+import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
@@ -14,6 +16,7 @@ import { LoanStatusChip } from '../components/LoanStatusChip'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
+import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
 import { VehicleInfoSection } from '../sections/VehicleInfoSection'
@@ -69,18 +72,49 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
 
 function DetailBody({ loan }: { loan: LoanResponse }) {
   const perms = useFinancePermissions(loan)
+  // Approval "walk-through": the Loan-actions checklist bumps a per-section
+  // counter to scroll to and open the editor of an incomplete section.
+  const [guide, setGuide] = useState<{ key: ApprovalSectionKey; n: number } | null>(null)
+  const goToSection = (key: ApprovalSectionKey) =>
+    setGuide((prev) => ({ key, n: (prev?.n ?? 0) + 1 }))
+  const signalFor = (key: ApprovalSectionKey) => (guide?.key === key ? guide.n : undefined)
+
+  // Surface the approval gaps in-line (warning banners, yellow Edit buttons,
+  // highlighted inputs) only while it's actionable: an admin on a DRAFT.
+  const customerQuery = useCustomer(loan.customer_id)
+  const showGaps = perms.isAdmin && loan.status === 'DRAFT'
+  const gaps = showGaps ? computeApprovalGaps(loan, customerQuery.data ?? null) : []
+  const missingFor = (key: ApprovalSectionKey) => gaps.find((g) => g.key === key)?.missing
+
   return (
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
-      <LoanActions loan={loan} />
+      <LoanActions loan={loan} onGuideSection={goToSection} />
 
-      <VehicleInfoSection loan={loan} perm={perms.vehicle} />
-      <FinanceInfoSection loan={loan} perm={perms.finance} />
-      <CustomerInfoSection loan={loan} perm={perms.customer} />
+      <VehicleInfoSection
+        loan={loan}
+        perm={perms.vehicle}
+        openSignal={signalFor('vehicle')}
+        missing={missingFor('vehicle')}
+      />
+      <FinanceInfoSection
+        loan={loan}
+        perm={perms.finance}
+        openSignal={signalFor('finance')}
+        missing={missingFor('finance')}
+      />
+      <CustomerInfoSection
+        loan={loan}
+        perm={perms.customer}
+        openSignal={signalFor('customer')}
+        missing={missingFor('customer')}
+      />
       <PersonnelInfoSection loan={loan} perm={perms.personnel} />
       <AllDocumentsSection loan={loan} perm={perms.documents} />
 
       <LoanSubResources loan={loan} />
+
+      {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
@@ -164,9 +198,7 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
               hint={`due ${fmtDate(nextEmi.due_date)}`}
             />
           )}
-          {loan.tenure != null && (
-            <HeaderStat label="Tenure" value={`${loan.tenure} months`} />
-          )}
+          {loan.tenure != null && <HeaderStat label="Tenure" value={`${loan.tenure} months`} />}
           {loan.interest_rate != null && (
             <HeaderStat label="Interest rate" value={`${loan.interest_rate}% p.a.`} />
           )}
