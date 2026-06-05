@@ -31,6 +31,7 @@ import { Collapsible } from '../components/Collapsible'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { DocumentLine } from '../components/DocumentLine'
 import type { SectionPermission } from '../financePermissions'
+import type { ApprovalMissingField } from '../approvalReadiness'
 
 const STATUS_LABELS: Record<AssetStatus, string> = {
   IN_YARD: 'In yard',
@@ -57,18 +58,27 @@ function mapErr(error: unknown, fallback: string): string {
 export function VehicleInfoSection({
   loan,
   perm,
+  openSignal,
+  missing,
 }: {
   loan: LoanResponse
   perm: SectionPermission
+  openSignal?: number
+  missing?: ApprovalMissingField[]
 }) {
   // The loan embeds only plate/make/model/year; fetch the full record so the
   // edit form and the read view cover every attribute.
   const vehicleQuery = useVehicle(loan.vehicle_id ?? undefined)
+  const missingLabels = missing?.map((m) => m.label)
+  const highlight = new Set(missing?.map((m) => m.field))
 
   if (!loan.vehicle_id) {
     return (
       <EditableSection
         title="Vehicle Information"
+        sectionId="sec-vehicle"
+        openSignal={openSignal}
+        missing={missingLabels}
         canEdit={perm.canEdit}
         editLabel="Add vehicle"
         warning={perm.warning}
@@ -78,7 +88,7 @@ export function VehicleInfoSection({
             {perm.canEdit ? ' Use “Add vehicle” to attach one.' : ''}
           </Typography>
         }
-        edit={(done) => <VehicleCreateForm loanId={loan.id} onDone={done} />}
+        edit={(done) => <VehicleCreateForm loanId={loan.id} onDone={done} highlight={highlight} />}
       />
     )
   }
@@ -114,11 +124,14 @@ export function VehicleInfoSection({
   return (
     <EditableSection
       title="Vehicle Information"
+      sectionId="sec-vehicle"
+      openSignal={openSignal}
+      missing={missingLabels}
       subtitle={vehicle.plate_number}
       canEdit={perm.canEdit}
       warning={perm.warning}
       view={<VehicleView vehicle={vehicle} />}
-      edit={(done) => <VehicleEditForm vehicle={vehicle} onDone={done} />}
+      edit={(done) => <VehicleEditForm vehicle={vehicle} onDone={done} highlight={highlight} />}
       footer={
         <VehicleDocs
           vehicleId={vehicle.id}
@@ -151,7 +164,15 @@ function VehicleView({ vehicle }: { vehicle: VehicleResponse }) {
 // Create + link a collateral vehicle (when none is attached yet)
 // --------------------------------------------------
 
-function VehicleCreateForm({ loanId, onDone }: { loanId: string; onDone: () => void }) {
+function VehicleCreateForm({
+  loanId,
+  onDone,
+  highlight,
+}: {
+  loanId: string
+  onDone: () => void
+  highlight?: Set<string>
+}) {
   const createVehicle = useCreateVehicle()
   const linkVehicle = useUpdateLoan(loanId)
 
@@ -239,13 +260,13 @@ function VehicleCreateForm({ loanId, onDone }: { loanId: string; onDone: () => v
         </Box>
       )}
       <Stack spacing={2.5}>
-        <Input id="vehc_plate" label="Registration number" required placeholder="e.g. TN09AB1234" {...register('plate_number')} error={errors.plate_number?.message} />
+        <Input id="vehc_plate" label="Registration number" required placeholder="e.g. TN09AB1234" highlight={highlight?.has('plate_number')} {...register('plate_number')} error={errors.plate_number?.message} />
         <TwoCol>
-          <Input id="vehc_make" label="Make" required {...register('make')} error={errors.make?.message} />
-          <Input id="vehc_model" label="Model" required {...register('model')} error={errors.model?.message} />
+          <Input id="vehc_make" label="Make" required highlight={highlight?.has('make')} {...register('make')} error={errors.make?.message} />
+          <Input id="vehc_model" label="Model" required highlight={highlight?.has('model')} {...register('model')} error={errors.model?.message} />
         </TwoCol>
         <TwoCol>
-          <Input id="vehc_year" label="Year" required inputMode="numeric" placeholder="e.g. 2022" {...register('year')} error={errors.year?.message} />
+          <Input id="vehc_year" label="Year" required inputMode="numeric" placeholder="e.g. 2022" highlight={highlight?.has('year')} {...register('year')} error={errors.year?.message} />
           <Input id="vehc_color" label="Color" placeholder="Optional" {...register('color')} error={errors.color?.message} />
         </TwoCol>
         <TwoCol>
@@ -310,9 +331,11 @@ interface VehicleFormValues {
 function VehicleEditForm({
   vehicle,
   onDone,
+  highlight,
 }: {
   vehicle: VehicleResponse
   onDone: () => void
+  highlight?: Set<string>
 }) {
   const update = useUpdateVehicle(vehicle.id)
 
@@ -388,18 +411,20 @@ function VehicleEditForm({
           id="veh_plate"
           label="Registration number"
           required
+          highlight={highlight?.has('plate_number')}
           {...register('plate_number')}
           error={errors.plate_number?.message}
         />
         <TwoCol>
-          <Input id="veh_make" label="Make" {...register('make')} error={errors.make?.message} />
-          <Input id="veh_model" label="Model" {...register('model')} error={errors.model?.message} />
+          <Input id="veh_make" label="Make" highlight={highlight?.has('make')} {...register('make')} error={errors.make?.message} />
+          <Input id="veh_model" label="Model" highlight={highlight?.has('model')} {...register('model')} error={errors.model?.message} />
         </TwoCol>
         <TwoCol>
           <Input
             id="veh_year"
             label="Year"
             inputMode="numeric"
+            highlight={highlight?.has('year')}
             {...register('year')}
             error={errors.year?.message}
           />

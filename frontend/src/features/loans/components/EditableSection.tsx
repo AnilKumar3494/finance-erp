@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
@@ -22,6 +22,15 @@ interface EditableSectionProps {
   // Used for document upload/replace areas that are not gated by the toggle.
   footer?: ReactNode
   editLabel?: string
+  // DOM id for the section card, used as a scroll anchor (e.g. the approval
+  // checklist jumping to an incomplete section).
+  sectionId?: string
+  // Bump this number to imperatively open the editor and scroll the section
+  // into view — the approval "walk-through" uses it to focus a section.
+  openSignal?: number
+  // Labels of fields this section is missing for approval. When present, the
+  // section is flagged (warning banner + yellow Edit button).
+  missing?: string[]
 }
 
 // A section card with a single in-place view↔edit toggle. The Edit button is
@@ -36,12 +45,31 @@ export function EditableSection({
   edit,
   footer,
   editLabel = 'Edit',
+  sectionId,
+  openSignal,
+  missing,
 }: EditableSectionProps) {
   const [editing, setEditing] = useState(false)
   const done = () => setEditing(false)
+  const incomplete = !!missing?.length
+
+  // Focus request from the approval checklist: open the editor (when editable)
+  // and scroll the section into view.
+  useEffect(() => {
+    if (openSignal === undefined) return
+    if (canEdit) setEditing(true)
+    if (sectionId) {
+      requestAnimationFrame(() => {
+        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+  }, [openSignal, canEdit, sectionId])
 
   return (
-    <Card>
+    <Card
+      id={sectionId}
+      sx={incomplete ? { borderColor: 'var(--warning)' } : undefined}
+    >
       <Stack
         direction="row"
         spacing={2}
@@ -61,12 +89,31 @@ export function EditableSection({
             size="sm"
             startIcon={<EditIcon />}
             onClick={() => setEditing(true)}
-            sx={{ flexShrink: 0 }}
+            sx={
+              incomplete
+                ? {
+                    flexShrink: 0,
+                    color: 'var(--warning)',
+                    bgcolor: 'var(--warning-light)',
+                    '&:hover': { bgcolor: 'var(--warning-light)' },
+                  }
+                : { flexShrink: 0 }
+            }
           >
             {editLabel}
           </Btn>
         )}
       </Stack>
+
+      {incomplete && !editing && (
+        <Box sx={{ mb: 2 }}>
+          <ErrorBanner
+            severity="warning"
+            variant="outlined"
+            message={`Required for approval: ${missing!.join(', ')}`}
+          />
+        </Box>
+      )}
 
       {editing ? (
         <>
