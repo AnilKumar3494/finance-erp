@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Request
 from sqlalchemy import case, func, or_
@@ -14,7 +14,6 @@ from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
 from app.utils.time import utcnow
-
 
 _IDEMPOTENCY_COMPARE_FIELDS = (
     "full_name",
@@ -71,6 +70,13 @@ _AUDIT_SAFE_FIELDS = (
     "mandal_village",
     "pincode",
 )
+
+
+_SORTABLE_COLUMNS: dict[str, Any] = {
+    "full_name": Customer.full_name,
+    "created_at": Customer.created_at,
+    "assigned_employee_name": User.full_name,
+}
 
 
 def _audit_snapshot(customer: Customer) -> dict:
@@ -150,6 +156,8 @@ def list_customers(
     assigned_employee_id: Optional[uuid.UUID] = None,
     page: int = 1,
     page_size: int = 20,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> tuple[list[Customer], int]:
     # Per-customer "primary" loan: ACTIVE wins over any other status; within a
     # group, the most-recently created wins. ROW_NUMBER + filter to rank=1.
@@ -203,6 +211,19 @@ def list_customers(
 
     if assigned_employee_id:
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    # Sort. Unknown sort_by falls back to created_at desc so the response
+    # is deterministic. Null placement is intentionally NOT pinned —
+    # Postgres defaults are `ASC -> NULLS LAST` and `DESC -> NULLS FIRST`,
+    # which gives the desired "click to flip Unassigned between top and
+    # bottom" UX on the assigned_employee_name column. The other sortable
+    # columns are NOT NULL so the default is a no-op for them. The id
+    # tie-breaker keeps pagination stable when many rows share the same
+    # sort key (common for assigned_employee_name).
+    column = _SORTABLE_COLUMNS.get(sort_by or "", Customer.created_at)
+    descending = (sort_order or "desc").lower() != "asc"
+    ordering = column.desc() if descending else column.asc()
+    query = query.order_by(ordering, Customer.id.asc())
 
     total = query.count()
     raw_results = query.offset((page - 1) * page_size).limit(page_size).all()

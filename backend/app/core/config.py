@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     # Wildcard "*" is intentionally NOT supported because allow_credentials=True
     # is incompatible with wildcard origins under the CORS spec.
     CORS_ORIGINS: str = (
-        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173"
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173, http://localhost:8008,http://127.0.0.1:8008, http://localhost:8000,http://127.0.0.1:8000"
     )
 
     @field_validator("CORS_ORIGINS")

@@ -10,10 +10,17 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
+import TableSortLabel from '@mui/material/TableSortLabel'
 import AddIcon from '@mui/icons-material/Add'
 
-import { useCustomers, type CustomerResponse } from '@/api/queries/customers'
+import {
+  useCustomers,
+  type CustomerResponse,
+  type CustomerSortField,
+  type SortOrder,
+} from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { SortSelect } from '@/features/customers/components/SortSelect'
 import { fmtDate } from '@/lib/format'
 
 const routeApi = getRouteApi('/_authed/customers/')
@@ -30,8 +37,24 @@ function mapListError(error: unknown): string {
 }
 
 export function CustomersListPage() {
-  const { page, search: searchTerm } = routeApi.useSearch()
+  const {
+    page,
+    search: searchTerm,
+    sort_by,
+    sort_order,
+  } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
+
+  const setSort = (next: { sort_by: CustomerSortField; sort_order: SortOrder }) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: 1,
+        sort_by: next.sort_by,
+        sort_order: next.sort_order,
+      }),
+      replace: true,
+    })
 
   const [draft, setDraft] = useState(() => searchTerm ?? '')
   const isFirstRun = useRef(true)
@@ -66,7 +89,13 @@ export function CustomersListPage() {
     }
   }, [searchTerm])
 
-  const query = useCustomers({ page, page_size: PAGE_SIZE, search: searchTerm })
+  const query = useCustomers({
+    page,
+    page_size: PAGE_SIZE,
+    search: searchTerm,
+    sort_by,
+    sort_order,
+  })
 
   const total = query.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
@@ -80,11 +109,11 @@ export function CustomersListPage() {
           active loans count, overdue cycles, customers added this month, etc.
           Needs a backend aggregate endpoint and a small Stat-tile primitive. */}
       <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={2}
-        sx={{ mb: 3, alignItems: { xs: 'stretch', sm: 'center' } }}
+        direction="row"
+        spacing={1.5}
+        sx={{ mb: 3, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}
       >
-        <Box sx={{ flex: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
           <Input
             id="customer-search"
             placeholder="Search by name, mobile, or assigned employee…"
@@ -93,6 +122,11 @@ export function CustomersListPage() {
             autoComplete="off"
           />
         </Box>
+        <SortSelect
+          sort_by={sort_by}
+          sort_order={sort_order}
+          onChange={setSort}
+        />
         <Btn
           variant="primary"
           startIcon={<AddIcon />}
@@ -119,7 +153,12 @@ export function CustomersListPage() {
             <EmptyState searchTerm={searchTerm} onCreate={goToCreate} />
           ) : (
             <>
-              <DesktopTable rows={rows} />
+              <DesktopTable
+                rows={rows}
+                sort_by={sort_by}
+                sort_order={sort_order}
+                onSortChange={setSort}
+              />
               <MobileCards rows={rows} />
             </>
           )}
@@ -170,10 +209,74 @@ export function CustomersListPage() {
 // Desktop table — md and up
 // --------------------------------------------------
 
-function DesktopTable({ rows }: { rows: CustomerResponse[] }) {
+interface DesktopTableProps {
+  rows: CustomerResponse[]
+  sort_by: CustomerSortField | undefined
+  sort_order: SortOrder | undefined
+  onSortChange: (next: { sort_by: CustomerSortField; sort_order: SortOrder }) => void
+}
+
+// Headers in column order. `sortable` controls whether the header is
+// wrapped in TableSortLabel — mobile_number is shown but intentionally
+// not sortable because there's no useful product story for ordering by
+// phone number.
+interface ColumnHeader {
+  label: string
+  sortable: boolean
+  field?: CustomerSortField
+  defaultDir?: SortOrder
+}
+
+const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
+  { label: 'Name', sortable: true, field: 'full_name', defaultDir: 'asc' },
+  { label: 'Mobile', sortable: false },
+  {
+    label: 'Assigned to',
+    sortable: true,
+    field: 'assigned_employee_name',
+    defaultDir: 'asc',
+  },
+  { label: 'Created', sortable: true, field: 'created_at', defaultDir: 'desc' },
+]
+
+// MUI hides the sort arrow on inactive columns by default and only fades
+// it in on hover, which makes the "this column is sortable" affordance
+// invisible until you mouse over it. Pin the icon at reduced opacity so
+// every sortable header advertises itself; the active column still gets
+// full opacity for emphasis.
+const sortLabelSx = {
+  '& .MuiTableSortLabel-icon': { opacity: 0.4 },
+  '&.Mui-active .MuiTableSortLabel-icon': { opacity: 1 },
+} as const
+
+function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
   const goToDetail = (id: string) =>
     navigate({ to: '/customers/$customerId', params: { customerId: id } })
+
+  // Clicking the active column flips the direction. Clicking an inactive
+  // column applies that field's default direction (asc for names, desc
+  // for created).
+  const handleHeaderClick = (
+    field: CustomerSortField,
+    defaultDir: SortOrder,
+  ) => {
+    const isActive =
+      sort_by === field || (sort_by === undefined && field === 'created_at')
+    const effectiveOrder = sort_by === undefined ? 'desc' : sort_order ?? 'desc'
+    const next: SortOrder = isActive
+      ? effectiveOrder === 'asc'
+        ? 'desc'
+        : 'asc'
+      : defaultDir
+    onSortChange({ sort_by: field, sort_order: next })
+  }
+
+  // Reflects URL state. When no URL sort is set, "created_at desc" is the
+  // implicit active sort (matches the backend default).
+  const activeField: CustomerSortField = sort_by ?? 'created_at'
+  const activeOrder: SortOrder = sort_by === undefined ? 'desc' : sort_order ?? 'desc'
+
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
@@ -181,10 +284,26 @@ function DesktopTable({ rows }: { rows: CustomerResponse[] }) {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Mobile</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Assigned to</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Created</TableCell>
+                {COLUMN_HEADERS.map((h) =>
+                  h.sortable && h.field && h.defaultDir ? (
+                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
+                      <TableSortLabel
+                        active={activeField === h.field}
+                        direction={
+                          activeField === h.field ? activeOrder : h.defaultDir
+                        }
+                        onClick={() => handleHeaderClick(h.field!, h.defaultDir!)}
+                        sx={sortLabelSx}
+                      >
+                        {h.label}
+                      </TableSortLabel>
+                    </TableCell>
+                  ) : (
+                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
+                      {h.label}
+                    </TableCell>
+                  ),
+                )}
               </TableRow>
             </TableHead>
             <TableBody>

@@ -155,6 +155,16 @@ def list_all(
     assigned_employee_id: Optional[uuid.UUID] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: Optional[str] = Query(
+        None,
+        description=(
+            "Column to sort by. One of: full_name, created_at, "
+            "assigned_employee_name. Unknown values fall back to created_at."
+        ),
+    ),
+    sort_order: Optional[str] = Query(
+        None, description="asc or desc. Defaults to desc."
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -167,6 +177,8 @@ def list_all(
         assigned_employee_id=assigned_employee_id,
         page=page,
         page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     return CustomerListResponse(
         total=total, page=page, page_size=page_size, results=results
