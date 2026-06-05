@@ -1,9 +1,10 @@
 import uuid
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from datetime import date, datetime, timezone
 
 from fastapi import Request
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -169,6 +170,19 @@ def get_active_loans_by_customer(
     return query.all()
 
 
+# Whitelist of sortable columns. Customer-column sorts (full_name,
+# mandal_village) require a join to Customer. "created_at" backs the SNO
+# column. Must match the frontend LOAN_SORT_FIELDS in api/queries/loans.ts.
+_SORTABLE_COLUMNS: dict[str, Any] = {
+    "created_at": Loan.created_at,
+    "full_name": Customer.full_name,
+    "mandal_village": Customer.mandal_village,
+    "status": Loan.status,
+}
+
+_CUSTOMER_SORT_KEYS = {"full_name", "mandal_village"}
+
+
 def list_loans(
     db: Session,
     customer_id: Optional[uuid.UUID] = None,
@@ -178,15 +192,39 @@ def list_loans(
     page_size: int = 20,
     assigned_employee_id: Optional[uuid.UUID] = None,
     include: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> tuple[list[Loan], int]:
-    """List loans with optional filters and eager loading"""
+    """List loans with optional filters, search, sorting, and eager loading"""
     includes = parse_includes(include)
     query = db.query(Loan).filter(Loan.is_deleted == False)
 
-    if assigned_employee_id:
+    # Join Customer once if the employee scope, a customer-column sort, or a
+    # search (which spans customer fields) needs it (avoids a double join).
+    needs_customer_join = (
+        assigned_employee_id is not None
+        or (sort_by in _CUSTOMER_SORT_KEYS)
+        or bool(search)
+    )
+    if needs_customer_join:
         query = query.join(Customer, Loan.customer_id == Customer.id).filter(
-            Customer.assigned_employee_id == assigned_employee_id,
             Customer.is_deleted == False,
+        )
+
+    if assigned_employee_id:
+        query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    # Free-text search across loan number and customer name / mobile / mandal.
+    if search:
+        s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.filter(
+            or_(
+                Loan.loan_number.ilike(f"%{s}%", escape="\\"),
+                Customer.full_name.ilike(f"%{s}%", escape="\\"),
+                Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
+                Customer.mandal_village.ilike(f"%{s}%", escape="\\"),
+            )
         )
 
     if customer_id:
@@ -202,8 +240,15 @@ def list_loans(
 
     query = _apply_eager_loading(query, includes)
 
+    # Sort. Unknown sort_by falls back to created_at desc so the response is
+    # deterministic. The Loan.id tie-breaker keeps pagination stable when many
+    # rows share a sort key (common for status / mandal_village).
+    column = _SORTABLE_COLUMNS.get(sort_by or "", Loan.created_at)
+    descending = (sort_order or "desc").lower() != "asc"
+    ordering = column.desc() if descending else column.asc()
+
     results = (
-        query.order_by(Loan.created_at.desc())
+        query.order_by(ordering, Loan.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

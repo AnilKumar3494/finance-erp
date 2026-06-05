@@ -177,13 +177,24 @@ export function buildMuiTheme(mode: Mode) {
       },
 
       // ---- Paper / Card -----------------------------------------------
+      // In dark mode tokens.surface is rgba(255,255,255,0.05) — translucent
+      // by design so cards "frost" over the opaque body bg. That visual
+      // breaks for floating UI (Dialog, Popover, Menu, Autocomplete listbox,
+      // DatePicker calendar) which stack over a dim backdrop and/or
+      // arbitrary content — the translucent layer muddies the contents.
+      //
+      // Fix universally: opaque `bg` base + a linear-gradient overlay of
+      // the same translucent `surface` token. Cards on body bg look
+      // identical (same blended tone, no glass-over-glass needed). Floating
+      // surfaces now render opaque and stay readable.
       MuiPaper: {
         defaultProps: { elevation: 1 },
         styleOverrides: {
           root: {
-            backgroundImage: 'none',
             border: `1px solid ${tokens.border}`,
             borderRadius: 14,
+            backgroundColor: tokens.bg,
+            backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
           },
         },
       },
@@ -232,6 +243,33 @@ export function buildMuiTheme(mode: Mode) {
           paper: {
             backgroundColor: tokens.bg,
             backgroundImage: `linear-gradient(${tokens.surface}, ${tokens.surface})`,
+          },
+        },
+      },
+
+      // ---- Alert -------------------------------------------------------
+      // In dark mode the `*-light` tokens are low-alpha rgba tints (used as
+      // subtle backgrounds). MUI derives the outlined/standard Alert TEXT
+      // colour from `palette.<sev>.light`, so that alpha tint yields a nearly
+      // invisible label. Pin the text/border/icon to the solid severity token
+      // so warnings et al. stay legible in both themes.
+      MuiAlert: {
+        styleOverrides: {
+          root: ({ ownerState }) => {
+            const sev: Record<string, string> = {
+              warning: tokens.warning,
+              error: tokens.danger,
+              success: tokens.success,
+            }
+            const c = ownerState.severity ? sev[ownerState.severity] : undefined
+            if (!c || (ownerState.variant !== 'outlined' && ownerState.variant !== 'standard')) {
+              return {}
+            }
+            return {
+              color: c,
+              '& .MuiAlert-icon': { color: c },
+              ...(ownerState.variant === 'outlined' ? { borderColor: c } : {}),
+            }
           },
         },
       },

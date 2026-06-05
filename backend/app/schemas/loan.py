@@ -30,6 +30,7 @@ class CustomerNested(BaseModel):
     id: uuid.UUID
     full_name: str
     mobile_number: str
+    mandal_village: Optional[str] = None
     assigned_employee_id: Optional[uuid.UUID] = None
 
     model_config = {"from_attributes": True}

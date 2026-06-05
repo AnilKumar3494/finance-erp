@@ -8,7 +8,7 @@ import type { SvgIconComponent } from '@mui/icons-material'
 
 export interface NavItem {
   label: string
-  path: '/' | '/customers' | '/loans' | '/transactions' | '/vehicles' | '/reports'
+  path: '/' | '/customers' | '/finances' | '/transactions' | '/vehicles' | '/reports'
   icon: SvgIconComponent
   showInBottomBar: boolean
 }
@@ -16,7 +16,7 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Dashboard', path: '/', icon: DashboardOutlined, showInBottomBar: true },
   { label: 'Customers', path: '/customers', icon: PeopleOutlined, showInBottomBar: true },
-  { label: 'Loans', path: '/loans', icon: AccountBalanceOutlined, showInBottomBar: true },
+  { label: 'Finances', path: '/finances', icon: AccountBalanceOutlined, showInBottomBar: true },
   { label: 'Transactions', path: '/transactions', icon: ReceiptLongOutlined, showInBottomBar: true },
   { label: 'Vehicles', path: '/vehicles', icon: DirectionsCarOutlined, showInBottomBar: false },
   { label: 'Reports', path: '/reports', icon: AssessmentOutlined, showInBottomBar: false },
