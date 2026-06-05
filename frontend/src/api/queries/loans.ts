@@ -132,6 +132,7 @@ export interface LoanListParams {
   vehicle_id?: string
   status?: LoanStatus
   include?: string
+  search?: string
   sort_by?: LoanSortField
   sort_order?: SortOrder
 }

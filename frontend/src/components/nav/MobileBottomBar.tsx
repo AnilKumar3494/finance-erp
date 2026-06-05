@@ -28,7 +28,10 @@ export function MobileBottomBar({ onOpenDrawer }: MobileBottomBarProps) {
         left: 0,
         right: 0,
         zIndex: (t) => t.zIndex.appBar,
-        bgcolor: 'background.paper',
+        // Opaque base + surface overlay so scrolled content never shows
+        // through (background.paper is translucent in dark mode).
+        bgcolor: 'var(--bg)',
+        backgroundImage: 'linear-gradient(var(--surface), var(--surface))',
         borderTop: '1px solid',
         borderColor: 'divider',
         height: 'var(--bottombar-h-mobile)',

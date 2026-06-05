@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import { getRouteApi } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
@@ -21,7 +22,7 @@ import {
   type SortOrder,
 } from '@/api/queries/loans'
 import { useCustomer } from '@/api/queries/customers'
-import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
+import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
@@ -30,6 +31,7 @@ import { SortSelect } from '../components/SortSelect'
 const routeApi = getRouteApi('/_authed/finances/')
 
 const PAGE_SIZE = 20
+const SEARCH_DEBOUNCE_MS = 300
 
 // Server-side sort (mirrors the customers list). The backend default is
 // created_at desc, which the SNO column reflects when no sort is in the URL.
@@ -78,7 +80,14 @@ const Dash = () => (
 )
 
 export function LoansListPage() {
-  const { page, status, customer_id, sort_by, sort_order } = routeApi.useSearch()
+  const {
+    page,
+    status,
+    customer_id,
+    search: searchTerm,
+    sort_by,
+    sort_order,
+  } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
 
   const setSort = (next: { sort_by: LoanSortField; sort_order: SortOrder }) =>
@@ -92,11 +101,42 @@ export function LoansListPage() {
       replace: true,
     })
 
+  // Search: local draft debounced into the URL. Mirrors the customers list —
+  // `lastWrittenSearch` lets the URL→draft sync ignore echoes of our own
+  // debounced writes so typing isn't clobbered mid-stream.
+  const [draft, setDraft] = useState(() => searchTerm ?? '')
+  const isFirstRun = useRef(true)
+  const lastWrittenSearch = useRef<string | undefined>(searchTerm)
+
+  useEffect(() => {
+    if (isFirstRun.current) {
+      isFirstRun.current = false
+      return
+    }
+    const t = setTimeout(() => {
+      const next = draft.trim() || undefined
+      lastWrittenSearch.current = next
+      navigate({
+        search: (prev) => ({ ...prev, page: 1, search: next }),
+        replace: true,
+      })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [draft, navigate])
+
+  useEffect(() => {
+    if (searchTerm !== lastWrittenSearch.current) {
+      lastWrittenSearch.current = searchTerm
+      setDraft(searchTerm ?? '')
+    }
+  }, [searchTerm])
+
   const query = useLoans({
     page,
     page_size: PAGE_SIZE,
     status,
     customer_id,
+    search: searchTerm,
     include: 'customer,vehicle',
     sort_by,
     sort_order,
@@ -120,8 +160,8 @@ export function LoansListPage() {
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
       {/* Responsive toolbar. On mobile the controls reorder to:
-          New finance → filter chips → sort. On sm+ it's a single row
-          (title · sort · new finance) with the chips below. */}
+          search → New finance → filter chips → sort. On sm+ it's a single row
+          (title · search · sort · new finance) with the chips below. */}
       <Box
         sx={{
           mb: 3,
@@ -132,14 +172,28 @@ export function LoansListPage() {
           rowGap: 2,
         }}
       >
-        <Typography
-          variant="h2"
-          sx={{ order: 0, width: { xs: '100%', sm: 'auto' }, flexGrow: { sm: 1 } }}
-        >
+        <Typography variant="h2" sx={{ order: 0, width: { xs: '100%', sm: 'auto' } }}>
           Finances
         </Typography>
 
-        <Box sx={{ order: { xs: 1, sm: 3 }, width: { xs: '100%', sm: 'auto' } }}>
+        <Box
+          sx={{
+            order: { xs: 1, sm: 1 },
+            width: { xs: '100%', sm: 'auto' },
+            flexGrow: { sm: 1 },
+            minWidth: { sm: 220 },
+          }}
+        >
+          <Input
+            id="finance-search"
+            placeholder="Search by loan number, name, mobile, or mandal…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            autoComplete="off"
+          />
+        </Box>
+
+        <Box sx={{ order: { xs: 2, sm: 3 }, width: { xs: '100%', sm: 'auto' } }}>
           <Btn
             variant="primary"
             startIcon={<AddIcon />}
@@ -150,11 +204,11 @@ export function LoansListPage() {
           </Btn>
         </Box>
 
-        <Box sx={{ order: { xs: 3, sm: 2 }, width: { xs: '100%', sm: 'auto' } }}>
+        <Box sx={{ order: { xs: 4, sm: 2 }, width: { xs: '100%', sm: 'auto' } }}>
           <SortSelect sort_by={sort_by} sort_order={sort_order} onChange={setSort} />
         </Box>
 
-        <Box sx={{ order: { xs: 2, sm: 4 }, width: '100%' }}>
+        <Box sx={{ order: { xs: 3, sm: 4 }, width: '100%' }}>
           {customer_id && (
             <Box sx={{ mb: 2 }}>
               <Chip
@@ -205,7 +259,10 @@ export function LoansListPage() {
       ) : (
         <>
           {rows.length === 0 ? (
-            <EmptyState filtered={!!status || !!customer_id} onCreate={goToCreate} />
+            <EmptyState
+              filtered={!!status || !!customer_id || !!searchTerm}
+              onCreate={goToCreate}
+            />
           ) : (
             <>
               <DesktopTable

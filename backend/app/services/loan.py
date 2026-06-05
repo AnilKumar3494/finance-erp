@@ -4,6 +4,7 @@ from typing import Any, Optional
 from datetime import date, datetime, timezone
 
 from fastapi import Request
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -193,15 +194,18 @@ def list_loans(
     include: Optional[str] = None,
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> tuple[list[Loan], int]:
-    """List loans with optional filters, sorting, and eager loading"""
+    """List loans with optional filters, search, sorting, and eager loading"""
     includes = parse_includes(include)
     query = db.query(Loan).filter(Loan.is_deleted == False)
 
-    # Join Customer once if either the employee scope or a customer-column
-    # sort needs it (avoids a double join).
+    # Join Customer once if the employee scope, a customer-column sort, or a
+    # search (which spans customer fields) needs it (avoids a double join).
     needs_customer_join = (
-        assigned_employee_id is not None or (sort_by in _CUSTOMER_SORT_KEYS)
+        assigned_employee_id is not None
+        or (sort_by in _CUSTOMER_SORT_KEYS)
+        or bool(search)
     )
     if needs_customer_join:
         query = query.join(Customer, Loan.customer_id == Customer.id).filter(
@@ -210,6 +214,18 @@ def list_loans(
 
     if assigned_employee_id:
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    # Free-text search across loan number and customer name / mobile / mandal.
+    if search:
+        s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.filter(
+            or_(
+                Loan.loan_number.ilike(f"%{s}%", escape="\\"),
+                Customer.full_name.ilike(f"%{s}%", escape="\\"),
+                Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
+                Customer.mandal_village.ilike(f"%{s}%", escape="\\"),
+            )
+        )
 
     if customer_id:
         query = query.filter(Loan.customer_id == customer_id)

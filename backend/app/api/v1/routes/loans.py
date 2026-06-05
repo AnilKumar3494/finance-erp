@@ -170,6 +170,9 @@ def list_all(
     customer_id: Optional[uuid.UUID] = Query(None),
     vehicle_id: Optional[uuid.UUID] = Query(None),
     status: Optional[LoanStatus] = Query(None),
+    search: Optional[str] = Query(
+        None, description="Search by loan number, customer name, mobile, or mandal/village"
+    ),
     include: Optional[str] = Query(
         None,
         description="Comma-separated list of related objects to include: customer, vehicle, created_by, updated_by",
@@ -204,6 +207,7 @@ def list_all(
         include=include,
         sort_by=sort_by,
         sort_order=sort_order,
+        search=search,
     )
     return LoanListResponse(
         total=total,
