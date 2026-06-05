@@ -13,6 +13,7 @@ import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
+import { DeleteDraftAction } from '../components/DeleteDraftAction'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
 import { VehicleInfoSection } from '../sections/VehicleInfoSection'
@@ -80,6 +81,9 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
       <AllDocumentsSection loan={loan} perm={perms.documents} />
 
       <LoanSubResources loan={loan} />
+
+      {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
+
       <AuditCard loan={loan} />
     </Stack>
   )

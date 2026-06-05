@@ -274,6 +274,23 @@ export function buildMuiTheme(mode: Mode) {
         },
       },
 
+      // ---- Stepper -----------------------------------------------------
+      // Upcoming steps inherit their label colour from `typography.body2`
+      // (text.secondary). In dark mode that token is a low-alpha white tint
+      // (rgba(255,255,255,0.5)), so the New Finance wizard's not-yet-reached
+      // step labels wash out against the page background. Lift the upcoming
+      // label colour in dark mode and keep the active/completed steps pinned
+      // to the solid text token so every step stays legible in both themes.
+      MuiStepLabel: {
+        styleOverrides: {
+          label: {
+            color: mode === 'dark' ? 'rgba(255, 255, 255, 0.72)' : tokens.textSub,
+            '&.Mui-active': { color: tokens.text, fontWeight: 600 },
+            '&.Mui-completed': { color: tokens.text },
+          },
+        },
+      },
+
       // ---- Chip (used by our Badge family underneath) ------------------
       MuiChip: {
         styleOverrides: {

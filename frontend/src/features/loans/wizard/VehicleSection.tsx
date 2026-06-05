@@ -14,6 +14,7 @@ import { useDocuments } from '@/api/queries/documents'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { VEHICLE_PLATE_RE } from '@/schemas/primitives'
+import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 
 function mapErr(error: unknown, fallback: string): string {
   if (error instanceof AxiosError) {
@@ -109,7 +110,7 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<VehicleFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -124,6 +125,10 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
       purchase_cost: '',
     },
   })
+
+  // After a successful create the card is replaced by the attached-vehicle
+  // summary (once the loan refetches), so stop reporting dirty immediately.
+  useReportDirty(isDirty && !createVehicle.isSuccess)
 
   const onSubmit = (v: VehicleFormValues) => {
     const trimOrNull = (s: string) => (s.trim() === '' ? null : s.trim())

@@ -191,8 +191,11 @@ export function useCreateLoan() {
     },
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: loanKeys.lists() })
-      // Seed the detail cache so the post-create redirect renders immediately.
+      // Seed the detail cache so the post-create redirect renders immediately,
+      // then refetch so the nested includes (customer, …) — absent from the
+      // POST response — are populated.
       qc.setQueryData(loanKeys.detail(created.id), created)
+      qc.invalidateQueries({ queryKey: loanKeys.detail(created.id) })
       qc.invalidateQueries({ queryKey: loanKeys.byCustomer(created.customer_id) })
     },
   })
@@ -206,7 +209,12 @@ export function useUpdateLoan(id: string) {
       return data
     },
     onSuccess: (updated) => {
-      qc.setQueryData(loanKeys.detail(id), updated)
+      // Refetch the detail (with its nested includes) rather than caching the
+      // PATCH response: that response omits customer/vehicle/created_by/etc.,
+      // so caching it would blank those nested objects. Linking a vehicle or
+      // editing terms would then drop the saved data when a wizard section is
+      // revisited (the section reads loan.vehicle / loan.customer).
+      qc.invalidateQueries({ queryKey: loanKeys.detail(id) })
       qc.invalidateQueries({ queryKey: loanKeys.lists() })
       qc.invalidateQueries({ queryKey: loanKeys.byCustomer(updated.customer_id) })
     },
@@ -245,7 +253,10 @@ export function useApproveLoan(id: string) {
       return data
     },
     onSuccess: (updated) => {
+      // Seed for an instant status flip, then refetch so the nested includes
+      // (customer, vehicle, …) the approve response omits stay populated.
       qc.setQueryData(loanKeys.detail(id), updated)
+      qc.invalidateQueries({ queryKey: loanKeys.detail(id) })
       qc.invalidateQueries({ queryKey: loanKeys.lists() })
       qc.invalidateQueries({ queryKey: loanKeys.byCustomer(updated.customer_id) })
     },

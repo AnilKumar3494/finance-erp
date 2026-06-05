@@ -11,6 +11,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 import { useLoan, useUpdateLoan, type LoanUpdate } from '@/api/queries/loans'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
+import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`
 
@@ -126,7 +127,8 @@ function FinancialsForm({
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    reset,
+    formState: { errors, isDirty },
   } = useForm<FinFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -139,6 +141,10 @@ function FinancialsForm({
     },
   })
 
+  // This form stays mounted and editable after a save, so make the saved values
+  // the new pristine baseline; the wizard's guard then only warns on fresh edits.
+  useReportDirty(isDirty)
+
   const onSubmit = (v: FinFormValues) => {
     const feeOrUndef = (s: string) => (s.trim() === '' ? undefined : s.trim())
     const payload: LoanUpdate = {
@@ -149,7 +155,7 @@ function FinancialsForm({
       processing_fee: feeOrUndef(v.processing_fee),
       documentation_fee: feeOrUndef(v.documentation_fee),
     }
-    update.mutate(payload)
+    update.mutate(payload, { onSuccess: () => reset(v) })
   }
 
   const error = update.isError ? mapErr(update.error) : null

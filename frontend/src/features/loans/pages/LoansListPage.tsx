@@ -149,7 +149,7 @@ export function LoansListPage() {
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
   const rows = query.data?.results ?? []
 
-  const goToCreate = () => navigate({ to: '/finances/new' })
+  const goToCreate = () => navigate({ to: '/finances/new', search: { step: 0 } })
 
   const setStatus = (next: LoanStatus | undefined) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, status: next }) })
