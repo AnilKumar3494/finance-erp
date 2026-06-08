@@ -56,10 +56,11 @@ export function AllDocumentsSection({
   loan: LoanResponse
   perm: SectionPermission
 }) {
-  // Every document is owned by a customer, so a customer-scoped query is the
-  // broadest catch-all — it surfaces loan, vehicle, personnel and KYC documents
-  // in one place.
-  const docsQuery = useDocuments({ customer_id: loan.customer_id, page_size: 200 })
+  // Strictly loan-scoped: only documents attached to THIS finance (loan
+  // agreements, receipts, stability proofs, ad-hoc uploads). Customer-owned
+  // KYC, vehicle and personnel documents appear in their own sections, so this
+  // avoids leaking another loan's documents for the same customer.
+  const docsQuery = useDocuments({ loan_id: loan.id, page_size: 200 })
   const del = useDeleteDocument()
   const [showAdd, setShowAdd] = useState(false)
 
@@ -73,9 +74,9 @@ export function AllDocumentsSection({
         sx={{ mb: 2, alignItems: 'flex-start', justifyContent: 'space-between' }}
       >
         <Box>
-          <Typography variant="h3">All documents</Typography>
+          <Typography variant="h3">Finance documents</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-            Every document on file for this customer and finance.
+            Documents attached to this finance. KYC, vehicle and personnel docs are in their own sections.
           </Typography>
         </Box>
         {perm.canEdit && !showAdd && (

@@ -13,11 +13,13 @@ import StepLabel from '@mui/material/StepLabel'
 import Stepper from '@mui/material/Stepper'
 import Typography from '@mui/material/Typography'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
+import PersonAddIcon from '@mui/icons-material/PersonAddAltOutlined'
 
 import { useCreateLoan, useLoan, type LoanResponse } from '@/api/queries/loans'
 import type { CustomerResponse } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
+import { QuickAddCustomerDialog } from '@/features/loans/components/QuickAddCustomerDialog'
 import { CustomerKycSection } from '@/features/loans/wizard/CustomerKycSection'
 import { VehicleSection } from '@/features/loans/wizard/VehicleSection'
 import { PersonnelSection } from '@/features/loans/wizard/PersonnelSection'
@@ -47,8 +49,10 @@ function mapCreateError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
     const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (status === 400) return detail ?? 'Could not start the finance. Check the customer and try again.'
-    if (status === 403) return detail ?? 'You do not have permission to start a finance for this customer.'
+    if (status === 400)
+      return detail ?? 'Could not start the finance. Check the customer and try again.'
+    if (status === 403)
+      return detail ?? 'You do not have permission to start a finance for this customer.'
     if (status === 404) return detail ?? 'Customer not found.'
     if (status === 429) return 'Too many requests. Please wait a moment.'
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
@@ -79,10 +83,7 @@ export function FinanceWizardPage() {
     [],
   )
   const [pendingNav, setPendingNav] = useState<{ run: () => void } | null>(null)
-  const anyDirty = useCallback(
-    () => Array.from(dirtyForms.current.values()).some(Boolean),
-    [],
-  )
+  const anyDirty = useCallback(() => Array.from(dirtyForms.current.values()).some(Boolean), [])
   const guard = useCallback(
     (proceed: () => void) => {
       if (anyDirty()) setPendingNav({ run: proceed })
@@ -115,7 +116,11 @@ export function FinanceWizardPage() {
     )
 
   const startedDraft = (loanId: string) =>
-    navigate({ to: '/finances/new', search: { financeId: loanId, step: FIRST_CONTENT_STEP }, replace: true })
+    navigate({
+      to: '/finances/new',
+      search: { financeId: loanId, step: FIRST_CONTENT_STEP },
+      replace: true,
+    })
 
   const exit = () => guard(() => navigate({ to: '/finances', search: { page: 1 } }))
 
@@ -219,6 +224,7 @@ function CustomerGate({ onStarted }: { onStarted: (loanId: string) => void }) {
   const create = useCreateLoan()
   const [customer, setCustomer] = useState<CustomerResponse | null>(null)
   const [customerError, setCustomerError] = useState<string>()
+  const [addOpen, setAddOpen] = useState(false)
 
   const start = () => {
     if (!customer) {
@@ -248,8 +254,8 @@ function CustomerGate({ onStarted }: { onStarted: (loanId: string) => void }) {
           Select the customer
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-          Choose the customer this finance is for. We create a draft immediately so
-          documents, vehicle, and personnel can be attached as you go.
+          Choose the customer this finance is for. We create a draft immediately so documents,
+          vehicle, and personnel can be attached as you go.
         </Typography>
         <CustomerPicker
           value={customer}
@@ -260,12 +266,35 @@ function CustomerGate({ onStarted }: { onStarted: (loanId: string) => void }) {
           required
           error={customerError}
         />
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Typography variant="body2" color="text.secondary">
+            Add a new customer:
+          </Typography>
+          <Btn
+            variant="ghost"
+            size="sm"
+            startIcon={<PersonAddIcon />}
+            onClick={() => setAddOpen(true)}
+          >
+            New Customer
+          </Btn>
+        </Stack>
         <Stack direction="row" spacing={2} sx={{ mt: 3, justifyContent: 'flex-end' }}>
           <Btn variant="primary" onClick={start} loading={create.isPending}>
             Start finance
           </Btn>
         </Stack>
       </Card>
+
+      <QuickAddCustomerDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onCreated={(c) => {
+          setCustomer(c)
+          setCustomerError(undefined)
+          setAddOpen(false)
+        }}
+      />
     </>
   )
 }
@@ -301,11 +330,7 @@ function WizardBody({
         spacing={2}
         sx={{ mt: 3, alignItems: 'center', justifyContent: 'space-between' }}
       >
-        <Btn
-          variant="ghost"
-          onClick={() => onStep(step - 1)}
-          disabled={step <= FIRST_CONTENT_STEP}
-        >
+        <Btn variant="ghost" onClick={() => onStep(step - 1)} disabled={step <= FIRST_CONTENT_STEP}>
           ‹ Back
         </Btn>
         <Btn variant="ghost" size="sm" onClick={onOpenFinance}>
@@ -340,16 +365,14 @@ function UnsavedChangesDialog({
 }) {
   return (
     <Dialog open={open} onClose={onStay} maxWidth="xs" fullWidth>
-      <DialogTitle
-        sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1, fontSize: 18 }}
-      >
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1, fontSize: 18 }}>
         <WarningAmberRoundedIcon sx={{ color: 'warning.main' }} fontSize="small" />
         Unsaved changes
       </DialogTitle>
       <DialogContent sx={{ pb: 1.5 }}>
         <Typography variant="body2" color="text.secondary">
-          You have unsaved changes on this step. Save them first — if you leave now,
-          they’ll be lost.
+          You have unsaved changes on this step. Save them first — if you leave now, they’ll be
+          lost.
         </Typography>
       </DialogContent>
       <DialogActions
