@@ -110,7 +110,8 @@ function invalidateLoanLedger(
 ) {
   qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
   qc.invalidateQueries({ queryKey: transactionKeys.summary(loanId) })
-  qc.invalidateQueries({ queryKey: dueCycleKeys.byLoan(loanId) })
+  // Covers both the per-loan schedule (byLoan) and the cross-loan worklist.
+  qc.invalidateQueries({ queryKey: dueCycleKeys.all })
   qc.invalidateQueries({ queryKey: loanKeys.detail(loanId) })
 }
 

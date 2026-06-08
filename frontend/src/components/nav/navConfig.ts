@@ -18,7 +18,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Customers', path: '/customers', icon: PeopleOutlined, showInBottomBar: true },
   { label: 'Finances', path: '/finances', icon: AccountBalanceOutlined, showInBottomBar: true },
   {
-    label: 'Transactions',
+    label: 'Collections',
     path: '/transactions',
     icon: ReceiptLongOutlined,
     showInBottomBar: true,
