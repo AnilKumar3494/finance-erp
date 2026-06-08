@@ -110,7 +110,8 @@ function invalidateLoanLedger(
 ) {
   qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
   qc.invalidateQueries({ queryKey: transactionKeys.summary(loanId) })
-  qc.invalidateQueries({ queryKey: dueCycleKeys.byLoan(loanId) })
+  // Covers both the per-loan schedule (byLoan) and the cross-loan worklist.
+  qc.invalidateQueries({ queryKey: dueCycleKeys.all })
   qc.invalidateQueries({ queryKey: loanKeys.detail(loanId) })
 }
 
@@ -146,6 +147,40 @@ export function useFailTransaction(loanId: string) {
         `/transactions/${transactionId}/fail`,
       )
       return data
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+// Edit a transaction's notes (admin). Backend accepts `{ notes }` only and
+// rejects edits on a SUCCESS transaction — callers gate the action to
+// PENDING/FAILED rows. A null clears the note.
+export interface TransactionUpdate {
+  notes: string | null
+}
+
+export function useUpdateTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { transactionId: string; payload: TransactionUpdate }) => {
+      const { data } = await apiClient.patch<TransactionResponse>(
+        `/transactions/${vars.transactionId}`,
+        vars.payload,
+      )
+      return data
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+// Soft-delete a transaction (admin). Backend allows this for FAILED
+// transactions only (400 otherwise); a wrong PENDING/SUCCESS txn must be
+// failed first. Returns 204 — no body.
+export function useDeleteTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      await apiClient.delete(`/transactions/${transactionId}`)
     },
     onSuccess: () => invalidateLoanLedger(qc, loanId),
   })

@@ -1,25 +1,34 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
+from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan
 from app.models.transaction import PunctualityStatus, Transaction
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.due_cycle import (
     CycleClassifyRequest,
     CycleClassifyResponse,
     DueCycleListResponse,
     DueCycleResponse,
+    DueCycleWorklistItem,
+    DueCycleWorklistResponse,
     PenaltyEventResponse,
 )
-from app.services.due_cycle import get_cycle, list_cycles_for_loan
+from app.services.due_cycle import (
+    get_cycle,
+    list_cycles_for_loan,
+    list_cycles_worklist,
+)
 from app.services.penalty import (
     apply_penalty,
     compute_shortfall,
@@ -29,6 +38,7 @@ from app.services.penalty import (
     write_reclassify_audit,
 )
 from app.utils.audit import write_audit
+from app.utils.time import today_in_tz
 
 router = APIRouter(prefix="/due-cycles", tags=["Due Cycles"])
 
@@ -62,6 +72,69 @@ def _propagate_punctuality_to_transactions(
     ).update(
         {Transaction.punctuality_status: new_status},
         synchronize_session=False,
+    )
+
+
+# --------------------------------------------------
+# WORKLIST — cross-loan due cycles (Collections)
+# Registered before /{cycle_id} so the empty path doesn't get captured.
+# --------------------------------------------------
+@router.get(
+    "/",
+    response_model=DueCycleWorklistResponse,
+    summary="Cross-loan due-cycle worklist (Collections)",
+)
+def worklist(
+    cycle_status: Optional[CycleStatus] = Query(None, alias="status"),
+    due_before: Optional[date] = Query(None),
+    due_after: Optional[date] = Query(None),
+    unpaid_only: bool = Query(False),
+    search: Optional[str] = Query(None, max_length=120),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # EMPLOYEE sees only their assigned customers' cycles; admins see all.
+    scope = (
+        current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    )
+    rows, total = list_cycles_worklist(
+        db,
+        status=cycle_status,
+        due_before=due_before,
+        due_after=due_after,
+        unpaid_only=unpaid_only,
+        search=search,
+        page=page,
+        page_size=page_size,
+        assigned_employee_id=scope,
+    )
+
+    today = today_in_tz(settings.REPORTS_TIMEZONE)
+    results = [
+        DueCycleWorklistItem(
+            id=cycle.id,
+            loan_id=cycle.loan_id,
+            cycle_number=cycle.cycle_number,
+            due_date=cycle.due_date,
+            total_due=cycle.total_due,
+            total_received=cycle.total_received,
+            shortfall=compute_shortfall(cycle),
+            penalty_amount=cycle.penalty_amount,
+            cycle_status=cycle.cycle_status,
+            days_overdue=max(0, (today - cycle.due_date).days),
+            loan_number=loan.loan_number,
+            loan_status=loan.status,
+            customer_id=customer.id,
+            customer_name=customer.full_name,
+            customer_mobile=customer.mobile_number,
+            mandal_village=customer.mandal_village,
+        )
+        for cycle, loan, customer in rows
+    ]
+    return DueCycleWorklistResponse(
+        total=total, page=page, page_size=page_size, results=results
     )
 
 

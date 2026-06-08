@@ -10,13 +10,22 @@ Penalty calculation and admin classification live in `services/penalty.py`
 """
 import uuid
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
-from app.models.loan import Loan
+from app.models.loan import Loan, LoanStatus
 from app.services.finance import cycle_due_date, emi_schedule
+
+# Loan statuses whose cycles can still be collected on — the worklist's universe.
+_COLLECTIBLE_LOAN_STATUSES = (
+    LoanStatus.ACTIVE,
+    LoanStatus.AWAITING_CLOSURE,
+    LoanStatus.BAD_DEBT_PROPOSED,
+)
 
 
 def generate_cycles_for_loan(
@@ -128,3 +137,79 @@ def find_target_cycle_for_payment(
             return cycle
 
     return cycles[-1]
+
+
+def list_cycles_worklist(
+    db: Session,
+    *,
+    status: Optional[CycleStatus] = None,
+    due_before: Optional[date] = None,
+    due_after: Optional[date] = None,
+    unpaid_only: bool = False,
+    search: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+) -> Tuple[List[Tuple[DueCycle, Loan, Customer]], int]:
+    """
+    Cross-loan due-cycle worklist for the Collections module.
+
+    Joins each cycle to its loan and customer so a collector can see who owes
+    what, due when, across every loan in one list — instead of opening loans
+    one by one. Restricted to collectible loan statuses (ACTIVE /
+    AWAITING_CLOSURE / BAD_DEBT_PROPOSED).
+
+    Scoping: pass `assigned_employee_id` to limit to that employee's assigned
+    customers (EMPLOYEE role); leave None for ADMIN / SUPER_ADMIN (all).
+
+    Ordered by due_date ascending (most overdue first), then loan_number, so
+    the top of the list is the most pressing. Returns (rows, total) where each
+    row is a (DueCycle, Loan, Customer) tuple.
+    """
+    query = (
+        db.query(DueCycle, Loan, Customer)
+        .join(Loan, Loan.id == DueCycle.loan_id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            DueCycle.is_deleted.is_(False),
+            Loan.is_deleted.is_(False),
+            Customer.is_deleted.is_(False),
+            Loan.status.in_(_COLLECTIBLE_LOAN_STATUSES),
+        )
+    )
+
+    if assigned_employee_id is not None:
+        query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    if status is not None:
+        query = query.filter(DueCycle.cycle_status == status)
+
+    if due_before is not None:
+        query = query.filter(DueCycle.due_date <= due_before)
+
+    if due_after is not None:
+        query = query.filter(DueCycle.due_date >= due_after)
+
+    if unpaid_only:
+        query = query.filter(DueCycle.total_received < DueCycle.total_due)
+
+    if search:
+        s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.filter(
+            or_(
+                Loan.loan_number.ilike(f"%{s}%", escape="\\"),
+                Customer.full_name.ilike(f"%{s}%", escape="\\"),
+                Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
+            )
+        )
+
+    total = query.count()
+
+    rows = (
+        query.order_by(DueCycle.due_date.asc(), Loan.loan_number.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return rows, total

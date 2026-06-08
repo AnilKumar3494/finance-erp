@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
 import { transactionKeys } from '@/api/queries/transactions'
-import type { CycleStatus } from '@/schemas/enums'
+import type { CycleStatus, LoanStatus } from '@/schemas/enums'
 
 // --------------------------------------------------
 // Types — mirror backend/app/schemas/due_cycle.py. Monetary fields are
@@ -38,6 +38,8 @@ export interface DueCycleListResponse {
 export const dueCycleKeys = {
   all: ['dueCycles'] as const,
   byLoan: (loanId: string) => [...dueCycleKeys.all, 'byLoan', loanId] as const,
+  worklist: (params: WorklistParams) =>
+    [...dueCycleKeys.all, 'worklist', params] as const,
 }
 
 export function useDueCycles(loanId: string | undefined, enabled = true) {
@@ -50,6 +52,61 @@ export function useDueCycles(loanId: string | undefined, enabled = true) {
       return data
     },
     enabled: !!loanId && enabled,
+  })
+}
+
+// --------------------------------------------------
+// Collections worklist — cross-loan due cycles joined to loan + customer.
+// Mirrors backend GET /due-cycles/ (DueCycleWorklistResponse). Money fields
+// are strings. Access scoping is server-side (employees see their assignees).
+// --------------------------------------------------
+
+export interface DueCycleWorklistItem {
+  id: string
+  loan_id: string
+  cycle_number: number
+  due_date: string
+  total_due: string
+  total_received: string
+  shortfall: string
+  penalty_amount: string
+  cycle_status: CycleStatus
+  days_overdue: number
+  loan_number: string
+  loan_status: LoanStatus
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+  mandal_village: string | null
+}
+
+export interface DueCycleWorklistResponse {
+  total: number
+  page: number
+  page_size: number
+  results: DueCycleWorklistItem[]
+}
+
+export interface WorklistParams {
+  status?: CycleStatus
+  due_before?: string
+  due_after?: string
+  unpaid_only?: boolean
+  search?: string
+  page: number
+  page_size?: number
+}
+
+export function useDueCycleWorklist(params: WorklistParams) {
+  return useQuery({
+    queryKey: dueCycleKeys.worklist(params),
+    queryFn: async () => {
+      const { data } = await apiClient.get<DueCycleWorklistResponse>('/due-cycles/', {
+        params,
+      })
+      return data
+    },
+    placeholderData: (prev) => prev,
   })
 }
 
