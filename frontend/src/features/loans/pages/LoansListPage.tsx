@@ -353,7 +353,7 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
         <TableContainer>
-          <Table size="small">
+          <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
@@ -403,15 +403,11 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     {l.vehicle?.plate_number ?? <Dash />}
                   </TableCell>
                   <TableCell>
-                    {/* Column shrinks to the widest chip; align-stretch makes
-                        the others match it, so the pair is uniform width. */}
+                    {/* Fixed min-width keeps every status/EMI chip the same
+                        width, down the whole column and within each cell. */}
                     <Stack
                       spacing={0.5}
-                      sx={{
-                        width: 'fit-content',
-                        alignItems: 'stretch',
-                        '& .MuiChip-root': { justifyContent: 'center' },
-                      }}
+                      sx={{ '& .MuiChip-root': { minWidth: 168, justifyContent: 'center' } }}
                     >
                       <LoanStatusChip status={l.status} />
                       <EmiDueChip status={l.emi_due_status} />

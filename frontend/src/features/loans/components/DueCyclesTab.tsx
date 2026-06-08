@@ -171,7 +171,13 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <TableContainer>
-        <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+        <Table
+          size="small"
+          sx={{
+            '& .MuiTableCell-root': { whiteSpace: 'nowrap' },
+            '& .MuiChip-root': { minWidth: 140, justifyContent: 'center' },
+          }}
+        >
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 600 }}>#</TableCell>

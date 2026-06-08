@@ -180,9 +180,8 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
             spacing={0.5}
             sx={{
               flexShrink: 0,
-              width: 'fit-content',
-              alignItems: 'stretch',
-              '& .MuiChip-root': { justifyContent: 'center' },
+              alignItems: 'flex-end',
+              '& .MuiChip-root': { minWidth: 188, justifyContent: 'center' },
             }}
           >
             <LoanStatusChip status={loan.status} size="medium" />
