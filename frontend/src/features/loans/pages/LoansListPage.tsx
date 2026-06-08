@@ -26,6 +26,7 @@ import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
+import { EmiDueChip } from '../components/EmiDueChip'
 import { SortSelect } from '../components/SortSelect'
 
 const routeApi = getRouteApi('/_authed/finances/')
@@ -352,7 +353,7 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
         <TableContainer>
-          <Table size="small">
+          <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
@@ -402,7 +403,15 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     {l.vehicle?.plate_number ?? <Dash />}
                   </TableCell>
                   <TableCell>
-                    <LoanStatusChip status={l.status} />
+                    {/* Fixed min-width keeps every status/EMI chip the same
+                        width, down the whole column and within each cell. */}
+                    <Stack
+                      spacing={0.5}
+                      sx={{ '& .MuiChip-root': { minWidth: 168, justifyContent: 'center' } }}
+                    >
+                      <LoanStatusChip status={l.status} />
+                      <EmiDueChip status={l.emi_due_status} />
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -482,6 +491,11 @@ function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
           >
             REG {l.vehicle?.plate_number ?? '—'}
           </Typography>
+          {l.emi_due_status && l.emi_due_status !== 'NONE' && (
+            <Box sx={{ mt: 1 }}>
+              <EmiDueChip status={l.emi_due_status} />
+            </Box>
+          )}
         </Card>
       ))}
     </Stack>

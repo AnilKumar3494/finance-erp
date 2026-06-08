@@ -13,6 +13,7 @@ import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
+import { EmiDueChip } from '../components/EmiDueChip'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
@@ -175,7 +176,17 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
               </Box>
             )}
           </Box>
-          <LoanStatusChip status={loan.status} size="medium" />
+          <Stack
+            spacing={0.5}
+            sx={{
+              flexShrink: 0,
+              alignItems: 'flex-end',
+              '& .MuiChip-root': { minWidth: 188, justifyContent: 'center' },
+            }}
+          >
+            <LoanStatusChip status={loan.status} size="medium" />
+            <EmiDueChip status={loan.emi_due_status} size="medium" />
+          </Stack>
         </Stack>
         <Divider />
         <Box
