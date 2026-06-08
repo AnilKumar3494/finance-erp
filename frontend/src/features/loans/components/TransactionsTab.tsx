@@ -164,7 +164,11 @@ function TxnStatusChip({ status }: { status: TransactionStatus }) {
 
 function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
   return (
-    <Stack direction="row" spacing={1}>
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
+    >
       <Btn variant="success" size="sm" onClick={() => actions.onConfirm(id)} disabled={actions.acting}>
         Confirm
       </Btn>

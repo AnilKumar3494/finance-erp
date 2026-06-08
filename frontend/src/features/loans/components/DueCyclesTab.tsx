@@ -129,7 +129,16 @@ interface CycleActions {
 function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actions: CycleActions }) {
   const mode = classifyMode(cycle.cycle_status)
   return (
-    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+    <Stack
+      direction="row"
+      spacing={0.5}
+      sx={{
+        justifyContent: 'flex-end',
+        flexWrap: 'wrap',
+        rowGap: 0.5,
+        '& .MuiButton-root': { whiteSpace: 'nowrap', minWidth: 'auto' },
+      }}
+    >
       {actions.payable && (
         <Btn variant="ghost" size="sm" onClick={() => actions.onRecord(cycle)}>
           Record payment
