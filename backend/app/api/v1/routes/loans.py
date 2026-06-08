@@ -29,6 +29,7 @@ from app.services.loan import (
     calculate_monthly_interest,
     calculate_total_payable,
     create_loan,
+    emi_due_status_map,
     get_active_loans_by_customer,
     get_loan,
     list_loans,
@@ -48,12 +49,17 @@ router = APIRouter(prefix="/loans", tags=["Loans"])
 # --------------------------------------------------
 # HELPER — Attach computed fields + nested objects
 # --------------------------------------------------
-def enrich_loan(loan, includes: Optional[set[str]] = None) -> LoanResponse:
+def enrich_loan(
+    loan, includes: Optional[set[str]] = None, emi_due_status: Optional[str] = None
+) -> LoanResponse:
     """
     Build response with computed fields.
     If includes is provided, populate nested objects from eagerly-loaded relationships.
+    `emi_due_status` is the precomputed per-loan EMI signal (see
+    services.loan.emi_due_status_map); defaults to NONE when not supplied.
     """
     response = LoanResponse.model_validate(loan)
+    response.emi_due_status = emi_due_status or "NONE"
     # Financial terms are nullable on DRAFT loans (New Finance wizard fills them
     # in last). Only compute the derived fields once they're all present;
     # otherwise they stay None.
@@ -209,11 +215,12 @@ def list_all(
         sort_order=sort_order,
         search=search,
     )
+    emi_map = emi_due_status_map(db, results)
     return LoanListResponse(
         total=total,
         page=page,
         page_size=page_size,
-        results=[enrich_loan(l, includes) for l in results],
+        results=[enrich_loan(l, includes, emi_map.get(l.id)) for l in results],
     )
 
 
@@ -239,7 +246,8 @@ def get_one(
             status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
         )
     _assert_loan_access(loan, current_user, db)
-    return enrich_loan(loan, includes)
+    emi_status = emi_due_status_map(db, [loan]).get(loan.id)
+    return enrich_loan(loan, includes, emi_status)
 
 
 # --------------------------------------------------
@@ -277,7 +285,8 @@ def get_customer_active_loans(
 
     includes = parse_includes(include)
     loans = get_active_loans_by_customer(db, customer_id, include=include)
-    return [enrich_loan(l, includes) for l in loans]
+    emi_map = emi_due_status_map(db, loans)
+    return [enrich_loan(l, includes, emi_map.get(l.id)) for l in loans]
 
 
 # --------------------------------------------------

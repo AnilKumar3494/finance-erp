@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -176,6 +176,11 @@ class LoanResponse(LoanBase):
     total_payable: Optional[Decimal] = None
     net_loan_principal: Optional[Decimal] = None
     net_disbursed_amount: Optional[Decimal] = None
+
+    # EMI collection signal (computed per request; see services.loan.emi_due_status_map).
+    emi_due_status: Literal[
+        "NONE", "DUE", "OVERDUE", "AWAITING_CONFIRMATION"
+    ] = "NONE"
 
     # Nested objects (populated only when ?include= is used)
     customer: Optional[CustomerNested] = None
