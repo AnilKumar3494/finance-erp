@@ -150,3 +150,37 @@ export function useFailTransaction(loanId: string) {
     onSuccess: () => invalidateLoanLedger(qc, loanId),
   })
 }
+
+// Edit a transaction's notes (admin). Backend accepts `{ notes }` only and
+// rejects edits on a SUCCESS transaction — callers gate the action to
+// PENDING/FAILED rows. A null clears the note.
+export interface TransactionUpdate {
+  notes: string | null
+}
+
+export function useUpdateTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { transactionId: string; payload: TransactionUpdate }) => {
+      const { data } = await apiClient.patch<TransactionResponse>(
+        `/transactions/${vars.transactionId}`,
+        vars.payload,
+      )
+      return data
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+// Soft-delete a transaction (admin). Backend allows this for FAILED
+// transactions only (400 otherwise); a wrong PENDING/SUCCESS txn must be
+// failed first. Returns 204 — no body.
+export function useDeleteTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      await apiClient.delete(`/transactions/${transactionId}`)
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
