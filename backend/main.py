@@ -48,7 +48,7 @@ configure_logging()
 # APP INIT
 # --------------------------------------------------
 app = FastAPI(
-    title="FinERP API TESTING",
+    title="API TESTING",
     description="Loan Management System API",
     version="1.0.0",
     docs_url=None,  # Swagger UI (theme replaces it)

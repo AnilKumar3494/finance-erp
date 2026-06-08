@@ -12,6 +12,7 @@ from app.models.personnel import LoanPersonnel, Personnel
 from app.schemas.personnel import (
     LoanAssociationSummary,
     LoanPersonnelCreate,
+    LoanPersonnelUpdate,
     PersonnelCreate,
     PersonnelUpdate,
 )
@@ -361,6 +362,39 @@ def list_loan_personnel(db: Session, loan_id: uuid.UUID) -> list[LoanPersonnel]:
             LoanPersonnel.is_deleted == False,
         )
         .all()
+    )
+
+
+def update_loan_personnel(
+    db: Session,
+    record: LoanPersonnel,
+    data: LoanPersonnelUpdate,
+    updated_by: uuid.UUID,
+    request: Optional[Request] = None,
+) -> LoanPersonnel:
+    fields = data.model_dump(exclude_unset=True)
+    old = {"relationship_to_hirer": record.relationship_to_hirer}
+    if "relationship_to_hirer" in fields:
+        record.relationship_to_hirer = fields["relationship_to_hirer"]
+    record.updated_by_id = updated_by
+
+    write_audit(
+        db,
+        action_type="LOAN_PERSONNEL_UPDATE",
+        target_table="loan_personnel",
+        record_id=record.id,
+        user_id=updated_by,
+        old_data=old,
+        new_data={"relationship_to_hirer": record.relationship_to_hirer},
+        request=request,
+    )
+    db.commit()
+
+    return (
+        db.query(LoanPersonnel)
+        .options(joinedload(LoanPersonnel.personnel))
+        .filter(LoanPersonnel.id == record.id)
+        .first()
     )
 
 

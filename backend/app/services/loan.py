@@ -18,6 +18,7 @@ from app.models.transaction import (
     TransactionStatus,
     TransactionType,
 )
+from app.models.due_cycle import DueCycle
 from app.services.due_cycle import generate_cycles_for_loan
 from app.services.finance import monthly_interest, total_payable as calc_total_payable
 from app.utils.audit import write_audit
@@ -255,6 +256,81 @@ def list_loans(
     )
 
     return results, total
+
+
+# Values for LoanResponse.emi_due_status — kept in sync with the schema Literal.
+EMI_DUE_NONE = "NONE"
+EMI_DUE_DUE = "DUE"
+EMI_DUE_OVERDUE = "OVERDUE"
+EMI_DUE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
+
+
+def emi_due_status_map(db: Session, loans: list[Loan]) -> dict[uuid.UUID, str]:
+    """
+    Per-loan EMI collection signal for the list/detail status badge. One of:
+      AWAITING_CONFIRMATION — a payment is recorded but not yet confirmed by an admin
+      OVERDUE               — the earliest unpaid cycle's due date has passed
+      DUE                   — the earliest unpaid cycle is due today
+      NONE                  — nothing due right now (or the loan isn't running)
+
+    Computed in a single batch for the whole page (no N+1). Only ACTIVE /
+    AWAITING_CLOSURE loans can have a due EMI; everything else stays NONE.
+    AWAITING_CONFIRMATION takes precedence because the next action then sits
+    with an admin, not the collector.
+    """
+    result: dict[uuid.UUID, str] = {loan.id: EMI_DUE_NONE for loan in loans}
+    running_ids = [
+        loan.id
+        for loan in loans
+        if loan.status in (LoanStatus.ACTIVE, LoanStatus.AWAITING_CLOSURE)
+    ]
+    if not running_ids:
+        return result
+
+    today = date.today()
+
+    # Earliest still-unpaid (received < due) cycle per loan.
+    unpaid_cycles = (
+        db.query(DueCycle)
+        .filter(
+            DueCycle.loan_id.in_(running_ids),
+            DueCycle.is_deleted == False,
+            DueCycle.total_received < DueCycle.total_due,
+        )
+        .order_by(DueCycle.loan_id, DueCycle.due_date.asc())
+        .all()
+    )
+    earliest: dict[uuid.UUID, DueCycle] = {}
+    for cycle in unpaid_cycles:
+        earliest.setdefault(cycle.loan_id, cycle)
+
+    # Loans with at least one payment awaiting admin confirmation.
+    pending_ids = {
+        row[0]
+        for row in db.query(Transaction.loan_id)
+        .filter(
+            Transaction.loan_id.in_(running_ids),
+            Transaction.status == TransactionStatus.PENDING,
+            Transaction.is_deleted == False,
+        )
+        .distinct()
+        .all()
+    }
+
+    for loan_id in running_ids:
+        if loan_id in pending_ids:
+            result[loan_id] = EMI_DUE_AWAITING_CONFIRMATION
+            continue
+        cycle = earliest.get(loan_id)
+        if cycle is None:
+            continue  # all cycles settled → NONE
+        if cycle.due_date < today:
+            result[loan_id] = EMI_DUE_OVERDUE
+        elif cycle.due_date == today:
+            result[loan_id] = EMI_DUE_DUE
+        # a future due date leaves it NONE
+
+    return result
 
 
 def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:

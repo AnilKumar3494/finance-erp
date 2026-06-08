@@ -23,6 +23,7 @@ import {
 import type { DocumentResponse } from '@/api/queries/documents'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
+import { FindExistingPerson } from '@/features/loans/components/FindExistingPerson'
 import { AADHAAR_RE, MOBILE_RE, PAN_RE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { IdentityProofType, type PersonnelRole } from '@/schemas/enums'
@@ -107,7 +108,7 @@ function RoleBlock({
   requiredLabel?: boolean
   links: LoanPersonnelResponse[]
 }) {
-  const [adding, setAdding] = useState(false)
+  const [addMode, setAddMode] = useState<'find' | 'new' | null>(null)
 
   return (
     <Card>
@@ -128,18 +129,30 @@ function RoleBlock({
         </Stack>
       )}
 
-      {adding ? (
+      {addMode === 'find' ? (
+        <FindExistingPerson
+          loanId={financeId}
+          role={role}
+          onLinked={() => setAddMode(null)}
+          onCancel={() => setAddMode(null)}
+        />
+      ) : addMode === 'new' ? (
         <AddPersonnelForm
           financeId={financeId}
           customerId={customerId}
           role={role}
-          onDone={() => setAdding(false)}
-          onCancel={() => setAdding(false)}
+          onDone={() => setAddMode(null)}
+          onCancel={() => setAddMode(null)}
         />
       ) : (
-        <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAdding(true)}>
-          Add {title.toLowerCase()}
-        </Btn>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAddMode('find')}>
+            Find existing {title.toLowerCase()}
+          </Btn>
+          <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAddMode('new')}>
+            Add new {title.toLowerCase()}
+          </Btn>
+        </Stack>
       )}
     </Card>
   )

@@ -18,6 +18,7 @@ from app.schemas.personnel import (
     LoanPersonnelCreate,
     LoanPersonnelListResponse,
     LoanPersonnelResponse,
+    LoanPersonnelUpdate,
     PersonnelCreate,
     PersonnelLookupResult,
     PersonnelResponse,
@@ -33,6 +34,7 @@ from app.services.personnel import (
     lookup_personnel,
     remove_from_loan,
     soft_delete_personnel,
+    update_loan_personnel,
     update_personnel,
 )
 from app.utils.audit import write_audit
@@ -337,6 +339,41 @@ def list_personnel_for_loan(
         page=1,
         page_size=len(results),
         results=results,
+    )
+
+
+# --------------------------------------------------
+# UPDATE LOAN-PERSONNEL LINK (relationship_to_hirer)
+# --------------------------------------------------
+@loan_personnel_router.patch(
+    "/{loan_id}/personnel/{loan_personnel_id}",
+    response_model=LoanPersonnelResponse,
+    summary="Update a guarantor/co-hirer link (relationship to hirer)",
+)
+def update_personnel_link(
+    request: Request,
+    loan_id: uuid.UUID,
+    loan_personnel_id: uuid.UUID,
+    payload: LoanPersonnelUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
+    if not loan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
+        )
+
+    _ensure_loan_access(db, loan, current_user)
+
+    record = get_loan_personnel_record(db, loan_personnel_id)
+    if not record or record.loan_id != loan_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
+
+    return update_loan_personnel(
+        db=db, record=record, data=payload, updated_by=current_user.id, request=request
     )
 
 

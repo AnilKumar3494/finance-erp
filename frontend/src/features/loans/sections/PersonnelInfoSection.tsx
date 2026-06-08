@@ -21,6 +21,7 @@ import {
   useRemovePersonnelFromLoan,
   useUnmaskPersonnelPII,
   useUpdatePersonnel,
+  useUpdateLoanPersonnel,
   type LoanPersonnelResponse,
   type PersonnelResponse,
   type PersonnelUpdate,
@@ -38,6 +39,7 @@ import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
 import { IdentityProofType, type PersonnelRole } from '@/schemas/enums'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { Collapsible } from '../components/Collapsible'
+import { FindExistingPerson } from '../components/FindExistingPerson'
 import { RevealPii } from '../components/RevealPii'
 import type { SectionPermission } from '../financePermissions'
 
@@ -137,7 +139,7 @@ function RoleBlock({
   links: LoanPersonnelResponse[]
   canEdit: boolean
 }) {
-  const [adding, setAdding] = useState(false)
+  const [addMode, setAddMode] = useState<'find' | 'new' | null>(null)
 
   return (
     <Box>
@@ -171,17 +173,29 @@ function RoleBlock({
       )}
 
       {canEdit &&
-        (adding ? (
+        (addMode === 'find' ? (
+          <FindExistingPerson
+            loanId={loanId}
+            role={role}
+            onLinked={() => setAddMode(null)}
+            onCancel={() => setAddMode(null)}
+          />
+        ) : addMode === 'new' ? (
           <AddPersonnelForm
             loanId={loanId}
             customerId={customerId}
             role={role}
-            onDone={() => setAdding(false)}
+            onDone={() => setAddMode(null)}
           />
         ) : (
-          <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAdding(true)}>
-            Add {title.toLowerCase()}
-          </Btn>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAddMode('find')}>
+              Find existing {title.toLowerCase()}
+            </Btn>
+            <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAddMode('new')}>
+              Add new {title.toLowerCase()}
+            </Btn>
+          </Stack>
         ))}
     </Box>
   )
@@ -213,13 +227,7 @@ function PersonnelPersonCard({
           <Typography variant="body1" sx={{ fontWeight: 600 }}>
             {p.full_name}
           </Typography>
-          {link.relationship_to_hirer && (
-            <Chip
-              size="small"
-              label={link.relationship_to_hirer}
-              sx={{ mt: 0.5, fontWeight: 500 }}
-            />
-          )}
+          <RelationshipEditor loanId={loanId} link={link} canEdit={canEdit} />
         </Box>
         {canEdit && !editing && (
           <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
@@ -249,6 +257,83 @@ function PersonnelPersonCard({
         <PersonnelIdDocs personnelId={p.id} customerId={customerId} canEdit={canEdit} />
       </Box>
     </Box>
+  )
+}
+
+// Inline editor for the loan↔personnel link's relationship_to_hirer
+// (PATCH /loans/{id}/personnel/{id}).
+function RelationshipEditor({
+  loanId,
+  link,
+  canEdit,
+}: {
+  loanId: string
+  link: LoanPersonnelResponse
+  canEdit: boolean
+}) {
+  const update = useUpdateLoanPersonnel(loanId)
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(link.relationship_to_hirer ?? '')
+
+  if (!editing) {
+    if (!link.relationship_to_hirer && !canEdit) return null
+    return (
+      <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+        {link.relationship_to_hirer ? (
+          <Chip size="small" label={link.relationship_to_hirer} sx={{ fontWeight: 500 }} />
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            No relationship set
+          </Typography>
+        )}
+        {canEdit && (
+          <Btn
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setValue(link.relationship_to_hirer ?? '')
+              update.reset()
+              setEditing(true)
+            }}
+          >
+            {link.relationship_to_hirer ? 'Edit relationship' : 'Add relationship'}
+          </Btn>
+        )}
+      </Stack>
+    )
+  }
+
+  const save = () =>
+    update.mutate(
+      { loanPersonnelId: link.id, payload: { relationship_to_hirer: value.trim() || null } },
+      { onSuccess: () => setEditing(false) },
+    )
+
+  return (
+    <Stack spacing={1} sx={{ mt: 1 }}>
+      <Input
+        id={`rel_${link.id}`}
+        label="Relationship to hirer"
+        placeholder="e.g. Brother"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      {update.isError && (
+        <ErrorBanner
+          message={mapErr(update.error, 'Could not update the relationship.')}
+          severity="error"
+          variant="outlined"
+        />
+      )}
+      <Stack direction="row" spacing={1}>
+        <Btn variant="primary" size="sm" onClick={save} loading={update.isPending}>
+          Save
+        </Btn>
+        <Btn variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={update.isPending}>
+          Cancel
+        </Btn>
+      </Stack>
+    </Stack>
   )
 }
 
