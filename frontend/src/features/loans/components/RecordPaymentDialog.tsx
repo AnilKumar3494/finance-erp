@@ -91,13 +91,19 @@ export function RecordPaymentDialog({
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(Schema), defaultValues: defaults })
 
-  // Re-seed (amount/cycle) each time the dialog opens.
+  // Re-seed (amount/cycle) each time the dialog opens. Deps are intentionally
+  // limited to `open`/`defaults`: the react-query mutation object (`create`)
+  // gets a new identity on every status change, so including it here made the
+  // effect re-run mid-submit and call create.reset(), which cancelled the
+  // pending mutation before its POST ever fired. `create.reset`/`reset` are
+  // stable, so calling them without listing them is safe.
   useEffect(() => {
     if (open) {
       create.reset()
       reset(defaults)
     }
-  }, [open, defaults, reset, create])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaults])
 
   const close = () => {
     if (create.isPending) return
