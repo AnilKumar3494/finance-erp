@@ -99,6 +99,47 @@ export interface PersonnelUnmaskedPII {
   pan_number: string | null
 }
 
+// --------------------------------------------------
+// Lookup — find an existing person by mobile/Aadhaar/PAN and see which
+// finances they are already attached to. Mirrors backend PersonnelLookupResult
+// (GET /personnel/lookup). Lets a recurring guarantor be re-linked instead of
+// re-created (their mobile is unique, so a fresh create would 409).
+// --------------------------------------------------
+
+export interface LoanAssociationSummary {
+  loan_personnel_id: string
+  loan_id: string
+  loan_number: string
+  role: PersonnelRole
+  relationship_to_hirer: string | null
+  customer_name: string
+}
+
+export interface PersonnelLookupResult {
+  found: boolean
+  personnel: PersonnelResponse | null
+  existing_loan_associations: LoanAssociationSummary[]
+}
+
+export interface PersonnelLookupParams {
+  mobile_number?: string
+  aadhaar_number?: string
+  pan_number?: string
+}
+
+// The endpoint is a GET, but it writes an audit row server-side (it records
+// which identifiers were probed), so model it as a user-triggered mutation.
+export function usePersonnelLookup() {
+  return useMutation({
+    mutationFn: async (params: PersonnelLookupParams) => {
+      const { data } = await apiClient.get<PersonnelLookupResult>('/personnel/lookup', {
+        params,
+      })
+      return data
+    },
+  })
+}
+
 // Every call writes an audit row server-side (same rule as customer PII), so
 // this is a user-triggered mutation, not a query.
 export function useUnmaskPersonnelPII() {
