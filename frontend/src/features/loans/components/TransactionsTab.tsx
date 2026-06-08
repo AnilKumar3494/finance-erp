@@ -213,7 +213,7 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <TableContainer>
-        <Table size="small">
+        <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
