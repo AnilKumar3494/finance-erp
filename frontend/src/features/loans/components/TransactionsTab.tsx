@@ -12,9 +12,11 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import AddIcon from '@mui/icons-material/AddOutlined'
+import ReceiptIcon from '@mui/icons-material/ReceiptLongOutlined'
 
 import {
   useLoanTransactions,
+  useLoanSummary,
   useConfirmTransaction,
   useFailTransaction,
   type TransactionResponse,
@@ -56,9 +58,17 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
 
   const query = useLoanTransactions(loan.id)
+  const summaryQuery = useLoanSummary(loan.id)
   const confirm = useConfirmTransaction(loan.id)
   const fail = useFailTransaction(loan.id)
   const [recordOpen, setRecordOpen] = useState(false)
+
+  // Lazy-load the PDF module (jsPDF) only when a receipt is requested, so it
+  // stays out of the loan-detail chunk.
+  const onReceipt = async (txn: TransactionResponse) => {
+    const { downloadReceiptPdf } = await import('../receiptPdf')
+    downloadReceiptPdf({ txn, loan, summary: summaryQuery.data })
+  }
 
   const actionError = confirm.isError
     ? mapActionError(confirm.error)
@@ -121,8 +131,8 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
         </Typography>
       ) : (
         <>
-          <DesktopTable rows={rows} actions={rowActions} />
-          <MobileCards rows={rows} actions={rowActions} />
+          <DesktopTable rows={rows} actions={rowActions} onReceipt={onReceipt} />
+          <MobileCards rows={rows} actions={rowActions} onReceipt={onReceipt} />
         </>
       )}
 
@@ -165,7 +175,37 @@ function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
   )
 }
 
-function DesktopTable({ rows, actions }: { rows: TransactionResponse[]; actions: RowActions | null }) {
+// Per-row actions: admins confirm/fail a PENDING txn; anyone can download a
+// receipt for a confirmed (SUCCESS) one.
+function RowActionsCell({
+  txn,
+  actions,
+  onReceipt,
+}: {
+  txn: TransactionResponse
+  actions: RowActions | null
+  onReceipt: (txn: TransactionResponse) => void
+}) {
+  if (txn.status === 'PENDING' && actions) return <PendingActions id={txn.id} actions={actions} />
+  if (txn.status === 'SUCCESS') {
+    return (
+      <Btn variant="ghost" size="sm" startIcon={<ReceiptIcon />} onClick={() => onReceipt(txn)}>
+        Receipt
+      </Btn>
+    )
+  }
+  return null
+}
+
+function DesktopTable({
+  rows,
+  actions,
+  onReceipt,
+}: {
+  rows: TransactionResponse[]
+  actions: RowActions | null
+  onReceipt: (txn: TransactionResponse) => void
+}) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <TableContainer>
@@ -179,7 +219,7 @@ function DesktopTable({ rows, actions }: { rows: TransactionResponse[]; actions:
               <TableCell sx={{ fontWeight: 600 }}>Mode</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-              {actions && <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>}
+              <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -192,11 +232,9 @@ function DesktopTable({ rows, actions }: { rows: TransactionResponse[]; actions:
                 <TableCell>
                   <TxnStatusChip status={t.status} />
                 </TableCell>
-                {actions && (
-                  <TableCell align="right">
-                    {t.status === 'PENDING' ? <PendingActions id={t.id} actions={actions} /> : null}
-                  </TableCell>
-                )}
+                <TableCell align="right">
+                  <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -206,7 +244,15 @@ function DesktopTable({ rows, actions }: { rows: TransactionResponse[]; actions:
   )
 }
 
-function MobileCards({ rows, actions }: { rows: TransactionResponse[]; actions: RowActions | null }) {
+function MobileCards({
+  rows,
+  actions,
+  onReceipt,
+}: {
+  rows: TransactionResponse[]
+  actions: RowActions | null
+  onReceipt: (txn: TransactionResponse) => void
+}) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((t) => (
@@ -233,9 +279,9 @@ function MobileCards({ rows, actions }: { rows: TransactionResponse[]; actions: 
             {fmtDate(t.effective_payment_date)} · {PAYMENT_METHOD_LABELS[t.payment_mode]} ·{' '}
             {TXN_TYPE_LABELS[t.transaction_type]}
           </Typography>
-          {actions && t.status === 'PENDING' && (
+          {(t.status === 'SUCCESS' || (t.status === 'PENDING' && actions)) && (
             <Box sx={{ mt: 1.5 }}>
-              <PendingActions id={t.id} actions={actions} />
+              <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
             </Box>
           )}
         </Box>
