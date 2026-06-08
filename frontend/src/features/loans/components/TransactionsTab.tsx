@@ -3,6 +3,11 @@ import { AxiosError } from 'axios'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import type { ChipProps } from '@mui/material/Chip'
+import IconButton from '@mui/material/IconButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import Table from '@mui/material/Table'
@@ -13,12 +18,17 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import AddIcon from '@mui/icons-material/AddOutlined'
 import ReceiptIcon from '@mui/icons-material/ReceiptLongOutlined'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import EditNoteIcon from '@mui/icons-material/EditOutlined'
+import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
 
 import {
   useLoanTransactions,
   useLoanSummary,
   useConfirmTransaction,
   useFailTransaction,
+  useUpdateTransaction,
+  useDeleteTransaction,
   type TransactionResponse,
 } from '@/api/queries/transactions'
 import type { LoanResponse } from '@/api/queries/loans'
@@ -28,6 +38,8 @@ import type { TransactionStatus, TransactionType } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
+import { EditNoteDialog } from './EditTransactionNoteDialog'
+import { VoidTransactionDialog } from './VoidTransactionDialog'
 
 const TXN_STATUS_META: Record<
   TransactionStatus,
@@ -61,7 +73,11 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const summaryQuery = useLoanSummary(loan.id)
   const confirm = useConfirmTransaction(loan.id)
   const fail = useFailTransaction(loan.id)
+  const update = useUpdateTransaction(loan.id)
+  const del = useDeleteTransaction(loan.id)
   const [recordOpen, setRecordOpen] = useState(false)
+  const [editTxn, setEditTxn] = useState<TransactionResponse | null>(null)
+  const [voidTxn, setVoidTxn] = useState<TransactionResponse | null>(null)
 
   // Lazy-load the PDF module (jsPDF) only when a receipt is requested, so it
   // stays out of the loan-detail chunk.
@@ -70,6 +86,29 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     downloadReceiptPdf({ txn, loan, summary: summaryQuery.data })
   }
 
+  const openEdit = (txn: TransactionResponse) => {
+    update.reset()
+    setEditTxn(txn)
+  }
+  const openVoid = (txn: TransactionResponse) => {
+    del.reset()
+    setVoidTxn(txn)
+  }
+
+  const onSaveNote = (notes: string | null) => {
+    if (!editTxn) return
+    update.mutate(
+      { transactionId: editTxn.id, payload: { notes } },
+      { onSuccess: () => setEditTxn(null) },
+    )
+  }
+  const onConfirmVoid = () => {
+    if (!voidTxn) return
+    del.mutate(voidTxn.id, { onSuccess: () => setVoidTxn(null) })
+  }
+
+  // Row-action errors that aren't shown inside a dialog (confirm/fail) surface
+  // in the banner above the table; edit/void errors live in their dialogs.
   const actionError = confirm.isError
     ? mapActionError(confirm.error)
     : fail.isError
@@ -88,11 +127,14 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   }
 
   const rows = query.data?.results ?? []
-  const acting = confirm.isPending || fail.isPending
-  const rowActions = isAdmin
+  const acting =
+    confirm.isPending || fail.isPending || update.isPending || del.isPending
+  const rowActions: RowActions | null = isAdmin
     ? {
         onConfirm: (id: string) => confirm.mutate(id),
         onFail: (id: string) => fail.mutate(id),
+        onEditNote: openEdit,
+        onVoid: openVoid,
         acting,
       }
     : null
@@ -137,6 +179,24 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
       )}
 
       <RecordPaymentDialog loanId={loan.id} open={recordOpen} onClose={() => setRecordOpen(false)} />
+
+      <EditNoteDialog
+        txn={editTxn}
+        open={!!editTxn}
+        onClose={() => setEditTxn(null)}
+        onSubmit={onSaveNote}
+        saving={update.isPending}
+        error={update.isError ? mapActionError(update.error) : null}
+      />
+
+      <VoidTransactionDialog
+        txn={voidTxn}
+        open={!!voidTxn}
+        onClose={() => setVoidTxn(null)}
+        onConfirm={onConfirmVoid}
+        deleting={del.isPending}
+        error={del.isError ? mapActionError(del.error) : null}
+      />
     </>
   )
 }
@@ -154,6 +214,8 @@ function mapActionError(error: unknown): string {
 interface RowActions {
   onConfirm: (id: string) => void
   onFail: (id: string) => void
+  onEditNote: (txn: TransactionResponse) => void
+  onVoid: (txn: TransactionResponse) => void
   acting: boolean
 }
 
@@ -179,8 +241,58 @@ function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
   )
 }
 
-// Per-row actions: admins confirm/fail a PENDING txn; anyone can download a
-// receipt for a confirmed (SUCCESS) one.
+// Admin overflow menu for the secondary / destructive actions, keeping the
+// inline buttons reserved for the primary lifecycle (confirm / fail / receipt).
+//   PENDING → Edit note
+//   FAILED  → Edit note, Void
+function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: RowActions }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const close = () => setAnchor(null)
+
+  return (
+    <>
+      <IconButton
+        size="small"
+        aria-label="More actions"
+        onClick={(e) => setAnchor(e.currentTarget)}
+        disabled={actions.acting}
+      >
+        <MoreVertIcon fontSize="small" />
+      </IconButton>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={close}>
+        <MenuItem
+          onClick={() => {
+            close()
+            actions.onEditNote(txn)
+          }}
+        >
+          <ListItemIcon>
+            <EditNoteIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Edit note</ListItemText>
+        </MenuItem>
+        {txn.status === 'FAILED' && (
+          <MenuItem
+            onClick={() => {
+              close()
+              actions.onVoid(txn)
+            }}
+            sx={{ color: 'error.main' }}
+          >
+            <ListItemIcon>
+              <DeleteIcon fontSize="small" color="error" />
+            </ListItemIcon>
+            <ListItemText>Void</ListItemText>
+          </MenuItem>
+        )}
+      </Menu>
+    </>
+  )
+}
+
+// Per-row actions: admins confirm/fail a PENDING txn (and get an overflow menu
+// for edit-note / void); anyone can download a receipt for a confirmed
+// (SUCCESS) one. A FAILED txn exposes only the admin menu.
 function RowActionsCell({
   txn,
   actions,
@@ -190,12 +302,26 @@ function RowActionsCell({
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
 }) {
-  if (txn.status === 'PENDING' && actions) return <PendingActions id={txn.id} actions={actions} />
   if (txn.status === 'SUCCESS') {
     return (
       <Btn variant="ghost" size="sm" startIcon={<ReceiptIcon />} onClick={() => onReceipt(txn)}>
         Receipt
       </Btn>
+    )
+  }
+  if (txn.status === 'PENDING' && actions) {
+    return (
+      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+        <PendingActions id={txn.id} actions={actions} />
+        <AdminRowMenu txn={txn} actions={actions} />
+      </Stack>
+    )
+  }
+  if (txn.status === 'FAILED' && actions) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <AdminRowMenu txn={txn} actions={actions} />
+      </Box>
     )
   }
   return null
@@ -289,7 +415,8 @@ function MobileCards({
             {fmtDate(t.effective_payment_date)} · {PAYMENT_METHOD_LABELS[t.payment_mode]} ·{' '}
             {TXN_TYPE_LABELS[t.transaction_type]}
           </Typography>
-          {(t.status === 'SUCCESS' || (t.status === 'PENDING' && actions)) && (
+          {(t.status === 'SUCCESS' ||
+            ((t.status === 'PENDING' || t.status === 'FAILED') && actions)) && (
             <Box sx={{ mt: 1.5 }}>
               <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
             </Box>

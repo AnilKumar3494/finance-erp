@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.due_cycle import CycleStatus
+from app.models.loan import LoanStatus
 
 
 # --------------------------------------------------
@@ -125,3 +126,39 @@ class DueCycleListResponse(BaseModel):
     page: int = 1
     page_size: int
     results: list[DueCycleResponse]
+
+
+# --------------------------------------------------
+# WORKLIST — cross-loan due cycles joined to loan + customer, for the
+# Collections worklist (which cycles are due/overdue across every loan).
+# --------------------------------------------------
+class DueCycleWorklistItem(BaseModel):
+    # Cycle
+    id: uuid.UUID
+    loan_id: uuid.UUID
+    cycle_number: int
+    due_date: date
+    total_due: Decimal
+    total_received: Decimal
+    shortfall: Decimal
+    penalty_amount: Decimal
+    cycle_status: CycleStatus
+    # Days the due date is in the past as of today (0 if not yet due).
+    days_overdue: int
+
+    # Loan
+    loan_number: str
+    loan_status: LoanStatus
+
+    # Customer (for the collector to act on)
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+    mandal_village: Optional[str] = None
+
+
+class DueCycleWorklistResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    results: list[DueCycleWorklistItem]
