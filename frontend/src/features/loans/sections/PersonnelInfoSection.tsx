@@ -39,6 +39,7 @@ import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
 import { IdentityProofType, type PersonnelRole } from '@/schemas/enums'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { Collapsible } from '../components/Collapsible'
+import { FindExistingPerson } from '../components/FindExistingPerson'
 import { RevealPii } from '../components/RevealPii'
 import type { SectionPermission } from '../financePermissions'
 
@@ -138,7 +139,7 @@ function RoleBlock({
   links: LoanPersonnelResponse[]
   canEdit: boolean
 }) {
-  const [adding, setAdding] = useState(false)
+  const [addMode, setAddMode] = useState<'find' | 'new' | null>(null)
 
   return (
     <Box>
@@ -172,17 +173,29 @@ function RoleBlock({
       )}
 
       {canEdit &&
-        (adding ? (
+        (addMode === 'find' ? (
+          <FindExistingPerson
+            loanId={loanId}
+            role={role}
+            onLinked={() => setAddMode(null)}
+            onCancel={() => setAddMode(null)}
+          />
+        ) : addMode === 'new' ? (
           <AddPersonnelForm
             loanId={loanId}
             customerId={customerId}
             role={role}
-            onDone={() => setAdding(false)}
+            onDone={() => setAddMode(null)}
           />
         ) : (
-          <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAdding(true)}>
-            Add {title.toLowerCase()}
-          </Btn>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAddMode('find')}>
+              Find existing {title.toLowerCase()}
+            </Btn>
+            <Btn variant="ghost" startIcon={<PersonIcon />} onClick={() => setAddMode('new')}>
+              Add new {title.toLowerCase()}
+            </Btn>
+          </Stack>
         ))}
     </Box>
   )

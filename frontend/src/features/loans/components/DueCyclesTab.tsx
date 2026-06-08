@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
+import dayjs, { type Dayjs } from 'dayjs'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -14,6 +15,7 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 
 import {
   useDueCycles,
@@ -23,7 +25,7 @@ import {
 } from '@/api/queries/dueCycles'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
-import { Btn, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import type { CycleStatus } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from './CycleStatusChip'
@@ -127,7 +129,16 @@ interface CycleActions {
 function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actions: CycleActions }) {
   const mode = classifyMode(cycle.cycle_status)
   return (
-    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+    <Stack
+      direction="row"
+      spacing={0.5}
+      sx={{
+        justifyContent: 'flex-end',
+        flexWrap: 'wrap',
+        rowGap: 0.5,
+        '& .MuiButton-root': { whiteSpace: 'nowrap', minWidth: 'auto' },
+      }}
+    >
       {actions.payable && (
         <Btn variant="ghost" size="sm" onClick={() => actions.onRecord(cycle)}>
           Record payment
@@ -160,7 +171,7 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <TableContainer>
-        <Table size="small">
+        <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 600 }}>#</TableCell>
@@ -312,6 +323,8 @@ function ClassifyCycleDialog({
 
   const [status, setStatus] = useState<CycleStatus>('PAID_ON_TIME')
   const [note, setNote] = useState('')
+  // The backend requires an "as of" date when marking a cycle LATE_PAYMENT.
+  const [asOf, setAsOf] = useState<Dayjs | null>(dayjs())
 
   // Re-seed when a new cycle is opened.
   const openFor = cycle?.id
@@ -323,6 +336,7 @@ function ClassifyCycleDialog({
       cycle.cycle_status === 'LATE_PAYMENT' ? 'LATE_PAYMENT' : 'PAID_ON_TIME',
     )
     setNote(cycle.classification_note ?? '')
+    setAsOf(cycle.classified_as_of_date ? dayjs(cycle.classified_as_of_date) : dayjs())
     mutation.reset()
   }
 
@@ -331,10 +345,20 @@ function ClassifyCycleDialog({
     onClose()
   }
 
+  const lateNeedsDate = status === 'LATE_PAYMENT' && (asOf == null || !asOf.isValid())
+
   const submit = () => {
-    if (!cycle) return
+    if (!cycle || lateNeedsDate) return
     mutation.mutate(
-      { cycleId: cycle.id, payload: { cycle_status: status, classification_note: note.trim() || undefined } },
+      {
+        cycleId: cycle.id,
+        payload: {
+          cycle_status: status,
+          // Required for LATE_PAYMENT; harmless (an override) for PAID_ON_TIME.
+          classified_as_of_date: asOf ? asOf.format('YYYY-MM-DD') : undefined,
+          classification_note: note.trim() || undefined,
+        },
+      },
       { onSuccess: () => onClose() },
     )
   }
@@ -364,6 +388,30 @@ function ClassifyCycleDialog({
               </MenuItem>
             ))}
           </Input>
+          <Box>
+            <FieldLabel htmlFor="cls_asof" required={status === 'LATE_PAYMENT'}>
+              Classified as of date
+            </FieldLabel>
+            <DatePicker
+              value={asOf}
+              onChange={(d) => setAsOf(d)}
+              format="DD MMM YYYY"
+              maxDate={dayjs()}
+              slotProps={{
+                textField: {
+                  id: 'cls_asof',
+                  size: 'small',
+                  fullWidth: true,
+                  error: lateNeedsDate,
+                },
+              }}
+            />
+            {status === 'LATE_PAYMENT' && (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                Required for a late payment.
+              </Typography>
+            )}
+          </Box>
           <Input
             id="cls_note"
             label="Note"
@@ -390,7 +438,7 @@ function ClassifyCycleDialog({
         <Btn variant="ghost" onClick={close} disabled={mutation.isPending}>
           Cancel
         </Btn>
-        <Btn variant="primary" onClick={submit} loading={mutation.isPending}>
+        <Btn variant="primary" onClick={submit} loading={mutation.isPending} disabled={lateNeedsDate}>
           {mode === 'classify' ? 'Classify' : 'Reclassify'}
         </Btn>
       </DialogActions>

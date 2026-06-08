@@ -11,6 +11,9 @@ import type { ClosureType, LoanStatus, PaymentMethod, UserRole } from '@/schemas
 // `string` end-to-end; parse only at display/validation boundaries.
 // --------------------------------------------------
 
+// EMI collection signal mirrored from the backend LoanResponse.emi_due_status.
+export type EmiDueStatus = 'NONE' | 'DUE' | 'OVERDUE' | 'AWAITING_CONFIRMATION'
+
 // Nested objects are populated only when the request passes `?include=`.
 export interface LoanCustomerNested {
   id: string
@@ -66,6 +69,10 @@ export interface LoanResponse {
   total_payable: string | null
   net_loan_principal: string | null
   net_disbursed_amount: string | null
+
+  // EMI collection signal (computed per request). NONE unless the loan is
+  // running and has a due/overdue cycle or a payment awaiting confirmation.
+  emi_due_status: EmiDueStatus
 
   // Populated only when the request includes them.
   customer?: LoanCustomerNested | null
