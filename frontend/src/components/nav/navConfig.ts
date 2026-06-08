@@ -17,14 +17,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Dashboard', path: '/', icon: DashboardOutlined, showInBottomBar: true },
   { label: 'Customers', path: '/customers', icon: PeopleOutlined, showInBottomBar: true },
   { label: 'Finances', path: '/finances', icon: AccountBalanceOutlined, showInBottomBar: true },
-  { label: 'Transactions', path: '/transactions', icon: ReceiptLongOutlined, showInBottomBar: true },
+  {
+    label: 'Transactions',
+    path: '/transactions',
+    icon: ReceiptLongOutlined,
+    showInBottomBar: true,
+  },
   { label: 'Vehicles', path: '/vehicles', icon: DirectionsCarOutlined, showInBottomBar: false },
   { label: 'Reports', path: '/reports', icon: AssessmentOutlined, showInBottomBar: false },
 ] as const
 
 export const BRAND = {
-  full: 'FinERP',
-  short: 'F',
+  full: 'SriAdithyaFinance',
+  short: 'Sri',
 } as const
 
 declare module '@tanstack/react-router' {
@@ -32,4 +37,3 @@ declare module '@tanstack/react-router' {
     title?: string
   }
 }
-

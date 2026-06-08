@@ -1,11 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
+import { transactionKeys } from '@/api/queries/transactions'
 import type { CycleStatus } from '@/schemas/enums'
 
 // --------------------------------------------------
 // Types — mirror backend/app/schemas/due_cycle.py. Monetary fields are
-// strings. Read-only here: classify/reclassify is a separate admin workflow.
+// strings. classify/reclassify is an admin-only punctuality workflow.
 // --------------------------------------------------
 
 export interface DueCycleResponse {
@@ -49,5 +50,51 @@ export function useDueCycles(loanId: string | undefined, enabled = true) {
       return data
     },
     enabled: !!loanId && enabled,
+  })
+}
+
+// --------------------------------------------------
+// Classification (admin) — mirror backend CycleClassifyRequest. `classify` is
+// for a cycle in AWAITING_REVIEW; `reclassify` overrides an already-classified
+// cycle. Punctuality propagates to that cycle's transactions, so refresh both.
+// --------------------------------------------------
+
+export interface CycleClassifyRequest {
+  cycle_status: CycleStatus
+  classified_as_of_date?: string | null
+  classification_note?: string | null
+}
+
+export function useClassifyCycle(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { cycleId: string; payload: CycleClassifyRequest }) => {
+      const { data } = await apiClient.post<DueCycleResponse>(
+        `/due-cycles/${vars.cycleId}/classify`,
+        vars.payload,
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: dueCycleKeys.byLoan(loanId) })
+      qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
+    },
+  })
+}
+
+export function useReclassifyCycle(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { cycleId: string; payload: CycleClassifyRequest }) => {
+      const { data } = await apiClient.post<DueCycleResponse>(
+        `/due-cycles/${vars.cycleId}/reclassify`,
+        vars.payload,
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: dueCycleKeys.byLoan(loanId) })
+      qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
+    },
   })
 }

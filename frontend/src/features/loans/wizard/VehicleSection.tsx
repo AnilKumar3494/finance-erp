@@ -90,7 +90,8 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
       plate_number: z
         .string()
         .trim()
-        .regex(VEHICLE_PLATE_RE, 'Enter a valid plate (e.g. TN09AB1234)'),
+        // Accept lowercase input; it's uppercased on save for consistency.
+        .refine((v) => VEHICLE_PLATE_RE.test(v.toUpperCase()), 'Enter a valid plate (e.g. TN09AB1234)'),
       make: z.string().trim().min(1, 'Make is required').max(50),
       model: z.string().trim().min(1, 'Model is required').max(50),
       year: z

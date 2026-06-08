@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
+import { loanKeys } from '@/api/queries/loans'
+import { dueCycleKeys } from '@/api/queries/dueCycles'
 import type {
   PaymentMethod,
   PunctualityStatus,
@@ -81,5 +83,70 @@ export function useLoanSummary(loanId: string | undefined, enabled = true) {
       return data
     },
     enabled: !!loanId && enabled,
+  })
+}
+
+// --------------------------------------------------
+// Mutations — mirror backend/app/schemas/transaction.py. amount is a string.
+// A created transaction is PENDING; an admin then confirms (→ SUCCESS, which
+// updates the cycle's received total and can move the loan to AWAITING_CLOSURE)
+// or fails it. The collection POST carries an auto Idempotency-Key (client.ts).
+// --------------------------------------------------
+
+export interface TransactionCreate {
+  loan_id: string
+  amount: string
+  payment_mode: PaymentMethod
+  effective_payment_date?: string | null
+  due_cycle_id?: string | null
+  notes?: string | null
+}
+
+// Confirming/failing changes cycle totals and possibly loan status, so refresh
+// the loan detail, schedule, and summary alongside the transaction list.
+function invalidateLoanLedger(
+  qc: ReturnType<typeof useQueryClient>,
+  loanId: string,
+) {
+  qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
+  qc.invalidateQueries({ queryKey: transactionKeys.summary(loanId) })
+  qc.invalidateQueries({ queryKey: dueCycleKeys.byLoan(loanId) })
+  qc.invalidateQueries({ queryKey: loanKeys.detail(loanId) })
+}
+
+export function useCreateTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: TransactionCreate) => {
+      const { data } = await apiClient.post<TransactionResponse>('/transactions/', payload)
+      return data
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+export function useConfirmTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      const { data } = await apiClient.post<TransactionResponse>(
+        `/transactions/${transactionId}/confirm`,
+      )
+      return data
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+export function useFailTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      const { data } = await apiClient.post<TransactionResponse>(
+        `/transactions/${transactionId}/fail`,
+      )
+      return data
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
   })
 }

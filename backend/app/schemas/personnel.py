@@ -141,6 +141,13 @@ class LoanPersonnelCreate(BaseModel):
 
 
 # --------------------------------------------------
+# LOAN PERSONNEL — Update (the link's relationship to the hirer)
+# --------------------------------------------------
+class LoanPersonnelUpdate(BaseModel):
+    relationship_to_hirer: Optional[str] = Field(None, max_length=100)
+
+
+# --------------------------------------------------
 # LOAN PERSONNEL — Response (embeds PersonnelResponse)
 # --------------------------------------------------
 class LoanPersonnelResponse(BaseModel):

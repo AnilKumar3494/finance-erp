@@ -24,8 +24,8 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
         <Tab label="Transactions" />
       </Tabs>
       <Box sx={{ p: { xs: 2, sm: 3 } }}>
-        {tab === 0 && <DueCyclesTab loanId={loan.id} />}
-        {tab === 1 && <TransactionsTab loanId={loan.id} />}
+        {tab === 0 && <DueCyclesTab loan={loan} />}
+        {tab === 1 && <TransactionsTab loan={loan} />}
       </Box>
     </Card>
   )

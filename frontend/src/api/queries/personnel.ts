@@ -88,6 +88,12 @@ export interface LoanPersonnelCreate {
   relationship_to_hirer?: string | null
 }
 
+// Update the loan↔personnel LINK (currently just the relationship to the
+// hirer). Mirrors backend LoanPersonnelUpdate (PATCH /loans/{id}/personnel/{id}).
+export interface LoanPersonnelUpdate {
+  relationship_to_hirer?: string | null
+}
+
 export interface PersonnelUnmaskedPII {
   aadhaar_number: string | null
   pan_number: string | null
@@ -164,6 +170,28 @@ export function useUpdatePersonnel(loanId: string) {
     }) => {
       const { data } = await apiClient.patch<PersonnelResponse>(
         `/personnel/${personnelId}`,
+        payload,
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: personnelKeys.byLoan(loanId) })
+    },
+  })
+}
+
+export function useUpdateLoanPersonnel(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      loanPersonnelId,
+      payload,
+    }: {
+      loanPersonnelId: string
+      payload: LoanPersonnelUpdate
+    }) => {
+      const { data } = await apiClient.patch<LoanPersonnelResponse>(
+        `/loans/${loanId}/personnel/${loanPersonnelId}`,
         payload,
       )
       return data
