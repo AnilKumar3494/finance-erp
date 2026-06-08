@@ -117,8 +117,6 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
-      {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
-
       <AuditCard loan={loan} />
     </Stack>
   )
@@ -179,9 +177,13 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
             )}
           </Box>
           <Stack
-            direction="row"
-            spacing={0.75}
-            sx={{ flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5, justifyContent: 'flex-end' }}
+            spacing={0.5}
+            sx={{
+              flexShrink: 0,
+              width: 'fit-content',
+              alignItems: 'stretch',
+              '& .MuiChip-root': { justifyContent: 'center' },
+            }}
           >
             <LoanStatusChip status={loan.status} size="medium" />
             <EmiDueChip status={loan.emi_due_status} size="medium" />

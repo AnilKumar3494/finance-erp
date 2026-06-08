@@ -403,7 +403,16 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     {l.vehicle?.plate_number ?? <Dash />}
                   </TableCell>
                   <TableCell>
-                    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+                    {/* Column shrinks to the widest chip; align-stretch makes
+                        the others match it, so the pair is uniform width. */}
+                    <Stack
+                      spacing={0.5}
+                      sx={{
+                        width: 'fit-content',
+                        alignItems: 'stretch',
+                        '& .MuiChip-root': { justifyContent: 'center' },
+                      }}
+                    >
                       <LoanStatusChip status={l.status} />
                       <EmiDueChip status={l.emi_due_status} />
                     </Stack>
