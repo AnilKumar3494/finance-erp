@@ -61,15 +61,23 @@ export function useDueCycles(loanId: string | undefined, enabled = true) {
 
 export interface CycleClassifyRequest {
   cycle_status: CycleStatus
+  // The backend REQUIRES this when cycle_status is LATE_PAYMENT.
   classified_as_of_date?: string | null
   classification_note?: string | null
+}
+
+// classify/reclassify return the cycle wrapped alongside any penalty event the
+// (re)classification produced.
+export interface CycleClassifyResult {
+  cycle: DueCycleResponse
+  penalty_event: unknown | null
 }
 
 export function useClassifyCycle(loanId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (vars: { cycleId: string; payload: CycleClassifyRequest }) => {
-      const { data } = await apiClient.post<DueCycleResponse>(
+      const { data } = await apiClient.post<CycleClassifyResult>(
         `/due-cycles/${vars.cycleId}/classify`,
         vars.payload,
       )
@@ -86,7 +94,7 @@ export function useReclassifyCycle(loanId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (vars: { cycleId: string; payload: CycleClassifyRequest }) => {
-      const { data } = await apiClient.post<DueCycleResponse>(
+      const { data } = await apiClient.post<CycleClassifyResult>(
         `/due-cycles/${vars.cycleId}/reclassify`,
         vars.payload,
       )
