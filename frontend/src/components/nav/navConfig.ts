@@ -28,7 +28,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ] as const
 
 export const BRAND = {
-  full: 'SriAdithyaFinance',
+  full: 'Sri Adithya Finance',
   short: 'Sri',
 } as const
 
