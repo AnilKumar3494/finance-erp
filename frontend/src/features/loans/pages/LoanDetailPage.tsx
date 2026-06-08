@@ -117,6 +117,8 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
+      {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
+
       <AuditCard loan={loan} />
     </Stack>
   )
