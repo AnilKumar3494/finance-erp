@@ -2,11 +2,10 @@ import type { LoanResponse } from '@/api/queries/loans'
 import type { DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
+import { ORG_NAME } from './branding'
 import { CYCLE_STATUS_META } from './cycleStatusMeta'
 import { LOAN_STATUS_META } from './loanStatusMeta'
 import { PAYMENT_METHOD_LABELS } from './paymentMethodLabels'
-
-const ORG_NAME = 'Finance ERP'
 
 const TXN_TYPE_LABELS: Record<TransactionResponse['transaction_type'], string> = {
   REGULAR: 'Regular',

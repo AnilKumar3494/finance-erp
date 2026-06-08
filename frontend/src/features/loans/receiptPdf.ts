@@ -3,9 +3,8 @@ import { jsPDF } from 'jspdf'
 import type { LoanResponse } from '@/api/queries/loans'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
+import { ORG_NAME } from './branding'
 import { PAYMENT_METHOD_LABELS } from './paymentMethodLabels'
-
-const ORG_NAME = 'Finance ERP'
 
 const TXN_TYPE_LABELS: Record<TransactionResponse['transaction_type'], string> = {
   REGULAR: 'Regular',
