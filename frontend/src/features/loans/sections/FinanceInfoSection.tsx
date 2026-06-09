@@ -86,6 +86,12 @@ export function FinanceInfoSection({
 }
 
 function FinanceView({ loan }: { loan: LoanResponse }) {
+  // EMI = total payable / tenure, both computed by the backend. Shown so staff
+  // can quote the monthly instalment without opening the schedule.
+  const emi =
+    loan.total_payable != null && loan.tenure
+      ? fmtINR(Number(loan.total_payable) / loan.tenure)
+      : undefined
   return (
     <FieldGrid>
       <FieldRow label="Principal" value={money(loan.principal)} />
@@ -97,6 +103,7 @@ function FinanceView({ loan }: { loan: LoanResponse }) {
         label="Tenure"
         value={loan.tenure != null ? `${loan.tenure} months` : undefined}
       />
+      <FieldRow label="EMI amount" value={emi} />
       <FieldRow label="Monthly interest" value={money(loan.monthly_interest)} />
       <FieldRow label="Total payable" value={money(loan.total_payable)} />
       <FieldRow label="Down payment" value={fmtINR(Number(loan.down_payment))} />

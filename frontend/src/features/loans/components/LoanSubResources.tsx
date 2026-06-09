@@ -1,45 +1,28 @@
-import { useState } from 'react'
-import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
-import Tab from '@mui/material/Tab'
-import Tabs from '@mui/material/Tabs'
 import PrintIcon from '@mui/icons-material/PrintOutlined'
 
 import type { LoanResponse } from '@/api/queries/loans'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { useLoanTransactions, useLoanSummary } from '@/api/queries/transactions'
-import { Btn, Card } from '@/components/primitives'
+import { Btn } from '@/components/primitives'
 import { printLoanStatement } from '../loanStatement'
+import { CollapsibleCard } from './CollapsibleCard'
 import { DueCyclesTab } from './DueCyclesTab'
 import { TransactionsTab } from './TransactionsTab'
 
+// Due cycles and transactions each live in their own collapsible section so the
+// detail page stays scannable. The statement (which spans both) prints from the
+// Due cycles header.
 export function LoanSubResources({ loan }: { loan: LoanResponse }) {
-  const [tab, setTab] = useState(0)
-
   return (
-    <Card sx={{ p: 0, overflow: 'hidden' }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          px: { xs: 1, sm: 2 },
-        }}
-      >
-        <Tabs value={tab} onChange={(_, v: number) => setTab(v)} variant="scrollable" scrollButtons="auto">
-          <Tab label="Due cycles" />
-          <Tab label="Transactions" />
-        </Tabs>
-        <PrintStatementButton loan={loan} />
-      </Box>
-      <Box sx={{ p: { xs: 2, sm: 3 } }}>
-        {tab === 0 && <DueCyclesTab loan={loan} />}
-        {tab === 1 && <TransactionsTab loan={loan} />}
-      </Box>
-    </Card>
+    <>
+      <CollapsibleCard title="Due cycles" action={<PrintStatementButton loan={loan} />}>
+        <DueCyclesTab loan={loan} />
+      </CollapsibleCard>
+      <CollapsibleCard title="Transactions">
+        <TransactionsTab loan={loan} />
+      </CollapsibleCard>
+    </>
   )
 }
 

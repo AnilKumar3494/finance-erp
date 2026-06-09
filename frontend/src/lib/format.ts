@@ -7,7 +7,10 @@ import dayjs from 'dayjs'
 const inrFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
   currency: 'INR',
-  maximumFractionDigits: 0,
+  // Amounts are tracked to the paisa (Numeric(15,2) on the backend); always
+  // render two decimals so values are never silently rounded to whole rupees.
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 })
 
 export function fmtINR(n: number): string {
