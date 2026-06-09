@@ -11,11 +11,12 @@ import {
   useDocuments,
   type DocumentResponse,
 } from '@/api/queries/documents'
-import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { Btn, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { DocCategory } from '@/schemas/enums'
 import { DocumentLine } from '../components/DocumentLine'
 import { Collapsible } from '../components/Collapsible'
+import { CollapsibleCard } from '../components/CollapsibleCard'
 import type { SectionPermission } from '../financePermissions'
 
 const DOC_TYPE_LABELS: Record<DocCategory, string> = {
@@ -67,18 +68,15 @@ export function AllDocumentsSection({
   const docs = (docsQuery.data?.results ?? []).filter((d) => !d.is_deleted)
 
   return (
-    <Card>
+    <CollapsibleCard title="Finance documents">
       <Stack
         direction="row"
         spacing={2}
         sx={{ mb: 2, alignItems: 'flex-start', justifyContent: 'space-between' }}
       >
-        <Box>
-          <Typography variant="h3">Finance documents</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-            Documents attached to this finance. KYC, vehicle and personnel docs are in their own sections.
-          </Typography>
-        </Box>
+        <Typography variant="body2" color="text.secondary">
+          Documents attached to this finance. KYC, vehicle and personnel docs are in their own sections.
+        </Typography>
         {perm.canEdit && !showAdd && (
           <Btn variant="ghost" size="sm" onClick={() => setShowAdd(true)} sx={{ flexShrink: 0 }}>
             Add other document
@@ -130,7 +128,7 @@ export function AllDocumentsSection({
           </Stack>
         </Collapsible>
       )}
-    </Card>
+    </CollapsibleCard>
   )
 }
 

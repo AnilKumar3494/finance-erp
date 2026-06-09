@@ -46,7 +46,7 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
   const query = useLoan(loanId)
 
   return (
-    <Box sx={{ maxWidth: 800, mx: 'auto' }}>
+    <Box sx={{ width: { xs: '100%', md: '80%' }, mx: 'auto' }}>
       <Stack direction="row" sx={{ mb: 2 }}>
         <Btn
           variant="ghost"
@@ -90,7 +90,6 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
   return (
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
-      <LoanActions loan={loan} onGuideSection={goToSection} />
 
       <VehicleInfoSection
         loan={loan}
@@ -114,6 +113,8 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
       <AllDocumentsSection loan={loan} perm={perms.documents} />
 
       <LoanSubResources loan={loan} />
+
+      <LoanActions loan={loan} onGuideSection={goToSection} />
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
@@ -139,9 +140,12 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
     <Card>
       <Stack spacing={1.5}>
         <Stack
-          direction="row"
-          spacing={2}
-          sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={{ xs: 1.5, sm: 2 }}
+          sx={{
+            alignItems: { xs: 'stretch', sm: 'flex-start' },
+            justifyContent: 'space-between',
+          }}
         >
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="overline" color="text.secondary">
@@ -177,11 +181,14 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
             )}
           </Box>
           <Stack
-            spacing={0.5}
+            direction={{ xs: 'row', sm: 'column' }}
+            spacing={{ xs: 1, sm: 0.5 }}
             sx={{
               flexShrink: 0,
-              alignItems: 'flex-end',
-              '& .MuiChip-root': { minWidth: 188, justifyContent: 'center' },
+              flexWrap: 'wrap',
+              rowGap: { xs: 1, sm: 0.5 },
+              alignItems: { xs: 'flex-start', sm: 'flex-end' },
+              '& .MuiChip-root': { minWidth: { xs: 'auto', sm: 188 }, justifyContent: 'center' },
             }}
           >
             <LoanStatusChip status={loan.status} size="medium" />
