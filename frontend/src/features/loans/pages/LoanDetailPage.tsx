@@ -87,9 +87,16 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
   const gaps = showGaps ? computeApprovalGaps(loan, customerQuery.data ?? null) : []
   const missingFor = (key: ApprovalSectionKey) => gaps.find((g) => g.key === key)?.missing
 
+  // On a DRAFT the primary task is approval, so Loan actions sit right under the
+  // header. On everything else it's mostly a read-only review, so actions drop
+  // to the bottom, just before Audit.
+  const isDraft = loan.status === 'DRAFT'
+
   return (
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
+
+      {isDraft && <LoanActions loan={loan} onGuideSection={goToSection} />}
 
       <VehicleInfoSection
         loan={loan}
@@ -114,7 +121,7 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 
       <LoanSubResources loan={loan} />
 
-      <LoanActions loan={loan} onGuideSection={goToSection} />
+      {!isDraft && <LoanActions loan={loan} onGuideSection={goToSection} />}
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
