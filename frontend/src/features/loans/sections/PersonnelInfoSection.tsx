@@ -32,13 +32,14 @@ import {
 } from '@/api/queries/identityProofs'
 import { useDocumentDownloadUrl, type DocumentResponse } from '@/api/queries/documents'
 import { useAuth } from '@/app/auth-context'
-import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
+import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { fmtDate } from '@/lib/format'
 import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
 import { IdentityProofType, type PersonnelRole } from '@/schemas/enums'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { Collapsible } from '../components/Collapsible'
+import { CollapsibleCard } from '../components/CollapsibleCard'
 import { FindExistingPerson } from '../components/FindExistingPerson'
 import { RevealPii } from '../components/RevealPii'
 import type { SectionPermission } from '../financePermissions'
@@ -77,10 +78,7 @@ export function PersonnelInfoSection({
   const coHirers = links.filter((l) => l.role === 'CO_HIRER')
 
   return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 0.5 }}>
-        Personnel
-      </Typography>
+    <CollapsibleCard title="Personnel">
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Guarantors and co-hirers attached to this finance.
       </Typography>
@@ -118,7 +116,7 @@ export function PersonnelInfoSection({
           />
         </Stack>
       )}
-    </Card>
+    </CollapsibleCard>
   )
 }
 

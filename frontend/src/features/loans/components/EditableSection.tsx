@@ -1,9 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import Box from '@mui/material/Box'
+import Collapse from '@mui/material/Collapse'
 import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import EditIcon from '@mui/icons-material/EditOutlined'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMoreOutlined'
 
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 
@@ -50,13 +52,19 @@ export function EditableSection({
   missing,
 }: EditableSectionProps) {
   const [editing, setEditing] = useState(false)
+  // Sections start collapsed so staff can scan the page and open only what they
+  // need; the approval walk-through and the Edit button expand on demand.
+  const [open, setOpen] = useState(false)
   const done = () => setEditing(false)
   const incomplete = !!missing?.length
 
-  // Focus request from the approval checklist: open the editor (when editable)
-  // and scroll the section into view.
+  // Focus request from the approval checklist: expand, open the editor (when
+  // editable), and scroll the section into view.
   useEffect(() => {
     if (openSignal === undefined) return
+    // Focus signal from the approval walk-through: expand the section, drop into
+    // the editor when it's editable, then scroll it into view.
+    setOpen(true)
     if (canEdit) setEditing(true)
     if (sectionId) {
       requestAnimationFrame(() => {
@@ -64,6 +72,11 @@ export function EditableSection({
       })
     }
   }, [openSignal, canEdit, sectionId])
+
+  const startEdit = () => {
+    setOpen(true)
+    setEditing(true)
+  }
 
   return (
     <Card
@@ -73,14 +86,61 @@ export function EditableSection({
       <Stack
         direction="row"
         spacing={2}
-        sx={{ mb: 2, alignItems: 'flex-start', justifyContent: 'space-between' }}
+        sx={{
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          mb: open ? 2 : 0,
+        }}
       >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h3">{title}</Typography>
-          {subtitle && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-              {subtitle}
-            </Typography>
+        <Box
+          role="button"
+          tabIndex={0}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              setOpen((v) => !v)
+            }
+          }}
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+          aria-expanded={open}
+        >
+          <ExpandMoreIcon
+            sx={{
+              color: 'text.secondary',
+              transition: 'transform 150ms',
+              transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+            }}
+          />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h3">{title}</Typography>
+            {subtitle && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                {subtitle}
+              </Typography>
+            )}
+          </Box>
+          {incomplete && !open && (
+            <Box
+              component="span"
+              sx={{
+                ml: 1,
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                bgcolor: 'var(--warning)',
+                flexShrink: 0,
+              }}
+              aria-label="Required for approval"
+            />
           )}
         </Box>
         {canEdit && !editing && (
@@ -88,7 +148,7 @@ export function EditableSection({
             variant="ghost"
             size="sm"
             startIcon={<EditIcon />}
-            onClick={() => setEditing(true)}
+            onClick={startEdit}
             sx={
               incomplete
                 ? {
@@ -105,35 +165,37 @@ export function EditableSection({
         )}
       </Stack>
 
-      {incomplete && !editing && (
-        <Box sx={{ mb: 2 }}>
-          <ErrorBanner
-            severity="warning"
-            variant="outlined"
-            message={`Required for approval: ${missing!.join(', ')}`}
-          />
-        </Box>
-      )}
+      <Collapse in={open} unmountOnExit>
+        {incomplete && !editing && (
+          <Box sx={{ mb: 2 }}>
+            <ErrorBanner
+              severity="warning"
+              variant="outlined"
+              message={`Required for approval: ${missing!.join(', ')}`}
+            />
+          </Box>
+        )}
 
-      {editing ? (
-        <>
-          {warning && (
-            <Box sx={{ mb: 2 }}>
-              <ErrorBanner severity="warning" variant="outlined" message={warning} />
-            </Box>
-          )}
-          {edit(done)}
-        </>
-      ) : (
-        view
-      )}
+        {editing ? (
+          <>
+            {warning && (
+              <Box sx={{ mb: 2 }}>
+                <ErrorBanner severity="warning" variant="outlined" message={warning} />
+              </Box>
+            )}
+            {edit(done)}
+          </>
+        ) : (
+          view
+        )}
 
-      {footer && (
-        <>
-          <Divider sx={{ my: 2.5 }} />
-          {footer}
-        </>
-      )}
+        {footer && (
+          <>
+            <Divider sx={{ my: 2.5 }} />
+            {footer}
+          </>
+        )}
+      </Collapse>
     </Card>
   )
 }

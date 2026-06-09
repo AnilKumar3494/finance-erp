@@ -12,6 +12,8 @@ import { useLoan, useUpdateLoan, type LoanUpdate } from '@/api/queries/loans'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
+import { flatRateProjection } from '@/features/loans/financeMath'
+import { fmtINR } from '@/lib/format'
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`
 
@@ -128,6 +130,7 @@ function FinancialsForm({
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isDirty },
   } = useForm<FinFormValues>({
     resolver: zodResolver(schema),
@@ -144,6 +147,22 @@ function FinancialsForm({
   // This form stays mounted and editable after a save, so make the saved values
   // the new pristine baseline; the wizard's guard then only warns on fresh edits.
   useReportDirty(isDirty)
+
+  // Live, indicative projection the employee can quote to the customer. Computed
+  // client-side from the current inputs (flat-rate); the backend's saved figures
+  // are authoritative.
+  const [wPrincipal, wRate, wTenure, wDown] = watch([
+    'principal',
+    'interest_rate',
+    'tenure',
+    'down_payment',
+  ])
+  const projection = flatRateProjection({
+    principal: Number(parseAmount(wPrincipal) ?? NaN),
+    annualRatePct: Number(parseAmount(wRate) ?? NaN),
+    tenureMonths: Number(parseAmount(wTenure) ?? NaN),
+    downPayment: parseAmount(wDown) ?? 0,
+  })
 
   const onSubmit = (v: FinFormValues) => {
     const feeOrUndef = (s: string) => (s.trim() === '' ? undefined : s.trim())
@@ -238,6 +257,7 @@ function FinancialsForm({
             {...register('down_payment')}
             error={errors.down_payment?.message}
           />
+          {projection && <ProjectionPreview projection={projection} />}
           <Box>
             <Btn type="submit" variant="primary" loading={update.isPending}>
               {update.isSuccess ? 'Update financial details' : 'Save financial details'}
@@ -261,6 +281,49 @@ function TwoCol({ children }: { children: React.ReactNode }) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2.5 }}>
       {children}
+    </Box>
+  )
+}
+
+// Indicative figures the employee can share with the customer. Recomputes live
+// as the form changes; final values are set by the backend on save/approval.
+function ProjectionPreview({
+  projection,
+}: {
+  projection: NonNullable<ReturnType<typeof flatRateProjection>>
+}) {
+  return (
+    <Box
+      sx={{
+        p: 2,
+        borderRadius: 'var(--radius-sm)',
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'action.hover',
+      }}
+    >
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+        Estimate to share with the customer — final figures are confirmed on approval.
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 2 }}>
+        <Stat label="EMI / month" value={fmtINR(projection.emi)} strong />
+        <Stat label="Total interest" value={fmtINR(projection.totalInterest)} />
+        <Stat label="Total payable" value={fmtINR(projection.totalPayable)} />
+        <Stat label="Financed amount" value={fmtINR(projection.netPrincipal)} />
+      </Box>
+    </Box>
+  )
+}
+
+function Stat({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        {label}
+      </Typography>
+      <Typography variant="body1" sx={{ fontWeight: strong ? 700 : 600, fontSize: strong ? 18 : 16 }}>
+        {value}
+      </Typography>
     </Box>
   )
 }
