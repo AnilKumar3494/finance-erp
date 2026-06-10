@@ -49,19 +49,47 @@ class TransactionCreate(TransactionBase):
         description="Actual payment date; defaults to today. Drives cycle allocation.",
     )
 
-    # Optional admin override for cycle allocation. If omitted, the system
-    # picks the earliest cycle whose due_date >= effective_payment_date.
-    due_cycle_id: Optional[uuid.UUID] = Field(
-        None,
-        description="Admin-only override. Force the payment to a specific cycle.",
+    # Required: every payment must be allocated to a cycle. The FE seeds this
+    # with the worst-unpaid cycle (or the next UPCOMING one) so the dropdown
+    # is always pre-selected — admin just confirms or changes the pick. The
+    # earlier "leave it blank and the system picks" path was a UX trap: it
+    # let admins silently produce NULL-cycle SUCCESS transactions that
+    # bypassed the cycle ledger entirely. See PR / commit history.
+    due_cycle_id: uuid.UUID = Field(
+        ...,
+        description="Cycle to allocate this payment to. Required.",
     )
 
 
 # --------------------------------------------------
-# UPDATE (Notes only — status changes via /confirm or /fail)
+# UPDATE
 # --------------------------------------------------
+# All fields optional — the service applies only what's actually present in
+# the payload (model_dump(exclude_unset=True)). Status changes still go
+# through /confirm or /fail. Editing a SUCCESS transaction is gated to admins
+# at the route level; PENDING/FAILED edits are open to any user in scope of
+# the loan so a misclick on the field can be corrected without admin help.
 class TransactionUpdate(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
+    due_cycle_id: Optional[uuid.UUID] = Field(
+        None,
+        description="Reallocate this payment to a different cycle on the same loan.",
+    )
+    amount: Optional[Decimal] = Field(
+        None,
+        gt=0,
+        max_digits=15,
+        decimal_places=2,
+        description="Correct the recorded amount.",
+    )
+    effective_payment_date: Optional[date] = Field(
+        None,
+        description="Correct the date the customer actually paid.",
+    )
+    payment_mode: Optional[PaymentMethod] = Field(
+        None,
+        description="Correct the payment mode (CASH / GPAY / etc.).",
+    )
 
 
 # --------------------------------------------------

@@ -484,15 +484,80 @@ def update_transaction(
     *,
     request: Optional[Request] = None,
 ) -> Transaction:
-    """Update transaction notes only. Status changes go through /confirm or /fail."""
-    if transaction.status == TransactionStatus.SUCCESS:
-        raise ValueError("Cannot modify a confirmed transaction")
+    """
+    Edit an existing transaction. Status changes still go through /confirm or
+    /fail — this endpoint corrects mistakes (wrong cycle, wrong amount, wrong
+    mode, wrong date, typo in notes).
 
-    before = {"had_notes": transaction.notes is not None}
-    for field, value in data.model_dump(exclude_unset=True).items():
+    SUCCESS edits are allowed: this is the supported path to rescue a NULL-
+    cycle SUCCESS transaction that bypassed the cycle ledger, or to fix a
+    cycle allocation that landed on the wrong row. Whenever the cycle
+    allocation or amount changes on a SUCCESS row, both the previous and
+    the new cycle's total_received is recomputed so the ledger stays in
+    sync — the read total at any point reflects the SUM of all SUCCESS
+    transactions allocated to that cycle.
+
+    Route-level access control (see routes/transactions.py): SUCCESS rows
+    require admin; PENDING / FAILED rows are editable by any user in scope
+    of the loan.
+    """
+    fields = data.model_dump(exclude_unset=True)
+    if not fields:
+        return transaction
+
+    if "due_cycle_id" in fields:
+        new_cycle_id = fields["due_cycle_id"]
+        # Reuse the create-time resolver so the new cycle is validated against
+        # the same loan and the deletion check fires. None here means "leave
+        # unallocated" — we still permit it via edit because the existing data
+        # has legacy nulls, but new creates can't introduce them (schema).
+        if new_cycle_id is None:
+            new_cycle = None
+        else:
+            new_cycle = (
+                db.query(DueCycle)
+                .filter(
+                    DueCycle.id == new_cycle_id,
+                    DueCycle.loan_id == transaction.loan_id,
+                    DueCycle.is_deleted.is_(False),
+                )
+                .first()
+            )
+            if new_cycle is None:
+                raise ValueError("due_cycle_id does not belong to this loan or is deleted")
+        fields["due_cycle_id"] = new_cycle.id if new_cycle else None
+
+    before = _txn_audit_snapshot(transaction)
+    old_cycle_id = transaction.due_cycle_id
+    old_amount = transaction.amount
+
+    for field, value in fields.items():
         setattr(transaction, field, value)
     transaction.updated_by_id = updated_by
     db.flush()
+
+    # Cycle ledger maintenance: only SUCCESS transactions contribute to
+    # cycle.total_received. PENDING/FAILED edits don't touch the ledger.
+    if transaction.status == TransactionStatus.SUCCESS:
+        affected_cycle_ids = set()
+        if old_cycle_id is not None:
+            affected_cycle_ids.add(old_cycle_id)
+        if transaction.due_cycle_id is not None:
+            affected_cycle_ids.add(transaction.due_cycle_id)
+        # If neither cycle nor amount changed there's nothing to recompute,
+        # but the dict is tiny and recompute is a single aggregate — cheap.
+        for cid in affected_cycle_ids:
+            cycle = (
+                db.query(DueCycle)
+                .filter(DueCycle.id == cid)
+                .with_for_update()
+                .first()
+            )
+            if cycle is not None:
+                recompute_cycle_totals(db, cycle)
+        # Avoid unused-variable lint
+        _ = old_amount
+
     write_audit(
         db,
         action_type="TRANSACTION_UPDATE",
@@ -500,7 +565,7 @@ def update_transaction(
         record_id=transaction.id,
         user_id=updated_by,
         old_data=before,
-        new_data={"has_notes": transaction.notes is not None},
+        new_data=_txn_audit_snapshot(transaction),
         request=request,
     )
     db.commit()

@@ -9,7 +9,7 @@ from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.loan import Loan
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.transaction import (
     LoanTransactionSummary,
     TransactionCreate,
@@ -218,24 +218,41 @@ def fail_transaction_route(
 
 
 # --------------------------------------------------
-# UPDATE (Admin only)
+# UPDATE (edit-after-record)
 # --------------------------------------------------
+# Editing a transaction supports two cases:
+#   1. PENDING/FAILED — anyone in scope of the loan (admin or assigned
+#      employee) can correct a misclick before the txn is confirmed. This
+#      mirrors the "the collector who recorded it can fix their own typo"
+#      expectation; the loan-scope check below still applies.
+#   2. SUCCESS — admin only. Editing a confirmed transaction recomputes
+#      the cycle ledger (old + new cycle's total_received), so it's a
+#      sensitive operation we lock behind ADMIN/SUPER_ADMIN.
 @router.patch(
     "/{transaction_id}",
     response_model=TransactionResponse,
-    summary="Update transaction notes",
+    summary="Edit a transaction (cycle, amount, mode, date, notes)",
 )
 def update_transaction_route(
     request: Request,
     transaction_id: uuid.UUID,
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     transaction = get_transaction(db, transaction_id)
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
+        )
+    _assert_transaction_in_user_scope(db, transaction, current_user)
+    if transaction.status == TransactionStatus.SUCCESS and current_user.role not in (
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an admin can edit a confirmed transaction.",
         )
     try:
         return update_transaction(
