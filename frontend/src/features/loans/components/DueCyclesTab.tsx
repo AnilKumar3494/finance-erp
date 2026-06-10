@@ -23,11 +23,14 @@ import {
   useReclassifyCycle,
   type DueCycleResponse,
 } from '@/api/queries/dueCycles'
+import { useLoanTransactions } from '@/api/queries/transactions'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import type { CycleStatus } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { deriveCycleDisplay, type CycleDisplay } from '../cycleDisplay'
+import { focusTransaction } from '../txnFocus'
 import { CycleStatusChip } from './CycleStatusChip'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
 
@@ -59,6 +62,10 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
   const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
 
   const query = useDueCycles(loan.id)
+  // Shared cache with TransactionsTab — used to derive richer cycle display
+  // states (Pending confirmation / Paid in advance) that the raw cycle_status
+  // doesn't surface. See cycleDisplay.ts for the rules.
+  const txnsQuery = useLoanTransactions(loan.id, loan.status !== 'DRAFT')
   const [record, setRecord] = useState<{ cycleId: string; amount: string } | null>(null)
   const [classify, setClassify] = useState<{ cycle: DueCycleResponse; mode: 'classify' | 'reclassify' } | null>(null)
 
@@ -97,10 +104,37 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
 
   const showActions = payable || isAdmin
 
+  // Build display state per cycle once so both the desktop table and the
+  // mobile cards render the same chip without re-deriving.
+  const txns = txnsQuery.data?.results ?? []
+  const displayByCycleId = new Map<string, CycleDisplay>(
+    rows.map((c) => [c.id, deriveCycleDisplay(c, txns)]),
+  )
+  // Clicking a "Pending confirmation" chip jumps to the awaiting transaction.
+  // The transaction row in TransactionsTab listens to focusTransaction; the
+  // parent CollapsibleCard (in loan detail) also listens so it auto-expands
+  // if it was collapsed. The cockpit page mounts both tabs unconditionally,
+  // so the listener fires there too.
+  const onChipClick = (d: CycleDisplay) => {
+    if (d.pendingTxnId) focusTransaction(d.pendingTxnId)
+  }
+
   return (
     <>
-      <DesktopTable rows={rows} actions={actions} showActions={showActions} />
-      <MobileCards rows={rows} actions={actions} showActions={showActions} />
+      <DesktopTable
+        rows={rows}
+        actions={actions}
+        showActions={showActions}
+        displayByCycleId={displayByCycleId}
+        onChipClick={onChipClick}
+      />
+      <MobileCards
+        rows={rows}
+        actions={actions}
+        showActions={showActions}
+        displayByCycleId={displayByCycleId}
+        onChipClick={onChipClick}
+      />
 
       <RecordPaymentDialog
         loanId={loan.id}
@@ -163,10 +197,14 @@ function DesktopTable({
   rows,
   actions,
   showActions,
+  displayByCycleId,
+  onChipClick,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
   showActions: boolean
+  displayByCycleId: Map<string, CycleDisplay>
+  onChipClick: (d: CycleDisplay) => void
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -205,7 +243,17 @@ function DesktopTable({
                   </TableCell>
                   <TableCell align="right">{penalty ?? <Dash />}</TableCell>
                   <TableCell>
-                    <CycleStatusChip status={c.cycle_status} />
+                    {(() => {
+                      const display = displayByCycleId.get(c.id) ?? {
+                        key: c.cycle_status,
+                      }
+                      return (
+                        <CycleStatusChip
+                          display={display}
+                          onClick={display.pendingTxnId ? onChipClick : undefined}
+                        />
+                      )
+                    })()}
                   </TableCell>
                   {showActions && (
                     <TableCell align="right">
@@ -226,10 +274,14 @@ function MobileCards({
   rows,
   actions,
   showActions,
+  displayByCycleId,
+  onChipClick,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
   showActions: boolean
+  displayByCycleId: Map<string, CycleDisplay>
+  onChipClick: (d: CycleDisplay) => void
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
@@ -253,7 +305,17 @@ function MobileCards({
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 Cycle {c.cycle_number} · {fmtDate(c.due_date)}
               </Typography>
-              <CycleStatusChip status={c.cycle_status} />
+              {(() => {
+                const display = displayByCycleId.get(c.id) ?? {
+                  key: c.cycle_status,
+                }
+                return (
+                  <CycleStatusChip
+                    display={display}
+                    onClick={display.pendingTxnId ? onChipClick : undefined}
+                  />
+                )
+              })()}
             </Stack>
             <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: 'wrap' }}>
               <LabelValue label="Due" value={fmtINR(Number(c.total_due))} />

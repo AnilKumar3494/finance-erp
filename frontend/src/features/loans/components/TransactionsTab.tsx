@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
@@ -33,6 +33,7 @@ import {
 } from '@/api/queries/transactions'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanResponse } from '@/api/queries/loans'
+import { useTransactionFocus } from '../txnFocus'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, Spinner } from '@/components/primitives'
 import type { TransactionStatus, TransactionType } from '@/schemas/enums'
@@ -88,6 +89,30 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const [recordOpen, setRecordOpen] = useState(false)
   const [editTxn, setEditTxn] = useState<TransactionResponse | null>(null)
   const [voidTxn, setVoidTxn] = useState<TransactionResponse | null>(null)
+
+  // Cross-component focus: the cycle's "Pending confirmation" chip in
+  // DueCyclesTab fires focusTransaction(txnId); we scroll the row into view
+  // and pulse a highlight so the admin's eye lands on the Confirm button.
+  // The highlight clears itself after a beat.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const highlightTimer = useRef<number | null>(null)
+  useTransactionFocus((txnId) => {
+    setHighlightedId(txnId)
+    // Defer until React commits — the targeted row needs to be in the DOM.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-txn-id="${txnId}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    if (highlightTimer.current) window.clearTimeout(highlightTimer.current)
+    highlightTimer.current = window.setTimeout(() => setHighlightedId(null), 2500)
+  })
+  useEffect(
+    () => () => {
+      if (highlightTimer.current) window.clearTimeout(highlightTimer.current)
+    },
+    [],
+  )
 
   // Lazy-load the PDF module (jsPDF) only when a receipt is requested, so it
   // stays out of the loan-detail chunk.
@@ -188,12 +213,14 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
             actions={rowActions}
             onReceipt={onReceipt}
             cyclesById={cyclesById}
+            highlightedId={highlightedId}
           />
           <MobileCards
             rows={rows}
             actions={rowActions}
             onReceipt={onReceipt}
             cyclesById={cyclesById}
+            highlightedId={highlightedId}
           />
         </>
       )}
@@ -383,11 +410,13 @@ function DesktopTable({
   actions,
   onReceipt,
   cyclesById,
+  highlightedId,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
   cyclesById: Map<string, DueCycleResponse>
+  highlightedId: string | null
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -413,23 +442,38 @@ function DesktopTable({
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell>{fmtDate(t.effective_payment_date)}</TableCell>
-                <TableCell align="right">{fmtINR(Number(t.amount))}</TableCell>
-                <TableCell>{PAYMENT_METHOD_LABELS[t.payment_mode]}</TableCell>
-                <TableCell>
-                  <CycleCell txn={t} cyclesById={cyclesById} />
-                </TableCell>
-                <TableCell>{TXN_TYPE_LABELS[t.transaction_type]}</TableCell>
-                <TableCell>
-                  <TxnStatusChip status={t.status} />
-                </TableCell>
-                <TableCell align="right">
-                  <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((t) => {
+              const isHighlighted = t.id === highlightedId
+              return (
+                <TableRow
+                  key={t.id}
+                  data-txn-id={t.id}
+                  sx={(theme) => ({
+                    transition: 'background-color 600ms ease',
+                    ...(isHighlighted && {
+                      backgroundColor:
+                        theme.palette.mode === 'dark'
+                          ? 'rgba(33, 150, 243, 0.18)'
+                          : 'rgba(33, 150, 243, 0.12)',
+                    }),
+                  })}
+                >
+                  <TableCell>{fmtDate(t.effective_payment_date)}</TableCell>
+                  <TableCell align="right">{fmtINR(Number(t.amount))}</TableCell>
+                  <TableCell>{PAYMENT_METHOD_LABELS[t.payment_mode]}</TableCell>
+                  <TableCell>
+                    <CycleCell txn={t} cyclesById={cyclesById} />
+                  </TableCell>
+                  <TableCell>{TXN_TYPE_LABELS[t.transaction_type]}</TableCell>
+                  <TableCell>
+                    <TxnStatusChip status={t.status} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -442,25 +486,36 @@ function MobileCards({
   actions,
   onReceipt,
   cyclesById,
+  highlightedId,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
   cyclesById: Map<string, DueCycleResponse>
+  highlightedId: string | null
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((t) => {
         const cycle = t.due_cycle_id ? cyclesById.get(t.due_cycle_id) ?? null : null
+        const isHighlighted = t.id === highlightedId
         return (
           <Box
             key={t.id}
-            sx={{
+            data-txn-id={t.id}
+            sx={(theme) => ({
               p: 1.5,
               border: '1px solid',
-              borderColor: 'divider',
+              borderColor: isHighlighted ? 'info.main' : 'divider',
               borderRadius: 'var(--radius-sm)',
-            }}
+              transition: 'background-color 600ms ease, border-color 600ms ease',
+              ...(isHighlighted && {
+                backgroundColor:
+                  theme.palette.mode === 'dark'
+                    ? 'rgba(33, 150, 243, 0.18)'
+                    : 'rgba(33, 150, 243, 0.12)',
+              }),
+            })}
           >
             <Stack
               direction="row"
