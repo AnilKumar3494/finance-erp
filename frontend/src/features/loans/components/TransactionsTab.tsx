@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AxiosError } from 'axios'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
@@ -31,6 +31,7 @@ import {
   useDeleteTransaction,
   type TransactionResponse,
 } from '@/api/queries/transactions'
+import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, Spinner } from '@/components/primitives'
@@ -71,6 +72,15 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
 
   const query = useLoanTransactions(loan.id)
   const summaryQuery = useLoanSummary(loan.id)
+  // Cycles are joined client-side so the Cycle column resolves to the
+  // cycle # + due date instead of a raw UUID. The query is shared with
+  // DueCyclesTab so this is a cache hit when both render together.
+  const cyclesQuery = useDueCycles(loan.id, loan.status !== 'DRAFT')
+  const cyclesById = useMemo(() => {
+    const map = new Map<string, DueCycleResponse>()
+    for (const c of cyclesQuery.data?.results ?? []) map.set(c.id, c)
+    return map
+  }, [cyclesQuery.data])
   const confirm = useConfirmTransaction(loan.id)
   const fail = useFailTransaction(loan.id)
   const update = useUpdateTransaction(loan.id)
@@ -173,8 +183,18 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
         </Typography>
       ) : (
         <>
-          <DesktopTable rows={rows} actions={rowActions} onReceipt={onReceipt} />
-          <MobileCards rows={rows} actions={rowActions} onReceipt={onReceipt} />
+          <DesktopTable
+            rows={rows}
+            actions={rowActions}
+            onReceipt={onReceipt}
+            cyclesById={cyclesById}
+          />
+          <MobileCards
+            rows={rows}
+            actions={rowActions}
+            onReceipt={onReceipt}
+            cyclesById={cyclesById}
+          />
         </>
       )}
 
@@ -327,14 +347,47 @@ function RowActionsCell({
   return null
 }
 
+// Renders the cycle this txn was allocated to as "#N · 15 Jun" — or an em-dash
+// when the txn is unallocated (DOWN_PAYMENT rows, or a paid-in-advance with no
+// cycle pre-selected). The schedule-tab cycle number is the same N so the user
+// can scan from txn to schedule by eye.
+function CycleCell({
+  txn,
+  cyclesById,
+}: {
+  txn: TransactionResponse
+  cyclesById: Map<string, DueCycleResponse>
+}) {
+  const cycle = txn.due_cycle_id ? cyclesById.get(txn.due_cycle_id) ?? null : null
+  if (!cycle) {
+    return (
+      <Typography component="span" variant="body2" color="text.secondary">
+        —
+      </Typography>
+    )
+  }
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', gap: 0.75, alignItems: 'baseline' }}>
+      <Box component="span" sx={{ fontWeight: 600 }}>
+        #{cycle.cycle_number}
+      </Box>
+      <Typography component="span" variant="caption" color="text.secondary">
+        {fmtDate(cycle.due_date)}
+      </Typography>
+    </Box>
+  )
+}
+
 function DesktopTable({
   rows,
   actions,
   onReceipt,
+  cyclesById,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
+  cyclesById: Map<string, DueCycleResponse>
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -353,6 +406,7 @@ function DesktopTable({
                 Amount
               </TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Mode</TableCell>
+              <TableCell sx={{ fontWeight: 600 }}>Cycle</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
@@ -364,6 +418,9 @@ function DesktopTable({
                 <TableCell>{fmtDate(t.effective_payment_date)}</TableCell>
                 <TableCell align="right">{fmtINR(Number(t.amount))}</TableCell>
                 <TableCell>{PAYMENT_METHOD_LABELS[t.payment_mode]}</TableCell>
+                <TableCell>
+                  <CycleCell txn={t} cyclesById={cyclesById} />
+                </TableCell>
                 <TableCell>{TXN_TYPE_LABELS[t.transaction_type]}</TableCell>
                 <TableCell>
                   <TxnStatusChip status={t.status} />
@@ -384,45 +441,55 @@ function MobileCards({
   rows,
   actions,
   onReceipt,
+  cyclesById,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
+  cyclesById: Map<string, DueCycleResponse>
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((t) => (
-        <Box
-          key={t.id}
-          sx={{
-            p: 1.5,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 'var(--radius-sm)',
-          }}
-        >
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+      {rows.map((t) => {
+        const cycle = t.due_cycle_id ? cyclesById.get(t.due_cycle_id) ?? null : null
+        return (
+          <Box
+            key={t.id}
+            sx={{
+              p: 1.5,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 'var(--radius-sm)',
+            }}
           >
-            <Typography variant="body1" sx={{ fontWeight: 600 }}>
-              {fmtINR(Number(t.amount))}
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                {fmtINR(Number(t.amount))}
+              </Typography>
+              <TxnStatusChip status={t.status} />
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {fmtDate(t.effective_payment_date)} · {PAYMENT_METHOD_LABELS[t.payment_mode]} ·{' '}
+              {TXN_TYPE_LABELS[t.transaction_type]}
             </Typography>
-            <TxnStatusChip status={t.status} />
-          </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {fmtDate(t.effective_payment_date)} · {PAYMENT_METHOD_LABELS[t.payment_mode]} ·{' '}
-            {TXN_TYPE_LABELS[t.transaction_type]}
-          </Typography>
-          {(t.status === 'SUCCESS' ||
-            ((t.status === 'PENDING' || t.status === 'FAILED') && actions)) && (
-            <Box sx={{ mt: 1.5 }}>
-              <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
-            </Box>
-          )}
-        </Box>
-      ))}
+            {cycle && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                Cycle #{cycle.cycle_number} · due {fmtDate(cycle.due_date)}
+              </Typography>
+            )}
+            {(t.status === 'SUCCESS' ||
+              ((t.status === 'PENDING' || t.status === 'FAILED') && actions)) && (
+              <Box sx={{ mt: 1.5 }}>
+                <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
+              </Box>
+            )}
+          </Box>
+        )
+      })}
     </Stack>
   )
 }
