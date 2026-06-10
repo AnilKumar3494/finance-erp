@@ -20,6 +20,10 @@ class PaymentMethod(str, enum.Enum):
     GPAY = "GPAY"
     PHONEPE = "PHONEPE"
     BANK_TRANSFER = "BANK_TRANSFER"
+    # Catch-all for modes that don't fit the four named buckets (third-party
+    # UPI handles, IMPS/NEFT, cheque). Added in migration 015. The Notes
+    # field on the transaction captures the specifics.
+    OTHER = "OTHER"
 
 
 class TransactionStatus(str, enum.Enum):
