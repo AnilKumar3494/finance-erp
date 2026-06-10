@@ -33,6 +33,7 @@ import {
 } from '@/api/queries/transactions'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanResponse } from '@/api/queries/loans'
+import { useFinancePermissions } from '../financePermissions'
 import { useTransactionFocus } from '../txnFocus'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, Spinner } from '@/components/primitives'
@@ -40,7 +41,7 @@ import type { TransactionStatus, TransactionType } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
-import { EditNoteDialog } from './EditTransactionNoteDialog'
+import { EditTransactionDialog } from './EditTransactionDialog'
 import { VoidTransactionDialog } from './VoidTransactionDialog'
 
 const TXN_STATUS_META: Record<
@@ -69,6 +70,11 @@ function mapError(error: unknown): string {
 export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+  // Assigned employee (or admin) can edit PENDING/FAILED rows so a collector
+  // can correct their own misclick without admin intervention. SUCCESS edits
+  // stay admin-only — server gates this too.
+  const perms = useFinancePermissions(loan)
+  const canEditOpenTxn = isAdmin || perms.isAssignedEmployee
   const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
 
   const query = useLoanTransactions(loan.id)
@@ -130,10 +136,15 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     setVoidTxn(txn)
   }
 
-  const onSaveNote = (notes: string | null) => {
+  const onSaveEdit = (payload: import('@/api/queries/transactions').TransactionUpdate) => {
     if (!editTxn) return
+    // No-op save: nothing actually changed. Close without a round trip.
+    if (Object.keys(payload).length === 0) {
+      setEditTxn(null)
+      return
+    }
     update.mutate(
-      { transactionId: editTxn.id, payload: { notes } },
+      { transactionId: editTxn.id, payload },
       { onSuccess: () => setEditTxn(null) },
     )
   }
@@ -164,15 +175,25 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const rows = query.data?.results ?? []
   const acting =
     confirm.isPending || fail.isPending || update.isPending || del.isPending
-  const rowActions: RowActions | null = isAdmin
-    ? {
-        onConfirm: (id: string) => confirm.mutate(id),
-        onFail: (id: string) => fail.mutate(id),
-        onEditNote: openEdit,
-        onVoid: openVoid,
-        acting,
-      }
-    : null
+  // Action availability per row:
+  //   - Confirm / Fail / Void: admin only (server-gated).
+  //   - Edit: in-scope user (admin OR assigned employee) on PENDING/FAILED;
+  //     admin-only on SUCCESS. The server enforces both — we just decide
+  //     whether to show the kebab.
+  const rowActions: RowActions | null =
+    isAdmin || canEditOpenTxn
+      ? {
+          onConfirm: isAdmin ? (id: string) => confirm.mutate(id) : null,
+          onFail: isAdmin ? (id: string) => fail.mutate(id) : null,
+          onEdit: openEdit,
+          onVoid: isAdmin ? openVoid : null,
+          canEditTxn: (txn: TransactionResponse) => {
+            if (txn.status === 'SUCCESS') return isAdmin
+            return canEditOpenTxn
+          },
+          acting,
+        }
+      : null
 
   return (
     <>
@@ -227,11 +248,12 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
 
       <RecordPaymentDialog loanId={loan.id} open={recordOpen} onClose={() => setRecordOpen(false)} />
 
-      <EditNoteDialog
+      <EditTransactionDialog
         txn={editTxn}
+        loanId={loan.id}
         open={!!editTxn}
         onClose={() => setEditTxn(null)}
-        onSubmit={onSaveNote}
+        onSubmit={onSaveEdit}
         saving={update.isPending}
         error={update.isError ? mapActionError(update.error) : null}
       />
@@ -259,10 +281,15 @@ function mapActionError(error: unknown): string {
 }
 
 interface RowActions {
-  onConfirm: (id: string) => void
-  onFail: (id: string) => void
-  onEditNote: (txn: TransactionResponse) => void
-  onVoid: (txn: TransactionResponse) => void
+  // Admin-only inline buttons (Confirm/Fail/Void). Null when the current user
+  // is an assigned-employee with edit access but not an admin.
+  onConfirm: ((id: string) => void) | null
+  onFail: ((id: string) => void) | null
+  onVoid: ((txn: TransactionResponse) => void) | null
+  // Edit is broader: admins for any row, in-scope users for PENDING/FAILED.
+  // The caller per-row gate is `canEditTxn`.
+  onEdit: (txn: TransactionResponse) => void
+  canEditTxn: (txn: TransactionResponse) => boolean
   acting: boolean
 }
 
@@ -272,29 +299,37 @@ function TxnStatusChip({ status }: { status: TransactionStatus }) {
 }
 
 function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
+  // Confirm/Fail are admin-only. Caller doesn't render this component at all
+  // for non-admin users (see RowActionsCell), but we guard defensively.
+  if (!actions.onConfirm || !actions.onFail) return null
   return (
     <Stack
       direction="row"
       spacing={1}
       sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
     >
-      <Btn variant="success" size="sm" onClick={() => actions.onConfirm(id)} disabled={actions.acting}>
+      <Btn variant="success" size="sm" onClick={() => actions.onConfirm!(id)} disabled={actions.acting}>
         Confirm
       </Btn>
-      <Btn variant="ghost" size="sm" onClick={() => actions.onFail(id)} disabled={actions.acting}>
+      <Btn variant="ghost" size="sm" onClick={() => actions.onFail!(id)} disabled={actions.acting}>
         Fail
       </Btn>
     </Stack>
   )
 }
 
-// Admin overflow menu for the secondary / destructive actions, keeping the
-// inline buttons reserved for the primary lifecycle (confirm / fail / receipt).
-//   PENDING → Edit note
-//   FAILED  → Edit note, Void
-function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: RowActions }) {
+// Overflow menu for per-row actions that aren't the inline lifecycle
+// buttons. Items appear conditionally based on row status + role:
+//   - Edit transaction — any row the current user is allowed to edit
+//   - Void — FAILED rows, admin only
+function RowKebab({ txn, actions }: { txn: TransactionResponse; actions: RowActions }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const close = () => setAnchor(null)
+
+  const showEdit = actions.canEditTxn(txn)
+  const showVoid = txn.status === 'FAILED' && !!actions.onVoid
+
+  if (!showEdit && !showVoid) return null
 
   return (
     <>
@@ -307,22 +342,24 @@ function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: Row
         <MoreVertIcon fontSize="small" />
       </IconButton>
       <Menu anchorEl={anchor} open={!!anchor} onClose={close}>
-        <MenuItem
-          onClick={() => {
-            close()
-            actions.onEditNote(txn)
-          }}
-        >
-          <ListItemIcon>
-            <EditNoteIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Edit note</ListItemText>
-        </MenuItem>
-        {txn.status === 'FAILED' && (
+        {showEdit && (
           <MenuItem
             onClick={() => {
               close()
-              actions.onVoid(txn)
+              actions.onEdit(txn)
+            }}
+          >
+            <ListItemIcon>
+              <EditNoteIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Edit transaction</ListItemText>
+          </MenuItem>
+        )}
+        {showVoid && (
+          <MenuItem
+            onClick={() => {
+              close()
+              actions.onVoid!(txn)
             }}
             sx={{ color: 'error.main' }}
           >
@@ -337,9 +374,11 @@ function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: Row
   )
 }
 
-// Per-row actions: admins confirm/fail a PENDING txn (and get an overflow menu
-// for edit-note / void); anyone can download a receipt for a confirmed
-// (SUCCESS) one. A FAILED txn exposes only the admin menu.
+// Per-row actions:
+//   - SUCCESS: Receipt download for everyone. Admin can edit via kebab.
+//   - PENDING: Admin sees Confirm/Fail inline; in-scope user (admin or
+//     assigned employee) sees the kebab with Edit.
+//   - FAILED: kebab with Edit (in-scope) and Void (admin).
 function RowActionsCell({
   txn,
   actions,
@@ -349,25 +388,39 @@ function RowActionsCell({
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
 }) {
-  if (txn.status === 'SUCCESS') {
-    return (
+  const receiptBtn =
+    txn.status === 'SUCCESS' ? (
       <Btn variant="ghost" size="sm" startIcon={<ReceiptIcon />} onClick={() => onReceipt(txn)}>
         Receipt
       </Btn>
-    )
-  }
-  if (txn.status === 'PENDING' && actions) {
+    ) : null
+
+  if (!actions) return receiptBtn
+
+  if (txn.status === 'SUCCESS') {
+    // Receipt + (optional) edit kebab.
     return (
       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
-        <PendingActions id={txn.id} actions={actions} />
-        <AdminRowMenu txn={txn} actions={actions} />
+        {receiptBtn}
+        <RowKebab txn={txn} actions={actions} />
       </Stack>
     )
   }
-  if (txn.status === 'FAILED' && actions) {
+
+  if (txn.status === 'PENDING') {
+    // Admin gets Confirm/Fail inline; everyone with edit access gets the kebab.
+    return (
+      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+        {actions.onConfirm && <PendingActions id={txn.id} actions={actions} />}
+        <RowKebab txn={txn} actions={actions} />
+      </Stack>
+    )
+  }
+
+  if (txn.status === 'FAILED') {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <AdminRowMenu txn={txn} actions={actions} />
+        <RowKebab txn={txn} actions={actions} />
       </Box>
     )
   }

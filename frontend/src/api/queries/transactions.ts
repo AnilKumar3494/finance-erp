@@ -97,8 +97,10 @@ export interface TransactionCreate {
   loan_id: string
   amount: string
   payment_mode: PaymentMethod
+  // Required by the backend as of the cycle-required change — every payment
+  // must land on a specific cycle to keep total_received in sync.
+  due_cycle_id: string
   effective_payment_date?: string | null
-  due_cycle_id?: string | null
   notes?: string | null
 }
 
@@ -152,11 +154,18 @@ export function useFailTransaction(loanId: string) {
   })
 }
 
-// Edit a transaction's notes (admin). Backend accepts `{ notes }` only and
-// rejects edits on a SUCCESS transaction — callers gate the action to
-// PENDING/FAILED rows. A null clears the note.
+// Edit a transaction. All fields optional — only set fields are applied.
+// PENDING/FAILED transactions are editable by any user in scope of the loan;
+// SUCCESS transactions are editable by admins only (server-side gate). When
+// `due_cycle_id` or `amount` changes on a SUCCESS row, the server recomputes
+// total_received on both the old and new cycle.
+// `notes: null` clears the existing note.
 export interface TransactionUpdate {
-  notes: string | null
+  notes?: string | null
+  due_cycle_id?: string | null
+  amount?: string
+  effective_payment_date?: string
+  payment_mode?: PaymentMethod
 }
 
 export function useUpdateTransaction(loanId: string) {
