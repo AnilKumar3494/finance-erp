@@ -30,6 +30,7 @@ import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primi
 import type { CycleStatus } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { deriveCycleDisplay, type CycleDisplay } from '../cycleDisplay'
+import { deriveNetDue, type CycleNetDue } from '../cycleNetDue'
 import { focusTransaction } from '../txnFocus'
 import { CycleStatusChip } from './CycleStatusChip'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
@@ -89,8 +90,21 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
     )
   }
 
-  const onRecord = (c: DueCycleResponse) =>
-    setRecord({ cycleId: c.id, amount: Number(c.shortfall) > 0 ? c.shortfall : '' })
+  // Transactions feed two things, sharing one cached query with
+  // TransactionsTab: the richer chip display, and the net-due waterfall pool
+  // (Σ SUCCESS = the loan's total paid).
+  const txns = txnsQuery.data?.results ?? []
+  const totalPaid = txns
+    .filter((t) => t.status === 'SUCCESS' && !t.is_deleted)
+    .reduce((sum, t) => sum + Number(t.amount), 0)
+  const netDueByCycleId = deriveNetDue(rows, totalPaid)
+
+  const onRecord = (c: DueCycleResponse) => {
+    // Seed the dialog with the genuinely-owed amount (net of carried-forward
+    // credit), not the raw per-cycle shortfall.
+    const net = netDueByCycleId.get(c.id)?.netDue ?? 0
+    setRecord({ cycleId: c.id, amount: net > 0 ? net.toFixed(2) : '' })
+  }
 
   const actions = {
     payable,
@@ -106,7 +120,6 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
 
   // Build display state per cycle once so both the desktop table and the
   // mobile cards render the same chip without re-deriving.
-  const txns = txnsQuery.data?.results ?? []
   const displayByCycleId = new Map<string, CycleDisplay>(
     rows.map((c) => [c.id, deriveCycleDisplay(c, txns)]),
   )
@@ -126,6 +139,7 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
         actions={actions}
         showActions={showActions}
         displayByCycleId={displayByCycleId}
+        netDueByCycleId={netDueByCycleId}
         onChipClick={onChipClick}
       />
       <MobileCards
@@ -133,6 +147,7 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
         actions={actions}
         showActions={showActions}
         displayByCycleId={displayByCycleId}
+        netDueByCycleId={netDueByCycleId}
         onChipClick={onChipClick}
       />
 
@@ -160,14 +175,24 @@ interface CycleActions {
   onClassify: (c: DueCycleResponse) => void
 }
 
-function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actions: CycleActions }) {
+function CycleActionButtons({
+  cycle,
+  actions,
+  net,
+}: {
+  cycle: DueCycleResponse
+  actions: CycleActions
+  net?: CycleNetDue
+}) {
   const mode = classifyMode(cycle.cycle_status)
-  // Hide per-cycle Record once the cycle's shortfall is cleared. A fully-paid
-  // row used to keep its Record button, which let admins double-pay the same
-  // cycle by accident. Admins who genuinely want to record an extra payment
-  // against this loan can still do so via the header Record button, which
-  // seeds the next unpaid cycle.
-  const showRecord = actions.payable && Number(cycle.shortfall) > 0
+  // Hide per-cycle Record once nothing is genuinely owed for this cycle. We
+  // gate on NET due, not the raw shortfall: a cycle covered by carried-forward
+  // credit, or a late cycle whose deficit was rolled into later EMIs, has a
+  // non-zero raw shortfall but nothing left to collect here. Showing Record on
+  // those let admins double-pay the same money. The header Record button still
+  // covers any deliberate extra payment.
+  const owed = net ? net.netDue : Number(cycle.shortfall)
+  const showRecord = actions.payable && owed > 0
   // Highlight Classify (primary style) when it's a fresh action-needed state;
   // keep Reclassify (override of an already-classified row) as ghost since
   // that's a less common, more deliberate override.
@@ -203,17 +228,34 @@ const Dash = () => (
   </Typography>
 )
 
+function NetDueValue({ net }: { net?: CycleNetDue }) {
+  if (net?.resolved) {
+    return (
+      <Typography component="span" variant="body2" color="success.main">
+        Recovered
+      </Typography>
+    )
+  }
+  return (
+    <Typography component="span" variant="body2">
+      {fmtINR(net?.netDue ?? 0)}
+    </Typography>
+  )
+}
+
 function DesktopTable({
   rows,
   actions,
   showActions,
   displayByCycleId,
+  netDueByCycleId,
   onChipClick,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
   showActions: boolean
   displayByCycleId: Map<string, CycleDisplay>
+  netDueByCycleId: Map<string, CycleNetDue>
   onChipClick: (d: CycleDisplay) => void
 }) {
   return (
@@ -232,6 +274,7 @@ function DesktopTable({
               <TableCell sx={{ fontWeight: 600 }}>Due date</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="right">Total due</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="right">Received</TableCell>
+              <TableCell sx={{ fontWeight: 600 }} align="right">Net due</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="right">Shortfall</TableCell>
               <TableCell sx={{ fontWeight: 600 }} align="right">Penalty</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
@@ -248,6 +291,9 @@ function DesktopTable({
                   <TableCell>{fmtDate(c.due_date)}</TableCell>
                   <TableCell align="right">{fmtINR(Number(c.total_due))}</TableCell>
                   <TableCell align="right">{fmtINR(Number(c.total_received))}</TableCell>
+                  <TableCell align="right">
+                    <NetDueValue net={netDueByCycleId.get(c.id)} />
+                  </TableCell>
                   <TableCell align="right" sx={{ color: shortfall ? 'error.main' : undefined }}>
                     {shortfall ?? <Dash />}
                   </TableCell>
@@ -267,7 +313,11 @@ function DesktopTable({
                   </TableCell>
                   {showActions && (
                     <TableCell align="right">
-                      <CycleActionButtons cycle={c} actions={actions} />
+                      <CycleActionButtons
+                        cycle={c}
+                        actions={actions}
+                        net={netDueByCycleId.get(c.id)}
+                      />
                     </TableCell>
                   )}
                 </TableRow>
@@ -285,18 +335,21 @@ function MobileCards({
   actions,
   showActions,
   displayByCycleId,
+  netDueByCycleId,
   onChipClick,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
   showActions: boolean
   displayByCycleId: Map<string, CycleDisplay>
+  netDueByCycleId: Map<string, CycleNetDue>
   onChipClick: (d: CycleDisplay) => void
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((c) => {
         const shortfall = amountOrDash(c.shortfall)
+        const net = netDueByCycleId.get(c.id)
         return (
           <Box
             key={c.id}
@@ -330,11 +383,15 @@ function MobileCards({
             <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: 'wrap' }}>
               <LabelValue label="Due" value={fmtINR(Number(c.total_due))} />
               <LabelValue label="Received" value={fmtINR(Number(c.total_received))} />
+              <LabelValue
+                label="Net due"
+                value={net?.resolved ? 'Recovered' : fmtINR(net?.netDue ?? 0)}
+              />
               {shortfall && <LabelValue label="Shortfall" value={shortfall} danger />}
             </Stack>
             {showActions && (
               <Box sx={{ mt: 1.5 }}>
-                <CycleActionButtons cycle={c} actions={actions} />
+                <CycleActionButtons cycle={c} actions={actions} net={net} />
               </Box>
             )}
           </Box>

@@ -23,6 +23,7 @@ import { EmiDueChip } from '../components/EmiDueChip'
 import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
 import { RecordPaymentDialog } from '../components/RecordPaymentDialog'
+import { deriveNetDue, type CycleNetDue } from '../cycleNetDue'
 
 // Read search params (`?action=record&cycleId=`) from the cockpit route. Using
 // getRouteApi instead of importing the Route object avoids a circular import
@@ -81,27 +82,24 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
   const cycles = cyclesQuery.data?.results ?? []
   const txns = txnsQuery.data?.results ?? []
 
-  // The next EMI to collect is the lowest-numbered UPCOMING cycle. If any cycle
-  // is already AWAITING_REVIEW with a shortfall, that's the more urgent one to
-  // seed the dialog with.
-  const nextEmi = useMemo(
+  // Net-due waterfall — same logic the schedule tab uses, so the header agrees
+  // with the table. Pool is the loan's total paid (Σ SUCCESS).
+  const netDueByCycleId = useMemo(
+    () => deriveNetDue(cycles, Number(summaryQuery.data?.total_paid ?? 0)),
+    [cycles, summaryQuery.data],
+  )
+
+  // The cycle to act on first: the lowest-numbered cycle that still genuinely
+  // owes money (net of carried-forward credit, and skipping late cycles whose
+  // deficit was already rolled into later EMIs).
+  const focusCycle = useMemo(
     () =>
       cycles
-        .filter((c) => c.cycle_status === 'UPCOMING')
+        .filter((c) => (netDueByCycleId.get(c.id)?.netDue ?? 0) > 0)
         .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null,
-    [cycles],
+    [cycles, netDueByCycleId],
   )
-  const worstUnpaid = useMemo(
-    () =>
-      cycles
-        .filter(
-          (c) =>
-            (c.cycle_status === 'AWAITING_REVIEW' || c.cycle_status === 'LATE_PAYMENT') &&
-            Number(c.shortfall) > 0,
-        )
-        .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null,
-    [cycles],
-  )
+  const focusNet = focusCycle ? netDueByCycleId.get(focusCycle.id) : undefined
 
   const pendingTxns = txns.filter((t) => t.status === 'PENDING')
   const pendingTotal = pendingTxns.reduce((sum, t) => sum + Number(t.amount), 0)
@@ -118,9 +116,10 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
     const fromUrl = search.cycleId
       ? cycles.find((c) => c.id === search.cycleId) ?? null
       : null
-    const target = fromUrl ?? worstUnpaid ?? nextEmi
+    const target = fromUrl ?? focusCycle
+    const net = target ? netDueByCycleId.get(target.id)?.netDue ?? 0 : 0
     setSeedCycleId(target?.id ?? '')
-    setSeedAmount(target && Number(target.shortfall) > 0 ? target.shortfall : '')
+    setSeedAmount(net > 0 ? net.toFixed(2) : '')
     setRecordOpen(true)
     navigate({ to: '.', search: {}, replace: true })
     // Re-run only when the URL flips to action=record. Cycles being loaded
@@ -129,9 +128,10 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
   }, [search.action, search.cycleId])
 
   const onHeaderRecord = () => {
-    const target = worstUnpaid ?? nextEmi
+    const target = focusCycle
+    const net = target ? netDueByCycleId.get(target.id)?.netDue ?? 0 : 0
     setSeedCycleId(target?.id ?? '')
-    setSeedAmount(target && Number(target.shortfall) > 0 ? target.shortfall : '')
+    setSeedAmount(net > 0 ? net.toFixed(2) : '')
     setRecordOpen(true)
   }
 
@@ -140,8 +140,8 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
       <HeaderCard
         loan={loan}
         summary={summaryQuery.data}
-        nextEmi={nextEmi}
-        worstUnpaid={worstUnpaid}
+        focusCycle={focusCycle}
+        focusNet={focusNet}
         pendingCount={pendingTxns.length}
         pendingTotal={pendingTotal}
         payable={payable}
@@ -188,8 +188,8 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
 interface HeaderCardProps {
   loan: LoanResponse
   summary: LoanTransactionSummary | undefined
-  nextEmi: DueCycleResponse | null
-  worstUnpaid: DueCycleResponse | null
+  focusCycle: DueCycleResponse | null
+  focusNet: CycleNetDue | undefined
   pendingCount: number
   pendingTotal: number
   payable: boolean
@@ -199,17 +199,13 @@ interface HeaderCardProps {
 function HeaderCard({
   loan,
   summary,
-  nextEmi,
-  worstUnpaid,
+  focusCycle,
+  focusNet,
   pendingCount,
   pendingTotal,
   payable,
   onRecord,
 }: HeaderCardProps) {
-  // "Next due" prefers an unpaid past-due cycle over the next UPCOMING — that's
-  // what the admin needs to act on first.
-  const focusCycle = worstUnpaid ?? nextEmi
-
   return (
     <Card>
       <Stack spacing={1.5}>
@@ -294,9 +290,10 @@ function HeaderCard({
             value={summary ? fmtINR(Number(summary.total_paid)) : '—'}
           />
           <HeaderStat
-            label={focusCycle ? `Cycle #${focusCycle.cycle_number} due` : 'Next EMI'}
-            value={focusCycle ? fmtINR(Number(focusCycle.base_emi)) : '—'}
+            label={focusCycle ? `Cycle #${focusCycle.cycle_number} net due` : 'Net due'}
+            value={focusCycle && focusNet ? fmtINR(focusNet.netDue) : '—'}
             hint={focusCycle ? `due ${fmtDate(focusCycle.due_date)}` : undefined}
+            tone={focusNet && focusNet.netDue > 0 ? 'warning' : undefined}
           />
           <HeaderStat
             label="Pending confirmations"
@@ -305,6 +302,36 @@ function HeaderCard({
             tone={pendingCount > 0 ? 'warning' : undefined}
           />
         </Box>
+
+        {focusCycle && (
+          <>
+            <Divider />
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Focus cycle — #{focusCycle.cycle_number} · due {fmtDate(focusCycle.due_date)}
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' },
+                  gap: { xs: 1.5, sm: 2.5 },
+                  mt: 0.5,
+                }}
+              >
+                <HeaderStat label="Scheduled due" value={fmtINR(Number(focusCycle.total_due))} />
+                <HeaderStat label="Received" value={fmtINR(Number(focusCycle.total_received))} />
+                <HeaderStat
+                  label="Penalty"
+                  value={
+                    Number(focusCycle.penalty_amount) > 0
+                      ? fmtINR(Number(focusCycle.penalty_amount))
+                      : '—'
+                  }
+                />
+              </Box>
+            </Box>
+          </>
+        )}
 
         {payable && (
           <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 0.5 }}>
