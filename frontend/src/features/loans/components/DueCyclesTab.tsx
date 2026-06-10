@@ -162,6 +162,16 @@ interface CycleActions {
 
 function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actions: CycleActions }) {
   const mode = classifyMode(cycle.cycle_status)
+  // Hide per-cycle Record once the cycle's shortfall is cleared. A fully-paid
+  // row used to keep its Record button, which let admins double-pay the same
+  // cycle by accident. Admins who genuinely want to record an extra payment
+  // against this loan can still do so via the header Record button, which
+  // seeds the next unpaid cycle.
+  const showRecord = actions.payable && Number(cycle.shortfall) > 0
+  // Highlight Classify (primary style) when it's a fresh action-needed state;
+  // keep Reclassify (override of an already-classified row) as ghost since
+  // that's a less common, more deliberate override.
+  const classifyVariant = mode === 'classify' ? 'primary' : 'ghost'
   return (
     <Stack
       direction="row"
@@ -173,13 +183,13 @@ function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actio
         '& .MuiButton-root': { whiteSpace: 'nowrap', minWidth: 'auto' },
       }}
     >
-      {actions.payable && (
+      {showRecord && (
         <Btn variant="ghost" size="sm" onClick={() => actions.onRecord(cycle)}>
           Record payment
         </Btn>
       )}
       {actions.isAdmin && mode && (
-        <Btn variant="ghost" size="sm" onClick={() => actions.onClassify(cycle)}>
+        <Btn variant={classifyVariant} size="sm" onClick={() => actions.onClassify(cycle)}>
           {mode === 'classify' ? 'Classify' : 'Reclassify'}
         </Btn>
       )}
