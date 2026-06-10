@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from app.models.customer import Customer
-from app.models.due_cycle import DueCycle
+from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan, LoanStatus
 from app.models.transaction import (
     PunctualityStatus,
@@ -188,6 +188,68 @@ def recompute_cycle_totals(db: Session, cycle: DueCycle) -> None:
         .scalar()
     )
     cycle.total_received = Decimal(str(total))
+
+
+def maybe_auto_classify_cycle(
+    db: Session,
+    cycle: DueCycle,
+    classifier_id: uuid.UUID,
+) -> bool:
+    """
+    Auto-promote a cycle to PAID_ON_TIME when the obvious-clean conditions
+    are met — i.e. there's no judgment call left for an admin to make:
+
+      - cycle is currently AWAITING_REVIEW (the "needs classify" state),
+      - the cycle's shortfall is zero (total_received >= total_due),
+      - every SUCCESS transaction allocated to this cycle landed on or
+        before the due_date (no late payments).
+
+    When any payment came in late, leaving the cycle in AWAITING_REVIEW
+    is the right move — an admin still has to decide LATE_PAYMENT vs
+    PAID_ON_TIME (with grace) and the penalty math hangs off that call.
+    The system doesn't make penalty decisions on its own.
+
+    The caller is expected to have already called recompute_cycle_totals
+    on the SAME open transaction so cycle.total_received is fresh.
+
+    Returns True when classification fired, False otherwise.
+    """
+    if cycle.cycle_status != CycleStatus.AWAITING_REVIEW:
+        return False
+    if cycle.total_received < cycle.total_due:
+        return False
+
+    has_late_txn = (
+        db.query(Transaction.id)
+        .filter(
+            Transaction.due_cycle_id == cycle.id,
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted.is_(False),
+            Transaction.effective_payment_date > cycle.due_date,
+        )
+        .first()
+        is not None
+    )
+    if has_late_txn:
+        return False
+
+    cycle.cycle_status = CycleStatus.PAID_ON_TIME
+    cycle.classified_as_of_date = cycle.due_date
+    cycle.classified_by_id = classifier_id
+    cycle.classified_at = datetime.now(timezone.utc)
+    cycle.classification_note = "Auto-classified — paid in full by due date"
+
+    # Mirror the manual classify path: every SUCCESS transaction on this
+    # cycle inherits the cycle's punctuality so individual receipts carry
+    # the same verdict.
+    db.query(Transaction).filter(
+        Transaction.due_cycle_id == cycle.id,
+        Transaction.is_deleted.is_(False),
+    ).update(
+        {Transaction.punctuality_status: PunctualityStatus.PAID_ON_TIME},
+        synchronize_session=False,
+    )
+    return True
 
 
 def resolve_due_cycle_for_payment(
@@ -409,6 +471,10 @@ def confirm_transaction(
         )
         if cycle is not None:
             recompute_cycle_totals(db, cycle)
+            # If this confirm completes the cycle cleanly (no late txns,
+            # shortfall=0), promote it to PAID_ON_TIME so the admin doesn't
+            # have to manually classify the trivial case.
+            maybe_auto_classify_cycle(db, cycle, updated_by)
 
     # --- Move to AWAITING_CLOSURE when fully paid ---
     # No more auto-close: the admin must finalise via /loans/{id}/close,
@@ -555,6 +621,11 @@ def update_transaction(
             )
             if cycle is not None:
                 recompute_cycle_totals(db, cycle)
+                # An edit that rescues a NULL-cycle SUCCESS into a real
+                # cycle (or fixes an amount that finally clears shortfall)
+                # follows the same auto-classify rule as confirm: clean
+                # on-time completions resolve themselves.
+                maybe_auto_classify_cycle(db, cycle, updated_by)
         # Avoid unused-variable lint
         _ = old_amount
 
