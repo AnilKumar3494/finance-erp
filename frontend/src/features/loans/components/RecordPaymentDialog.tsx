@@ -1,9 +1,10 @@
 import { useEffect, useMemo } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
 import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -113,6 +114,18 @@ export function RecordPaymentDialog({
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(Schema), defaultValues: defaults })
 
+  // Watch the live cycle pick so we can warn when the user has selected a
+  // cycle that's already fully paid. The backend accepts overpayments (per
+  // the existing "accept and flag" policy) so this is a soft warn, not a
+  // submit block — admins occasionally do post a deliberate extra payment.
+  const watchedCycleId = useWatch({ control, name: 'due_cycle_id' })
+  const selectedCycle = useMemo(
+    () => cycles.find((c) => c.id === watchedCycleId) ?? null,
+    [watchedCycleId, cycles],
+  )
+  const selectedCycleIsPaid =
+    selectedCycle != null && Number(selectedCycle.shortfall) <= 0
+
   // Re-seed (amount/cycle) each time the dialog opens. Deps are intentionally
   // limited to `open`/`defaults`: the react-query mutation object (`create`)
   // gets a new identity on every status change, so including it here made the
@@ -157,6 +170,15 @@ export function RecordPaymentDialog({
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2.5}>
             {error && <ErrorBanner message={error} />}
+
+            {selectedCycleIsPaid && selectedCycle && (
+              <Alert severity="warning" variant="outlined">
+                Cycle #{selectedCycle.cycle_number} has already received its
+                full due ({fmtINR(Number(selectedCycle.total_received))}{' '}
+                received of {fmtINR(Number(selectedCycle.total_due))}).
+                Continue only if this is a legitimate extra payment.
+              </Alert>
+            )}
 
             <Input
               id="rp_amount"
