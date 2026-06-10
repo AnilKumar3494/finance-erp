@@ -22,6 +22,7 @@ import { Route as AuthedCustomersNewRouteImport } from './routes/_authed/custome
 import { Route as AuthedFinancesLoanIdIndexRouteImport } from './routes/_authed/finances/$loanId/index'
 import { Route as AuthedCustomersCustomerIdIndexRouteImport } from './routes/_authed/customers/$customerId/index'
 import { Route as AuthedFinancesLoanIdEditRouteImport } from './routes/_authed/finances/$loanId/edit'
+import { Route as AuthedFinancesLoanIdCollectionsRouteImport } from './routes/_authed/finances/$loanId/collections'
 import { Route as AuthedCustomersCustomerIdEditRouteImport } from './routes/_authed/customers/$customerId/edit'
 
 const LoginRoute = LoginRouteImport.update({
@@ -91,6 +92,12 @@ const AuthedFinancesLoanIdEditRoute =
     path: '/finances/$loanId/edit',
     getParentRoute: () => AuthedRouteRoute,
   } as any)
+const AuthedFinancesLoanIdCollectionsRoute =
+  AuthedFinancesLoanIdCollectionsRouteImport.update({
+    id: '/finances/$loanId/collections',
+    path: '/finances/$loanId/collections',
+    getParentRoute: () => AuthedRouteRoute,
+  } as any)
 const AuthedCustomersCustomerIdEditRoute =
   AuthedCustomersCustomerIdEditRouteImport.update({
     id: '/customers/$customerId/edit',
@@ -109,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/customers/': typeof AuthedCustomersIndexRoute
   '/finances/': typeof AuthedFinancesIndexRoute
   '/customers/$customerId/edit': typeof AuthedCustomersCustomerIdEditRoute
+  '/finances/$loanId/collections': typeof AuthedFinancesLoanIdCollectionsRoute
   '/finances/$loanId/edit': typeof AuthedFinancesLoanIdEditRoute
   '/customers/$customerId/': typeof AuthedCustomersCustomerIdIndexRoute
   '/finances/$loanId/': typeof AuthedFinancesLoanIdIndexRoute
@@ -124,6 +132,7 @@ export interface FileRoutesByTo {
   '/customers': typeof AuthedCustomersIndexRoute
   '/finances': typeof AuthedFinancesIndexRoute
   '/customers/$customerId/edit': typeof AuthedCustomersCustomerIdEditRoute
+  '/finances/$loanId/collections': typeof AuthedFinancesLoanIdCollectionsRoute
   '/finances/$loanId/edit': typeof AuthedFinancesLoanIdEditRoute
   '/customers/$customerId': typeof AuthedCustomersCustomerIdIndexRoute
   '/finances/$loanId': typeof AuthedFinancesLoanIdIndexRoute
@@ -141,6 +150,7 @@ export interface FileRoutesById {
   '/_authed/customers/': typeof AuthedCustomersIndexRoute
   '/_authed/finances/': typeof AuthedFinancesIndexRoute
   '/_authed/customers/$customerId/edit': typeof AuthedCustomersCustomerIdEditRoute
+  '/_authed/finances/$loanId/collections': typeof AuthedFinancesLoanIdCollectionsRoute
   '/_authed/finances/$loanId/edit': typeof AuthedFinancesLoanIdEditRoute
   '/_authed/customers/$customerId/': typeof AuthedCustomersCustomerIdIndexRoute
   '/_authed/finances/$loanId/': typeof AuthedFinancesLoanIdIndexRoute
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/customers/'
     | '/finances/'
     | '/customers/$customerId/edit'
+    | '/finances/$loanId/collections'
     | '/finances/$loanId/edit'
     | '/customers/$customerId/'
     | '/finances/$loanId/'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/finances'
     | '/customers/$customerId/edit'
+    | '/finances/$loanId/collections'
     | '/finances/$loanId/edit'
     | '/customers/$customerId'
     | '/finances/$loanId'
@@ -189,6 +201,7 @@ export interface FileRouteTypes {
     | '/_authed/customers/'
     | '/_authed/finances/'
     | '/_authed/customers/$customerId/edit'
+    | '/_authed/finances/$loanId/collections'
     | '/_authed/finances/$loanId/edit'
     | '/_authed/customers/$customerId/'
     | '/_authed/finances/$loanId/'
@@ -292,6 +305,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedFinancesLoanIdEditRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
+    '/_authed/finances/$loanId/collections': {
+      id: '/_authed/finances/$loanId/collections'
+      path: '/finances/$loanId/collections'
+      fullPath: '/finances/$loanId/collections'
+      preLoaderRoute: typeof AuthedFinancesLoanIdCollectionsRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
     '/_authed/customers/$customerId/edit': {
       id: '/_authed/customers/$customerId/edit'
       path: '/customers/$customerId/edit'
@@ -312,6 +332,7 @@ interface AuthedRouteRouteChildren {
   AuthedCustomersIndexRoute: typeof AuthedCustomersIndexRoute
   AuthedFinancesIndexRoute: typeof AuthedFinancesIndexRoute
   AuthedCustomersCustomerIdEditRoute: typeof AuthedCustomersCustomerIdEditRoute
+  AuthedFinancesLoanIdCollectionsRoute: typeof AuthedFinancesLoanIdCollectionsRoute
   AuthedFinancesLoanIdEditRoute: typeof AuthedFinancesLoanIdEditRoute
   AuthedCustomersCustomerIdIndexRoute: typeof AuthedCustomersCustomerIdIndexRoute
   AuthedFinancesLoanIdIndexRoute: typeof AuthedFinancesLoanIdIndexRoute
@@ -327,6 +348,7 @@ const AuthedRouteRouteChildren: AuthedRouteRouteChildren = {
   AuthedCustomersIndexRoute: AuthedCustomersIndexRoute,
   AuthedFinancesIndexRoute: AuthedFinancesIndexRoute,
   AuthedCustomersCustomerIdEditRoute: AuthedCustomersCustomerIdEditRoute,
+  AuthedFinancesLoanIdCollectionsRoute: AuthedFinancesLoanIdCollectionsRoute,
   AuthedFinancesLoanIdEditRoute: AuthedFinancesLoanIdEditRoute,
   AuthedCustomersCustomerIdIndexRoute: AuthedCustomersCustomerIdIndexRoute,
   AuthedFinancesLoanIdIndexRoute: AuthedFinancesLoanIdIndexRoute,
