@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import Alert from '@mui/material/Alert'
@@ -24,6 +24,7 @@ import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
 import { RecordPaymentDialog } from '../components/RecordPaymentDialog'
 import { deriveNetDue, type CycleNetDue } from '../cycleNetDue'
+import { focusTransaction } from '../txnFocus'
 
 // Read search params (`?action=record&cycleId=`) from the cockpit route. Using
 // getRouteApi instead of importing the Route object avoids a circular import
@@ -129,6 +130,20 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
     // later still seeds correctly because the dialog itself fetches cycles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.action, search.cycleId])
+
+  // Deep-link from the Confirmations worklist: scroll to + pulse the targeted
+  // transaction row. Wait until the txn is actually in the loaded list so the
+  // row exists for TransactionsTab's focus handler, then strip the param.
+  const focusedRef = useRef<string | null>(null)
+  useEffect(() => {
+    const id = search.focusTxn
+    if (!id || focusedRef.current === id) return
+    if (!txns.some((t) => t.id === id)) return
+    focusedRef.current = id
+    const raf = requestAnimationFrame(() => focusTransaction(id))
+    navigate({ to: '.', search: (prev) => ({ ...prev, focusTxn: undefined }), replace: true })
+    return () => cancelAnimationFrame(raf)
+  }, [search.focusTxn, txns, navigate])
 
   const onHeaderRecord = () => {
     const target = focusCycle

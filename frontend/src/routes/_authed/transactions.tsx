@@ -10,7 +10,7 @@ interface WorklistSearch {
 }
 
 export const Route = createFileRoute('/_authed/transactions')({
-  staticData: { title: 'Collections' },
+  staticData: { title: 'Collections & Actions' },
   validateSearch: (raw: Record<string, unknown>): WorklistSearch => {
     const view =
       typeof raw.view === 'string' && (WORKLIST_VIEWS as readonly string[]).includes(raw.view)

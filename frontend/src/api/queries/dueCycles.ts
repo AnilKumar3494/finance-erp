@@ -72,6 +72,9 @@ export interface DueCycleWorklistItem {
   penalty_amount: string
   cycle_status: CycleStatus
   days_overdue: number
+  // Money in flight: PENDING transactions allocated to this cycle.
+  pending_count: number
+  pending_total: string
   loan_number: string
   loan_status: LoanStatus
   customer_id: string

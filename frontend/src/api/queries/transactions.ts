@@ -73,6 +73,50 @@ export function useLoanTransactions(loanId: string | undefined, enabled = true) 
   })
 }
 
+// --------------------------------------------------
+// Pending confirmations worklist — cross-loan PENDING transactions awaiting an
+// admin's confirm/fail, enriched with loan + customer (+ cycle). Mirrors
+// backend GET /transactions/pending-confirmations.
+// --------------------------------------------------
+export interface PendingConfirmationItem {
+  id: string
+  loan_id: string
+  loan_number: string
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+  amount: string
+  payment_mode: PaymentMethod
+  effective_payment_date: string
+  collected_by_id: string | null
+  created_at: string
+  due_cycle_id: string | null
+  cycle_number: number | null
+  cycle_due_date: string | null
+}
+
+export interface PendingConfirmationListResponse {
+  total: number
+  page: number
+  page_size: number
+  total_pending_amount: string
+  results: PendingConfirmationItem[]
+}
+
+export function usePendingConfirmations(page: number, pageSize = 20) {
+  return useQuery({
+    queryKey: [...transactionKeys.all, 'pendingConfirmations', page, pageSize] as const,
+    queryFn: async () => {
+      const { data } = await apiClient.get<PendingConfirmationListResponse>(
+        '/transactions/pending-confirmations',
+        { params: { page, page_size: pageSize } },
+      )
+      return data
+    },
+    placeholderData: (prev) => prev,
+  })
+}
+
 export function useLoanSummary(loanId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: transactionKeys.summary(loanId ?? ''),
