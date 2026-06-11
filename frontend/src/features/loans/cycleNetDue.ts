@@ -28,8 +28,14 @@ import type { DueCycleResponse } from '@/api/queries/dueCycles'
 // To avoid double-counting AND to stop re-collecting money that's already
 // being recovered, a late cycle that had later cycles to spread into uses its
 // `total_received` as its obligation: it self-satisfies (netDue 0, resolved).
-// The last-cycle-late case has no future cycles to spread into, so its
-// shortfall is genuinely still owed — it stays a normal obligation.
+//
+// The last-cycle-late case has no future cycles to spread into, so nothing was
+// rolled forward: its shortfall is genuinely still owed AND its penalty —
+// which a cycle's `total_due` never includes — lives only on `penalty_amount`.
+// So its obligation is `total_due + penalty_amount` (cases.md Case 26: the
+// admin chases shortfall + penalty). For every spread-forward late cycle the
+// penalty is already inside the later cycles' `total_due`, so it is not added
+// again here.
 //
 // Invariant (holds in the normal payment flow): Σ netDue == loan outstanding.
 // --------------------------------------------------
@@ -38,9 +44,14 @@ export interface CycleNetDue {
   // Effective amount still owed for this cycle after running credit forward.
   netDue: number
   // True when this is a late cycle whose deficit was rolled into later EMIs —
-  // the row is a historical scar, not a live bill. UI should show "Recovered"
-  // and not offer to collect against it.
+  // the row is a historical scar, not a live bill. UI should not offer to
+  // collect against it.
   resolved: boolean
+  // Why it's resolved, for labelling: 'recovered' = a LATE_PAYMENT cycle being
+  // collected through the inflated future EMIs (reassuring); 'capped' = a
+  // MISSED_CAPPED cycle whose loan is in bad-debt review (NOT reassuring — same
+  // spread math, opposite meaning). Undefined when not resolved.
+  resolvedKind?: 'recovered' | 'capped'
 }
 
 function round2(n: number): number {
@@ -63,9 +74,17 @@ export function deriveNetDue(
     // Spread only happened if there was a later cycle to spread into.
     const spreadForward = isLate && c.cycle_number < lastNumber
 
-    const obligation = spreadForward
-      ? Number(c.total_received)
-      : Number(c.total_due)
+    let obligation: number
+    if (spreadForward) {
+      // Resolved — deficit + penalty already live in the later cycles' EMIs.
+      obligation = Number(c.total_received)
+    } else if (isLate) {
+      // Last-cycle late: nothing was spread, so its own penalty (never part of
+      // total_due) is still owed on top of the shortfall.
+      obligation = Number(c.total_due) + Number(c.penalty_amount)
+    } else {
+      obligation = Number(c.total_due)
+    }
 
     const applied = Math.min(pool, obligation)
     pool = round2(pool - applied)
@@ -73,6 +92,11 @@ export function deriveNetDue(
     out.set(c.id, {
       netDue: spreadForward ? 0 : round2(obligation - applied),
       resolved: spreadForward,
+      resolvedKind: spreadForward
+        ? c.cycle_status === 'MISSED_CAPPED'
+          ? 'capped'
+          : 'recovered'
+        : undefined,
     })
   }
 

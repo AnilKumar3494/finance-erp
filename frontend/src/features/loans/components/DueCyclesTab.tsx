@@ -118,6 +118,25 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
 
   const showActions = payable || isAdmin
 
+  // "Recovery stale" — a late cycle whose deficit was spread forward (resolved)
+  // but which has since received a SUCCESS payment recorded AFTER it was
+  // classified. The spread was frozen at classification, so that payment isn't
+  // reflected in the schedule yet: the admin must reclassify to apply it. We
+  // surface a nudge on the row instead of leaving the payment silently stranded.
+  const staleCycleIds = new Set<string>()
+  for (const c of rows) {
+    if (!netDueByCycleId.get(c.id)?.resolved || !c.classified_at) continue
+    const classifiedAt = new Date(c.classified_at).getTime()
+    const hasPostClassPayment = txns.some(
+      (t) =>
+        !t.is_deleted &&
+        t.status === 'SUCCESS' &&
+        t.due_cycle_id === c.id &&
+        new Date(t.created_at).getTime() > classifiedAt,
+    )
+    if (hasPostClassPayment) staleCycleIds.add(c.id)
+  }
+
   // Build display state per cycle once so both the desktop table and the
   // mobile cards render the same chip without re-deriving.
   const displayByCycleId = new Map<string, CycleDisplay>(
@@ -140,6 +159,7 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
         showActions={showActions}
         displayByCycleId={displayByCycleId}
         netDueByCycleId={netDueByCycleId}
+        staleCycleIds={staleCycleIds}
         onChipClick={onChipClick}
       />
       <MobileCards
@@ -148,6 +168,7 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
         showActions={showActions}
         displayByCycleId={displayByCycleId}
         netDueByCycleId={netDueByCycleId}
+        staleCycleIds={staleCycleIds}
         onChipClick={onChipClick}
       />
 
@@ -179,10 +200,12 @@ function CycleActionButtons({
   cycle,
   actions,
   net,
+  stale,
 }: {
   cycle: DueCycleResponse
   actions: CycleActions
   net?: CycleNetDue
+  stale?: boolean
 }) {
   const mode = classifyMode(cycle.cycle_status)
   // Hide per-cycle Record once nothing is genuinely owed for this cycle. We
@@ -193,10 +216,10 @@ function CycleActionButtons({
   // covers any deliberate extra payment.
   const owed = net ? net.netDue : Number(cycle.shortfall)
   const showRecord = actions.payable && owed > 0
-  // Highlight Classify (primary style) when it's a fresh action-needed state;
-  // keep Reclassify (override of an already-classified row) as ghost since
-  // that's a less common, more deliberate override.
-  const classifyVariant = mode === 'classify' ? 'primary' : 'ghost'
+  // Highlight Classify (primary) when it's a fresh action-needed state. A stale
+  // cycle (an unapplied payment is waiting on a reclassify) also gets the
+  // primary call-to-action; otherwise Reclassify stays a quiet ghost override.
+  const classifyVariant = mode === 'classify' || stale ? 'primary' : 'ghost'
   return (
     <Stack
       direction="row"
@@ -215,7 +238,7 @@ function CycleActionButtons({
       )}
       {actions.isAdmin && mode && (
         <Btn variant={classifyVariant} size="sm" onClick={() => actions.onClassify(cycle)}>
-          {mode === 'classify' ? 'Classify' : 'Reclassify'}
+          {mode === 'classify' ? 'Classify' : stale ? 'Reclassify to apply' : 'Reclassify'}
         </Btn>
       )}
     </Stack>
@@ -228,11 +251,25 @@ const Dash = () => (
   </Typography>
 )
 
-function NetDueValue({ net }: { net?: CycleNetDue }) {
-  if (net?.resolved) {
+function NetDueValue({ net, stale }: { net?: CycleNetDue; stale?: boolean }) {
+  // A stale resolved cycle has an unapplied payment — flag it as an action,
+  // not a calm "Recovered".
+  if (stale) {
     return (
-      <Typography component="span" variant="body2" color="success.main">
-        Recovered
+      <Typography component="span" variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>
+        Reclassify to apply
+      </Typography>
+    )
+  }
+  if (net?.resolved) {
+    const capped = net.resolvedKind === 'capped'
+    return (
+      <Typography
+        component="span"
+        variant="body2"
+        color={capped ? 'error.main' : 'success.main'}
+      >
+        {capped ? 'Bad debt' : 'Recovered'}
       </Typography>
     )
   }
@@ -249,6 +286,7 @@ function DesktopTable({
   showActions,
   displayByCycleId,
   netDueByCycleId,
+  staleCycleIds,
   onChipClick,
 }: {
   rows: DueCycleResponse[]
@@ -256,6 +294,7 @@ function DesktopTable({
   showActions: boolean
   displayByCycleId: Map<string, CycleDisplay>
   netDueByCycleId: Map<string, CycleNetDue>
+  staleCycleIds: Set<string>
   onChipClick: (d: CycleDisplay) => void
 }) {
   return (
@@ -292,7 +331,7 @@ function DesktopTable({
                   <TableCell align="right">{fmtINR(Number(c.total_due))}</TableCell>
                   <TableCell align="right">{fmtINR(Number(c.total_received))}</TableCell>
                   <TableCell align="right">
-                    <NetDueValue net={netDueByCycleId.get(c.id)} />
+                    <NetDueValue net={netDueByCycleId.get(c.id)} stale={staleCycleIds.has(c.id)} />
                   </TableCell>
                   <TableCell align="right" sx={{ color: shortfall ? 'error.main' : undefined }}>
                     {shortfall ?? <Dash />}
@@ -317,6 +356,7 @@ function DesktopTable({
                         cycle={c}
                         actions={actions}
                         net={netDueByCycleId.get(c.id)}
+                        stale={staleCycleIds.has(c.id)}
                       />
                     </TableCell>
                   )}
@@ -336,6 +376,7 @@ function MobileCards({
   showActions,
   displayByCycleId,
   netDueByCycleId,
+  staleCycleIds,
   onChipClick,
 }: {
   rows: DueCycleResponse[]
@@ -343,6 +384,7 @@ function MobileCards({
   showActions: boolean
   displayByCycleId: Map<string, CycleDisplay>
   netDueByCycleId: Map<string, CycleNetDue>
+  staleCycleIds: Set<string>
   onChipClick: (d: CycleDisplay) => void
 }) {
   return (
@@ -350,6 +392,7 @@ function MobileCards({
       {rows.map((c) => {
         const shortfall = amountOrDash(c.shortfall)
         const net = netDueByCycleId.get(c.id)
+        const stale = staleCycleIds.has(c.id)
         return (
           <Box
             key={c.id}
@@ -385,13 +428,22 @@ function MobileCards({
               <LabelValue label="Received" value={fmtINR(Number(c.total_received))} />
               <LabelValue
                 label="Net due"
-                value={net?.resolved ? 'Recovered' : fmtINR(net?.netDue ?? 0)}
+                value={
+                  stale
+                    ? 'Reclassify to apply'
+                    : net?.resolved
+                      ? net.resolvedKind === 'capped'
+                        ? 'Bad debt'
+                        : 'Recovered'
+                      : fmtINR(net?.netDue ?? 0)
+                }
+                danger={stale}
               />
               {shortfall && <LabelValue label="Shortfall" value={shortfall} danger />}
             </Stack>
             {showActions && (
               <Box sx={{ mt: 1.5 }}>
-                <CycleActionButtons cycle={c} actions={actions} net={net} />
+                <CycleActionButtons cycle={c} actions={actions} net={net} stale={stale} />
               </Box>
             )}
           </Box>

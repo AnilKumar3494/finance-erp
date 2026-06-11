@@ -126,6 +126,20 @@ export function RecordPaymentDialog({
   const selectedCycleIsPaid =
     selectedCycle != null && Number(selectedCycle.shortfall) <= 0
 
+  // A late cycle with a later cycle on the loan has already had its dues spread
+  // forward into those later EMIs. Recording against it won't reduce the
+  // schedule — the admin should record against the next due cycle or reclassify
+  // this one. Soft warn (the backend still accepts it).
+  const lastCycleNumber = useMemo(
+    () => cycles.reduce((max, c) => Math.max(max, c.cycle_number), 0),
+    [cycles],
+  )
+  const selectedCycleSpreadForward =
+    selectedCycle != null &&
+    (selectedCycle.cycle_status === 'LATE_PAYMENT' ||
+      selectedCycle.cycle_status === 'MISSED_CAPPED') &&
+    selectedCycle.cycle_number < lastCycleNumber
+
   // Re-seed (amount/cycle) each time the dialog opens. Deps are intentionally
   // limited to `open`/`defaults`: the react-query mutation object (`create`)
   // gets a new identity on every status change, so including it here made the
@@ -171,7 +185,17 @@ export function RecordPaymentDialog({
           <Stack spacing={2.5}>
             {error && <ErrorBanner message={error} />}
 
-            {selectedCycleIsPaid && selectedCycle && (
+            {selectedCycleSpreadForward && selectedCycle && (
+              <Alert severity="warning" variant="outlined">
+                Cycle #{selectedCycle.cycle_number} was classified late — its
+                dues are already being recovered through the later EMIs.
+                Recording here won't reduce the schedule. Record against the
+                next due cycle instead, or reclassify cycle #
+                {selectedCycle.cycle_number} once the customer settles it.
+              </Alert>
+            )}
+
+            {selectedCycleIsPaid && !selectedCycleSpreadForward && selectedCycle && (
               <Alert severity="warning" variant="outlined">
                 Cycle #{selectedCycle.cycle_number} has already received its
                 full due ({fmtINR(Number(selectedCycle.total_received))}{' '}

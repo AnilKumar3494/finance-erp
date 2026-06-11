@@ -217,8 +217,14 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
           {nextEmi && (
             <HeaderStat
               label="Next EMI"
-              value={fmtINR(Number(nextEmi.base_emi))}
-              hint={`due ${fmtDate(nextEmi.due_date)}`}
+              // Show the actual amount due that month (base EMI + any penalty
+              // add-on spread from an earlier late cycle), not the sticker EMI.
+              value={fmtINR(Number(nextEmi.total_due))}
+              hint={
+                Number(nextEmi.addon_from_penalties) > 0
+                  ? `due ${fmtDate(nextEmi.due_date)} · ${fmtINR(Number(nextEmi.base_emi))} + ${fmtINR(Number(nextEmi.addon_from_penalties))} penalty`
+                  : `due ${fmtDate(nextEmi.due_date)}`
+              }
             />
           )}
           {loan.tenure != null && <HeaderStat label="Tenure" value={`${loan.tenure} months`} />}

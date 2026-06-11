@@ -248,27 +248,57 @@ export function buildMuiTheme(mode: Mode) {
       },
 
       // ---- Alert -------------------------------------------------------
-      // In dark mode the `*-light` tokens are low-alpha rgba tints (used as
-      // subtle backgrounds). MUI derives the outlined/standard Alert TEXT
-      // colour from `palette.<sev>.light`, so that alpha tint yields a nearly
-      // invisible label. Pin the text/border/icon to the solid severity token
-      // so warnings et al. stay legible in both themes.
+      // Two legibility traps MUI's defaults hit with our palette:
+      //
+      //  - outlined/standard: MUI derives the TEXT colour from
+      //    `palette.<sev>.light`. In dark mode those `*-light` tokens are
+      //    low-alpha rgba tints, so the label nearly vanishes. We pin
+      //    text/border/icon to the solid severity token.
+      //
+      //  - filled: MUI paints the label with `getContrastText(<sev>.main)`.
+      //    For the light-theme danger red (#dc2626) that resolves to DARK text
+      //    on a dark-red fill — an unreadable, near-empty-looking box (the
+      //    light-theme "error messages not coming" bug). We pin filled alerts
+      //    to a solid saturated background + white text, identical in both
+      //    themes, so they're always legible regardless of the mode token.
       MuiAlert: {
         styleOverrides: {
           root: ({ ownerState }) => {
+            const variant = ownerState.variant
+            const severity = ownerState.severity
+
+            if (variant === 'filled') {
+              // Saturated, mid-dark fills that white text always reads on —
+              // fixed across themes (mode tokens flip too light in dark mode).
+              const filledBg: Record<string, string> = {
+                error: '#dc2626',
+                warning: '#d97706',
+                success: '#16a34a',
+                info: '#2563eb',
+              }
+              const bg = severity ? filledBg[severity] : undefined
+              if (!bg) return {}
+              return {
+                backgroundColor: bg,
+                color: '#fff',
+                '& .MuiAlert-icon': { color: '#fff' },
+                '& .MuiAlert-action': { color: '#fff' },
+              }
+            }
+
             const sev: Record<string, string> = {
               warning: tokens.warning,
               error: tokens.danger,
               success: tokens.success,
             }
-            const c = ownerState.severity ? sev[ownerState.severity] : undefined
-            if (!c || (ownerState.variant !== 'outlined' && ownerState.variant !== 'standard')) {
+            const c = severity ? sev[severity] : undefined
+            if (!c || (variant !== 'outlined' && variant !== 'standard')) {
               return {}
             }
             return {
               color: c,
               '& .MuiAlert-icon': { color: c },
-              ...(ownerState.variant === 'outlined' ? { borderColor: c } : {}),
+              ...(variant === 'outlined' ? { borderColor: c } : {}),
             }
           },
         },

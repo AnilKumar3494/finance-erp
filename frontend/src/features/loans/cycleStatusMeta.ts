@@ -19,18 +19,18 @@ export const CYCLE_STATUS_META: Record<
     variant?: ChipProps['variant']
   }
 > = {
-  UPCOMING: { label: 'Upcoming', color: 'default' },
-  PENDING_CONFIRMATION: { label: 'Pending confirmation', color: 'info' },
-  PAID_IN_ADVANCE: { label: 'Paid in advance', color: 'success', variant: 'outlined' },
+  UPCOMING: { label: 'Not due yet', color: 'default' },
+  PENDING_CONFIRMATION: { label: 'Awaiting confirmation', color: 'info' },
+  PAID_IN_ADVANCE: { label: 'Paid ahead', color: 'success', variant: 'outlined' },
   // After the backend's auto-classify rule promotes clean on-time cycles to
   // PAID_ON_TIME on the confirming transaction, AWAITING_REVIEW only remains
   // for cycles where an admin actually needs to make a call — typically a
   // late payment (penalty math) or a shortfall that hasn't been cleared. The
-  // chip label reflects the action the admin needs to take.
-  AWAITING_REVIEW: { label: 'Past due — classify', color: 'warning' },
+  // chip label reflects the action the admin needs to take, in plain words.
+  AWAITING_REVIEW: { label: 'Overdue — needs review', color: 'warning' },
   PAID_ON_TIME: { label: 'Paid on time', color: 'success' },
-  LATE_PAYMENT: { label: 'Late payment', color: 'warning' },
-  MISSED_CAPPED: { label: 'Missed (capped)', color: 'error' },
+  LATE_PAYMENT: { label: 'Late', color: 'warning' },
+  MISSED_CAPPED: { label: 'Defaulted — bad debt', color: 'error' },
 }
 
 // Back-compat helper for callers that still hand in a raw CycleStatus

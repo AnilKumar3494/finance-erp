@@ -101,6 +101,9 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
   )
   const focusNet = focusCycle ? netDueByCycleId.get(focusCycle.id) : undefined
 
+  // Total penalty currently active on the loan = Σ each cycle's own penalty.
+  const penaltiesTotal = cycles.reduce((sum, c) => sum + Number(c.penalty_amount), 0)
+
   const pendingTxns = txns.filter((t) => t.status === 'PENDING')
   const pendingTotal = pendingTxns.reduce((sum, t) => sum + Number(t.amount), 0)
 
@@ -142,6 +145,7 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
         summary={summaryQuery.data}
         focusCycle={focusCycle}
         focusNet={focusNet}
+        penaltiesTotal={penaltiesTotal}
         pendingCount={pendingTxns.length}
         pendingTotal={pendingTotal}
         payable={payable}
@@ -190,6 +194,7 @@ interface HeaderCardProps {
   summary: LoanTransactionSummary | undefined
   focusCycle: DueCycleResponse | null
   focusNet: CycleNetDue | undefined
+  penaltiesTotal: number
   pendingCount: number
   pendingTotal: number
   payable: boolean
@@ -201,11 +206,18 @@ function HeaderCard({
   summary,
   focusCycle,
   focusNet,
+  penaltiesTotal,
   pendingCount,
   pendingTotal,
   payable,
   onRecord,
 }: HeaderCardProps) {
+  // Nominal monthly instalment (base EMI) — total payable spread over tenure.
+  const nextEmi =
+    loan.total_payable != null && loan.tenure
+      ? Number(loan.total_payable) / loan.tenure
+      : null
+
   return (
     <Card>
       <Stack spacing={1.5}>
@@ -274,6 +286,57 @@ function HeaderCard({
 
         <Divider />
 
+        {/* Loan terms — the fixed contract figures. */}
+        <Box>
+          <Typography variant="overline" color="text.secondary">
+            Loan terms
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)', md: 'repeat(5, 1fr)' },
+              gap: { xs: 1.5, sm: 2.5 },
+              mt: 0.5,
+            }}
+          >
+            <HeaderStat label="Principal" value={fmtINR(Number(loan.principal))} />
+            <HeaderStat
+              label="Interest rate"
+              value={loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : '—'}
+            />
+            <HeaderStat
+              label="Tenure"
+              value={loan.tenure != null ? `${loan.tenure} months` : '—'}
+            />
+            <HeaderStat
+              label="Total payable"
+              value={loan.total_payable != null ? fmtINR(Number(loan.total_payable)) : '—'}
+            />
+            <HeaderStat
+              label="Next EMI"
+              // The actual amount due on the next collectible cycle (base EMI +
+              // any penalty add-on), with the breakdown — not the sticker EMI.
+              value={
+                focusCycle
+                  ? fmtINR(Number(focusCycle.total_due))
+                  : nextEmi != null
+                    ? fmtINR(nextEmi)
+                    : '—'
+              }
+              hint={
+                focusCycle
+                  ? Number(focusCycle.addon_from_penalties) > 0
+                    ? `due ${fmtDate(focusCycle.due_date)} · ${fmtINR(Number(focusCycle.base_emi))} + ${fmtINR(Number(focusCycle.addon_from_penalties))} penalty`
+                    : `due ${fmtDate(focusCycle.due_date)}`
+                  : undefined
+              }
+            />
+          </Box>
+        </Box>
+
+        <Divider />
+
+        {/* Money — live balances. */}
         <Box
           sx={{
             display: 'grid',
@@ -290,10 +353,9 @@ function HeaderCard({
             value={summary ? fmtINR(Number(summary.total_paid)) : '—'}
           />
           <HeaderStat
-            label={focusCycle ? `Cycle #${focusCycle.cycle_number} net due` : 'Net due'}
-            value={focusCycle && focusNet ? fmtINR(focusNet.netDue) : '—'}
-            hint={focusCycle ? `due ${fmtDate(focusCycle.due_date)}` : undefined}
-            tone={focusNet && focusNet.netDue > 0 ? 'warning' : undefined}
+            label="Penalties"
+            value={penaltiesTotal > 0 ? fmtINR(penaltiesTotal) : '—'}
+            tone={penaltiesTotal > 0 ? 'warning' : undefined}
           />
           <HeaderStat
             label="Pending confirmations"
@@ -313,11 +375,16 @@ function HeaderCard({
               <Box
                 sx={{
                   display: 'grid',
-                  gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' },
+                  gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
                   gap: { xs: 1.5, sm: 2.5 },
                   mt: 0.5,
                 }}
               >
+                <HeaderStat
+                  label="Net due"
+                  value={focusNet ? fmtINR(focusNet.netDue) : '—'}
+                  tone={focusNet && focusNet.netDue > 0 ? 'warning' : undefined}
+                />
                 <HeaderStat label="Scheduled due" value={fmtINR(Number(focusCycle.total_due))} />
                 <HeaderStat label="Received" value={fmtINR(Number(focusCycle.total_received))} />
                 <HeaderStat
