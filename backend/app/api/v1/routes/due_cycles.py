@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,7 +14,7 @@ from app.dependencies.auth import get_current_user, require_admin
 from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan
-from app.models.transaction import PunctualityStatus, Transaction
+from app.models.transaction import PunctualityStatus, Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.due_cycle import (
     CycleClassifyRequest,
@@ -111,28 +112,53 @@ def worklist(
         assigned_employee_id=scope,
     )
 
-    today = today_in_tz(settings.REPORTS_TIMEZONE)
-    results = [
-        DueCycleWorklistItem(
-            id=cycle.id,
-            loan_id=cycle.loan_id,
-            cycle_number=cycle.cycle_number,
-            due_date=cycle.due_date,
-            total_due=cycle.total_due,
-            total_received=cycle.total_received,
-            shortfall=compute_shortfall(cycle),
-            penalty_amount=cycle.penalty_amount,
-            cycle_status=cycle.cycle_status,
-            days_overdue=max(0, (today - cycle.due_date).days),
-            loan_number=loan.loan_number,
-            loan_status=loan.status,
-            customer_id=customer.id,
-            customer_name=customer.full_name,
-            customer_mobile=customer.mobile_number,
-            mandal_village=customer.mandal_village,
+    # "Money in flight" per cycle — PENDING transactions awaiting confirm/fail.
+    # One grouped query for the whole page beats a correlated subquery per row.
+    cycle_ids = [cycle.id for cycle, _loan, _customer in rows]
+    pending_map: dict = {}
+    if cycle_ids:
+        pend_rows = (
+            db.query(
+                Transaction.due_cycle_id,
+                func.count(Transaction.id),
+                func.coalesce(func.sum(Transaction.amount), 0),
+            )
+            .filter(
+                Transaction.due_cycle_id.in_(cycle_ids),
+                Transaction.status == TransactionStatus.PENDING,
+                Transaction.is_deleted.is_(False),
+            )
+            .group_by(Transaction.due_cycle_id)
+            .all()
         )
-        for cycle, loan, customer in rows
-    ]
+        pending_map = {r[0]: (int(r[1]), r[2]) for r in pend_rows}
+
+    today = today_in_tz(settings.REPORTS_TIMEZONE)
+    results = []
+    for cycle, loan, customer in rows:
+        pend_count, pend_total = pending_map.get(cycle.id, (0, 0))
+        results.append(
+            DueCycleWorklistItem(
+                id=cycle.id,
+                loan_id=cycle.loan_id,
+                cycle_number=cycle.cycle_number,
+                due_date=cycle.due_date,
+                total_due=cycle.total_due,
+                total_received=cycle.total_received,
+                shortfall=compute_shortfall(cycle),
+                penalty_amount=cycle.penalty_amount,
+                cycle_status=cycle.cycle_status,
+                days_overdue=max(0, (today - cycle.due_date).days),
+                pending_count=pend_count,
+                pending_total=pend_total,
+                loan_number=loan.loan_number,
+                loan_status=loan.status,
+                customer_id=customer.id,
+                customer_name=customer.full_name,
+                customer_mobile=customer.mobile_number,
+                mandal_village=customer.mandal_village,
+            )
+        )
     return DueCycleWorklistResponse(
         total=total, page=page, page_size=page_size, results=results
     )

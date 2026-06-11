@@ -113,6 +113,55 @@ def list_transactions(
     return results, total, Decimal(str(total_collected))
 
 
+def list_pending_confirmations(
+    db: Session,
+    *,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[tuple], int, Decimal]:
+    """
+    Cross-loan worklist of PENDING transactions awaiting admin confirm/fail.
+
+    Joins each pending transaction to its loan + customer (and left-joins the
+    allocated due-cycle) so the Collections & Actions surface can render the
+    row without N+1 lookups. EMPLOYEE scope limits to their assigned customers.
+
+    Returns (rows, total, total_pending_amount) where each row is a
+    (Transaction, Loan, Customer, DueCycle|None) tuple. Oldest-waiting first so
+    the longest-outstanding confirmations float to the top.
+    """
+    query = (
+        db.query(Transaction, Loan, Customer, DueCycle)
+        .join(Loan, Transaction.loan_id == Loan.id)
+        .join(Customer, Loan.customer_id == Customer.id)
+        .outerjoin(DueCycle, Transaction.due_cycle_id == DueCycle.id)
+        .filter(
+            Transaction.status == TransactionStatus.PENDING,
+            Transaction.is_deleted.is_(False),
+            Loan.is_deleted.is_(False),
+            Customer.is_deleted.is_(False),
+        )
+    )
+
+    if assigned_employee_id is not None:
+        query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    total = query.count()
+    total_amount = (
+        query.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
+    )
+
+    rows = (
+        query.order_by(Transaction.created_at.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return rows, total, Decimal(str(total_amount))
+
+
 def get_loan_transaction_summary(db: Session, loan: Loan) -> dict:
     """
     Calculate outstanding balance for a loan.

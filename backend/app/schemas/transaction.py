@@ -138,3 +138,38 @@ class LoanTransactionSummary(BaseModel):
     total_pending: Decimal
     outstanding: Decimal
     transaction_count: int
+
+
+# --------------------------------------------------
+# PENDING CONFIRMATIONS WORKLIST
+# Cross-loan list of PENDING transactions awaiting an admin's confirm/fail,
+# joined to loan + customer (+ the allocated cycle) so the Collections &
+# Actions surface can show who/what without a per-row lookup.
+# --------------------------------------------------
+class PendingConfirmationItem(BaseModel):
+    id: uuid.UUID  # transaction id
+    loan_id: uuid.UUID
+    loan_number: str
+
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+
+    amount: Decimal
+    payment_mode: PaymentMethod
+    effective_payment_date: date
+    collected_by_id: Optional[uuid.UUID] = None
+    created_at: datetime
+
+    # Allocated cycle (left-joined; legacy rows may be unallocated)
+    due_cycle_id: Optional[uuid.UUID] = None
+    cycle_number: Optional[int] = None
+    cycle_due_date: Optional[date] = None
+
+
+class PendingConfirmationListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    total_pending_amount: Decimal
+    results: list[PendingConfirmationItem]

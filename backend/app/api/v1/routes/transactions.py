@@ -12,6 +12,8 @@ from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User, UserRole
 from app.schemas.transaction import (
     LoanTransactionSummary,
+    PendingConfirmationItem,
+    PendingConfirmationListResponse,
     TransactionCreate,
     TransactionListResponse,
     TransactionResponse,
@@ -24,6 +26,7 @@ from app.services.transaction import (
     fail_transaction,
     get_loan_transaction_summary,
     get_transaction,
+    list_pending_confirmations,
     list_transactions,
     soft_delete_transaction,
     update_transaction,
@@ -112,6 +115,53 @@ def list_all(
         page=page,
         page_size=page_size,
         total_collected=total_collected,
+        results=results,
+    )
+
+
+# --------------------------------------------------
+# PENDING CONFIRMATIONS WORKLIST (Collections & Actions)
+# Registered before /{transaction_id} so the static path isn't shadowed.
+# --------------------------------------------------
+@router.get(
+    "/pending-confirmations",
+    response_model=PendingConfirmationListResponse,
+    summary="Cross-loan list of payments awaiting confirmation",
+)
+def pending_confirmations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    scope = current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    rows, total, total_amount = list_pending_confirmations(
+        db, assigned_employee_id=scope, page=page, page_size=page_size
+    )
+    results = [
+        PendingConfirmationItem(
+            id=txn.id,
+            loan_id=loan.id,
+            loan_number=loan.loan_number,
+            customer_id=customer.id,
+            customer_name=customer.full_name,
+            customer_mobile=customer.mobile_number,
+            amount=txn.amount,
+            payment_mode=txn.payment_mode,
+            effective_payment_date=txn.effective_payment_date,
+            collected_by_id=txn.collected_by_id,
+            created_at=txn.created_at,
+            due_cycle_id=txn.due_cycle_id,
+            cycle_number=cycle.cycle_number if cycle is not None else None,
+            cycle_due_date=cycle.due_date if cycle is not None else None,
+        )
+        for txn, loan, customer, cycle in rows
+    ]
+    return PendingConfirmationListResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pending_amount=total_amount,
         results=results,
     )
 
