@@ -297,7 +297,10 @@ function DesktopTable({
                   hover
                   sx={{ cursor: 'pointer' }}
                   onClick={() =>
-                    navigate({ to: '/finances/$loanId', params: { loanId: r.loan_id } })
+                    navigate({
+                      to: '/finances/$loanId/collections',
+                      params: { loanId: r.loan_id },
+                    })
                   }
                 >
                   <TableCell>
@@ -361,7 +364,12 @@ function MobileCards({
       {rows.map((r) => (
         <Card
           key={r.id}
-          onClick={() => navigate({ to: '/finances/$loanId', params: { loanId: r.loan_id } })}
+          onClick={() =>
+            navigate({
+              to: '/finances/$loanId/collections',
+              params: { loanId: r.loan_id },
+            })
+          }
           sx={{ p: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }}
         >
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>

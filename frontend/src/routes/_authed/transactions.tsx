@@ -10,14 +10,13 @@ interface WorklistSearch {
 }
 
 export const Route = createFileRoute('/_authed/transactions')({
-  staticData: { title: 'Collections & Actions' },
+  staticData: { title: 'Collections' },
   validateSearch: (raw: Record<string, unknown>): WorklistSearch => {
     const view =
       typeof raw.view === 'string' && (WORKLIST_VIEWS as readonly string[]).includes(raw.view)
         ? (raw.view as WorklistView)
         : 'due'
-    const search =
-      typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
+    const search = typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
     const page = Number(raw.page)
     return {
       view,
