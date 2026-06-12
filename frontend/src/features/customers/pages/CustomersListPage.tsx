@@ -125,9 +125,9 @@ export function CustomersListPage() {
           />
         </Box>
         <Stack
-          direction="row"
+          direction={{ xs: 'column', sm: 'row' }}
           spacing={1.5}
-          sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'flex-end' }}
         >
           <SortSelect
             options={SORT_OPTIONS}
@@ -139,7 +139,7 @@ export function CustomersListPage() {
             variant="primary"
             startIcon={<AddIcon />}
             onClick={goToCreate}
-            sx={{ whiteSpace: 'nowrap' }}
+            sx={{ whiteSpace: 'nowrap', width: { xs: '100%', sm: 'auto' } }}
           >
             New customer
           </Btn>

@@ -334,6 +334,36 @@ export function buildMuiTheme(mode: Mode) {
           label: { padding: 0 },
         },
       },
+
+      // ---- Tables ------------------------------------------------------
+      // App-wide table polish so every data table reads the same way:
+      //  - more vertical padding than MUI's cramped size="small" default
+      //    (6px) so rows have breathing room.
+      //  - zebra striping: even body rows get a faint grey wash (a subtle
+      //    dark overlay in light mode, a subtle light overlay in dark mode)
+      //    so adjacent rows are easy to tell apart. Header rows live in
+      //    <thead> so nth-of-type within <tbody> never touches them.
+      MuiTableCell: {
+        styleOverrides: {
+          root: { borderColor: tokens.border },
+          sizeSmall: { padding: '11px 16px' },
+          head: { paddingTop: 12, paddingBottom: 12 },
+        },
+      },
+      MuiTable: {
+        styleOverrides: {
+          root: {
+            // Even body rows get a faint grey wash. The selector is wrapped in
+            // :where() so it carries near-zero specificity — a row's own sx
+            // background (e.g. the TransactionsTab focus-pulse highlight) always
+            // wins, and MUI's higher-specificity :hover still shows on top.
+            '& :where(tbody .MuiTableRow-root:nth-of-type(even))': {
+              backgroundColor:
+                mode === 'dark' ? 'rgba(255, 255, 255, 0.035)' : 'rgba(15, 23, 42, 0.025)',
+            },
+          },
+        },
+      },
     },
   };
 

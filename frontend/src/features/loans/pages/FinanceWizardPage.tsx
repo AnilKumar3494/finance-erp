@@ -34,8 +34,8 @@ import { WizardGuardContext, type WizardGuardApi } from '@/features/loans/wizard
 const STEPS = [
   'Customer',
   'Customer & KYC',
-  'Vehicle',
   'Personnel',
+  'Vehicle',
   'Photos',
   'Financials',
 ] as const
@@ -321,8 +321,8 @@ function WizardBody({
   return (
     <>
       {step === 1 && <CustomerKycSection financeId={loan.id} customerId={customerId} />}
-      {step === 2 && <VehicleSection financeId={loan.id} customerId={customerId} />}
-      {step === 3 && <PersonnelSection financeId={loan.id} customerId={customerId} />}
+      {step === 2 && <PersonnelSection financeId={loan.id} customerId={customerId} />}
+      {step === 3 && <VehicleSection financeId={loan.id} customerId={customerId} />}
       {step === 4 && <PhotosSection financeId={loan.id} customerId={customerId} />}
       {step === 5 && <FinancialsSection financeId={loan.id} />}
 
