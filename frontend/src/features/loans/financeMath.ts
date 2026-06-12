@@ -1,16 +1,20 @@
-// Flat-rate finance projection — mirrors the backend's flat-interest scheme so
-// the wizard can show indicative figures (EMI, total interest) as the employee
-// types, before the loan is saved/approved. This is informational only: the
-// authoritative numbers come from the backend (total_payable, monthly_interest,
-// per-cycle base_emi) and are used wherever they're available.
+// Flat-rate finance projection — MIRRORS the backend (services/finance.py, the
+// authority that generates the real schedule on approval) so the wizard's live
+// estimate matches what the customer will actually be billed. Informational
+// only: once saved, the loan exposes the authoritative total_payable /
+// monthly_interest / per-cycle EMI and those are used wherever available.
 //
-// Scheme (flat rate on the financed principal):
-//   net principal   = principal − down payment
-//   total interest  = net principal × (annual rate% / 100) × (tenure / 12)
-//   total payable   = net principal + total interest
-//   EMI             = total payable / tenure
-// Fees (processing/documentation) are deducted from the disbursed amount and do
-// not change the EMI, so they're excluded here.
+// Backend scheme — flat interest on the GROSS principal. The down payment does
+// NOT reduce the interest or the EMI: it is a prepayment recorded against the
+// first cycle, so it lowers the outstanding balance but not the monthly figure.
+//   monthly interest = round2( principal × rate% / 12 )
+//   total payable    = round2( principal + monthly interest × tenure )
+//   EMI (regular)    = round2( total payable / tenure )
+//        (the final month absorbs the rounding remainder; not shown here)
+//   net loan principal = principal − down payment   (informational — financed
+//        amount after the down payment; does not feed the interest/EMI)
+// Processing/documentation fees reduce the disbursed amount, not the EMI, so
+// they're excluded here.
 
 export interface FinanceProjection {
   netPrincipal: number
@@ -27,9 +31,14 @@ export interface FinanceProjectionInput {
   downPayment?: number
 }
 
+// Round to paise. The backend uses banker's rounding (ROUND_HALF_EVEN); for an
+// indicative estimate plain half-up is close enough and the saved loan's
+// figures are authoritative anyway.
+const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
+
 // Returns null unless principal, rate, and tenure are all present and valid
-// (positive tenure), so callers can simply skip rendering when inputs are
-// incomplete.
+// (positive tenure/principal), so callers can simply skip rendering when inputs
+// are incomplete.
 export function flatRateProjection({
   principal,
   annualRatePct,
@@ -47,15 +56,23 @@ export function flatRateProjection({
   }
 
   const dp = Number.isFinite(downPayment) ? Math.max(0, downPayment) : 0
+
+  // Interest, total and EMI are computed on the GROSS principal (matching the
+  // backend) — the down payment does not enter these.
+  const monthlyInterest = round2((principal * (annualRatePct / 100)) / 12)
+  const totalInterest = round2(monthlyInterest * tenureMonths)
+  const totalPayable = round2(principal + monthlyInterest * tenureMonths)
+  const emi = round2(totalPayable / tenureMonths)
+
+  // Informational only — the financed amount after the down payment. Mirrors the
+  // backend's net_loan_principal; not part of the interest/EMI calculation.
   const netPrincipal = Math.max(0, principal - dp)
-  const totalInterest = netPrincipal * (annualRatePct / 100) * (tenureMonths / 12)
-  const totalPayable = netPrincipal + totalInterest
 
   return {
     netPrincipal,
     totalInterest,
     totalPayable,
-    emi: totalPayable / tenureMonths,
-    monthlyInterest: totalInterest / tenureMonths,
+    emi,
+    monthlyInterest,
   }
 }
