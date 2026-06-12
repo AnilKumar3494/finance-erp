@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import { loanKeys } from '@/api/queries/loans'
-import type { BadDebtProposalStatus } from '@/schemas/enums'
+import type { BadDebtProposalStatus, LoanStatus } from '@/schemas/enums'
 
 // --------------------------------------------------
 // Types — mirror backend/app/schemas/bad_debt_proposal.py
@@ -24,16 +24,51 @@ export interface BadDebtProposalResponse {
   updated_at: string
 }
 
+// List items carry the joined loan + customer fields (backend
+// BadDebtProposalListItem) so the cross-loan review queue renders without a
+// per-row lookup. Extends the base proposal shape.
+export interface BadDebtProposalListItem extends BadDebtProposalResponse {
+  loan_number: string
+  loan_status: LoanStatus
+  principal: string
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+}
+
 export interface BadDebtProposalListResponse {
   total: number
   page: number
   page_size: number
-  results: BadDebtProposalResponse[]
+  results: BadDebtProposalListItem[]
 }
 
 export const badDebtKeys = {
   all: ['badDebtProposals'] as const,
   open: (loanId: string) => [...badDebtKeys.all, 'open', loanId] as const,
+  worklist: (page: number, status: BadDebtProposalStatus) =>
+    [...badDebtKeys.all, 'worklist', status, page] as const,
+}
+
+// Cross-loan bad-debt review queue (Collections → Bad debt lens, admin-only).
+// Defaults to PROPOSED — the proposals awaiting an admin's approve/reject.
+export function useBadDebtProposals(
+  page: number,
+  status: BadDebtProposalStatus = 'PROPOSED',
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: badDebtKeys.worklist(page, status),
+    queryFn: async () => {
+      const { data } = await apiClient.get<BadDebtProposalListResponse>(
+        '/bad-debt-proposals/',
+        { params: { status, page, page_size: 20 } },
+      )
+      return data
+    },
+    enabled,
+    placeholderData: (prev) => prev,
+  })
 }
 
 // There is no "get the open proposal for a loan" endpoint, so we list the

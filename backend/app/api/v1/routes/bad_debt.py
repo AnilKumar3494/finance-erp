@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.bad_debt_proposal import BadDebtProposal, BadDebtProposalStatus
+from app.models.customer import Customer
 from app.models.loan import Loan
 from app.models.user import User
 from app.schemas.bad_debt_proposal import (
+    BadDebtProposalListItem,
     BadDebtProposalListResponse,
     BadDebtProposalResponse,
     BadDebtProposeRequest,
@@ -96,16 +98,40 @@ def list_proposals(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    q = db.query(BadDebtProposal).filter(BadDebtProposal.is_deleted.is_(False))
+    # Join loan + customer so the cross-loan review queue can render each row
+    # (who / which loan / principal) without a per-row lookup. Excludes rows
+    # whose loan or customer was soft-deleted.
+    q = (
+        db.query(BadDebtProposal, Loan, Customer)
+        .join(Loan, Loan.id == BadDebtProposal.loan_id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            BadDebtProposal.is_deleted.is_(False),
+            Loan.is_deleted.is_(False),
+            Customer.is_deleted.is_(False),
+        )
+    )
     if status_filter:
         q = q.filter(BadDebtProposal.status == status_filter)
     total = q.count()
-    results = (
+    rows = (
         q.order_by(BadDebtProposal.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
+    results = [
+        BadDebtProposalListItem(
+            **BadDebtProposalResponse.model_validate(proposal).model_dump(),
+            loan_number=loan.loan_number,
+            loan_status=loan.status,
+            principal=loan.principal,
+            customer_id=customer.id,
+            customer_name=customer.full_name,
+            customer_mobile=customer.mobile_number,
+        )
+        for proposal, loan, customer in rows
+    ]
     return BadDebtProposalListResponse(
         total=total, page=page, page_size=page_size, results=results
     )

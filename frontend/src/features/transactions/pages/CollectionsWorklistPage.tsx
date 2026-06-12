@@ -23,13 +23,20 @@ import {
   usePendingConfirmations,
   type PendingConfirmationItem,
 } from '@/api/queries/transactions'
+import {
+  useBadDebtProposals,
+  type BadDebtProposalListItem,
+} from '@/api/queries/badDebt'
+import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from '@/features/loans/components/CycleStatusChip'
 import { RecordPaymentDialog } from '@/features/loans/components/RecordPaymentDialog'
+import { BadDebtReviewDialog } from '../components/BadDebtReviewDialog'
 import {
   WORKLIST_VIEWS,
   WORKLIST_VIEW_LABELS,
+  isCycleView,
   viewToParams,
   type WorklistView,
 } from '../worklistViews'
@@ -54,7 +61,19 @@ function mapListError(error: unknown): string {
 export function CollectionsWorklistPage() {
   const { view, search: searchTerm, page } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
   const isConfirmations = view === 'confirmations'
+  const isBadDebt = view === 'baddebt'
+
+  // The Bad debt lens is admin-only. If a non-admin reaches it (URL-hack or a
+  // role change), bounce to the default cycle view so we never call the
+  // admin-gated proposals endpoint for them.
+  useEffect(() => {
+    if (isBadDebt && user && !isAdmin) {
+      navigate({ search: (prev) => ({ ...prev, page: 1, view: 'due' }), replace: true })
+    }
+  }, [isBadDebt, isAdmin, user, navigate])
 
   // Debounced URL search (cycle views only — the confirmations endpoint has no
   // search param).
@@ -93,10 +112,18 @@ export function CollectionsWorklistPage() {
   // — `total` is page-independent so the tab badge is correct either way.
   const pendingQuery = usePendingConfirmations(isConfirmations ? page : 1, PAGE_SIZE)
   const confirmationsCount = pendingQuery.data?.total ?? 0
+  // Bad-debt proposals (admin-only). Same fetch-page-or-1 trick so the chip
+  // badge count is correct from any view. Disabled entirely for non-admins.
+  const badDebtQuery = useBadDebtProposals(isBadDebt ? page : 1, 'PROPOSED', isAdmin)
+  const badDebtCount = badDebtQuery.data?.total ?? 0
 
   const [record, setRecord] = useState<DueCycleWorklistItem | null>(null)
+  const [review, setReview] = useState<{
+    proposal: BadDebtProposalListItem
+    decision: 'APPROVE' | 'REJECT'
+  } | null>(null)
 
-  const activeQuery = isConfirmations ? pendingQuery : cycleQuery
+  const activeQuery = isBadDebt ? badDebtQuery : isConfirmations ? pendingQuery : cycleQuery
   const total = activeQuery.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
 
@@ -119,7 +146,7 @@ export function CollectionsWorklistPage() {
           Collections &amp; Actions
         </Typography>
 
-        {!isConfirmations && (
+        {isCycleView(view) && (
           <Box
             sx={{
               order: { xs: 2, sm: 1 },
@@ -142,27 +169,30 @@ export function CollectionsWorklistPage() {
           sx={{
             order: { xs: 1, sm: 2 },
             width: { xs: '100%', sm: 'auto' },
-            flexGrow: isConfirmations ? { sm: 1 } : undefined,
+            flexGrow: isCycleView(view) ? undefined : { sm: 1 },
           }}
         >
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-            {WORKLIST_VIEWS.map((v) => {
-              const selected = view === v
-              const label =
-                v === 'confirmations' && confirmationsCount > 0
-                  ? `${WORKLIST_VIEW_LABELS[v]} (${confirmationsCount})`
-                  : WORKLIST_VIEW_LABELS[v]
-              return (
-                <Chip
-                  key={v}
-                  label={label}
-                  onClick={() => setView(v)}
-                  color={selected ? 'primary' : v === 'confirmations' && confirmationsCount > 0 ? 'info' : 'default'}
-                  variant={selected ? 'filled' : 'outlined'}
-                  sx={{ height: 36 }}
-                />
-              )
-            })}
+            {WORKLIST_VIEWS
+              // The Bad debt lens is admin-only — don't offer the chip otherwise.
+              .filter((v) => v !== 'baddebt' || isAdmin)
+              .map((v) => {
+                const selected = view === v
+                const badge =
+                  v === 'confirmations' ? confirmationsCount : v === 'baddebt' ? badDebtCount : 0
+                const label =
+                  badge > 0 ? `${WORKLIST_VIEW_LABELS[v]} (${badge})` : WORKLIST_VIEW_LABELS[v]
+                return (
+                  <Chip
+                    key={v}
+                    label={label}
+                    onClick={() => setView(v)}
+                    color={selected ? 'primary' : badge > 0 ? 'info' : 'default'}
+                    variant={selected ? 'filled' : 'outlined'}
+                    sx={{ height: 36 }}
+                  />
+                )
+              })}
           </Stack>
         </Box>
       </Box>
@@ -177,6 +207,21 @@ export function CollectionsWorklistPage() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <Spinner size={28} />
         </Box>
+      ) : isBadDebt ? (
+        (badDebtQuery.data?.results.length ?? 0) === 0 ? (
+          <BadDebtEmpty />
+        ) : (
+          <>
+            <BadDebtDesktop
+              rows={badDebtQuery.data!.results}
+              onReview={(proposal, decision) => setReview({ proposal, decision })}
+            />
+            <BadDebtMobile
+              rows={badDebtQuery.data!.results}
+              onReview={(proposal, decision) => setReview({ proposal, decision })}
+            />
+          </>
+        )
       ) : isConfirmations ? (
         (pendingQuery.data?.results.length ?? 0) === 0 ? (
           <ConfirmationsEmpty />
@@ -211,9 +256,11 @@ export function CollectionsWorklistPage() {
           </Btn>
           <Typography variant="body2" color="text.secondary">
             Page {page} of {totalPages} · {total}{' '}
-            {isConfirmations
-              ? `payment${total === 1 ? '' : 's'} to confirm`
-              : `cycle${total === 1 ? '' : 's'} due`}
+            {isBadDebt
+              ? `proposal${total === 1 ? '' : 's'} to review`
+              : isConfirmations
+                ? `payment${total === 1 ? '' : 's'} to confirm`
+                : `cycle${total === 1 ? '' : 's'} due`}
           </Typography>
           <Btn
             variant="ghost"
@@ -235,6 +282,12 @@ export function CollectionsWorklistPage() {
           defaultAmount={record.shortfall}
         />
       )}
+
+      <BadDebtReviewDialog
+        proposal={review?.proposal ?? null}
+        decision={review?.decision ?? 'APPROVE'}
+        onClose={() => setReview(null)}
+      />
     </Box>
   )
 }
@@ -545,6 +598,166 @@ function ConfirmationsEmpty() {
         <Typography variant="h3">All caught up</Typography>
         <Typography variant="body2" color="text.secondary">
           No payments are waiting for confirmation right now.
+        </Typography>
+      </Stack>
+    </Card>
+  )
+}
+
+// --------------------------------------------------
+// Bad debt (review) — proposals awaiting an admin's approve/reject
+// --------------------------------------------------
+
+type ReviewHandler = (
+  proposal: BadDebtProposalListItem,
+  decision: 'APPROVE' | 'REJECT',
+) => void
+
+function ReviewButtons({
+  proposal,
+  onReview,
+  fullWidth,
+}: {
+  proposal: BadDebtProposalListItem
+  onReview: ReviewHandler
+  fullWidth?: boolean
+}) {
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
+    >
+      <Btn
+        variant="success"
+        size="sm"
+        fullWidth={fullWidth}
+        onClick={(e) => {
+          e.stopPropagation()
+          onReview(proposal, 'APPROVE')
+        }}
+      >
+        Approve
+      </Btn>
+      <Btn
+        variant="danger"
+        size="sm"
+        fullWidth={fullWidth}
+        onClick={(e) => {
+          e.stopPropagation()
+          onReview(proposal, 'REJECT')
+        }}
+      >
+        Reject
+      </Btn>
+    </Stack>
+  )
+}
+
+function BadDebtDesktop({
+  rows,
+  onReview,
+}: {
+  rows: BadDebtProposalListItem[]
+  onReview: ReviewHandler
+}) {
+  return (
+    <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+      <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+                <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Loan</TableCell>
+                <TableCell sx={{ fontWeight: 600 }} align="right">Principal</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Reason</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Proposed</TableCell>
+                <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.id} hover>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {r.customer_name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {r.customer_mobile}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                    {r.loan_number}
+                  </TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{inr(r.principal)}</TableCell>
+                  <TableCell sx={{ maxWidth: 280 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={r.proposed_reason}
+                    >
+                      {r.auto_proposed ? '⚙ ' : ''}{r.proposed_reason}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(r.proposed_at)}</TableCell>
+                  <TableCell align="right">
+                    <ReviewButtons proposal={r} onReview={onReview} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Card>
+    </Box>
+  )
+}
+
+function BadDebtMobile({
+  rows,
+  onReview,
+}: {
+  rows: BadDebtProposalListItem[]
+  onReview: ReviewHandler
+}) {
+  return (
+    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
+      {rows.map((r) => (
+        <Card key={r.id} sx={{ p: 2 }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <Typography variant="body1" sx={{ fontWeight: 600 }}>
+              {r.customer_name}
+            </Typography>
+            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+              {inr(r.principal)}
+            </Typography>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+            {r.customer_mobile} · {r.loan_number}
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.75, whiteSpace: 'pre-wrap' }}>
+            {r.auto_proposed ? '⚙ ' : ''}{r.proposed_reason}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Proposed {fmtDate(r.proposed_at)}
+          </Typography>
+          <Box sx={{ mt: 1.5 }}>
+            <ReviewButtons proposal={r} onReview={onReview} fullWidth />
+          </Box>
+        </Card>
+      ))}
+    </Stack>
+  )
+}
+
+function BadDebtEmpty() {
+  return (
+    <Card>
+      <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+        <Typography variant="h3">No proposals to review</Typography>
+        <Typography variant="body2" color="text.secondary">
+          No loans are awaiting a bad-debt decision right now.
         </Typography>
       </Stack>
     </Card>

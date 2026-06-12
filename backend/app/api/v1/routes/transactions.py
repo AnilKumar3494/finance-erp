@@ -75,6 +75,15 @@ def create_transaction_route(
     current_user: User = Depends(get_current_user),
 ):
     _assert_loan_in_user_scope(db, payload.loan_id, current_user)
+    # The frontend sends the dedupe key as an `Idempotency-Key` HTTP header
+    # (client.ts interceptor), while the service dedupes on
+    # payload.idempotency_key. Bridge the two so a retried POST carrying the
+    # same key returns the existing row instead of creating a duplicate. An
+    # explicit body value wins if a caller set both.
+    if not payload.idempotency_key:
+        header_key = request.headers.get("Idempotency-Key")
+        if header_key:
+            payload.idempotency_key = header_key[:64]
     try:
         return create_transaction(
             db=db, data=payload, created_by=current_user.id, request=request,
