@@ -10,8 +10,15 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import DownloadIcon from '@mui/icons-material/FileDownloadOutlined'
 
-import { downloadCustomerReportCsv, useCustomerReport } from '@/api/queries/reports'
+import {
+  downloadCustomerReportCsv,
+  useCustomerReport,
+  type CustomerReportSortField,
+} from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import { fmtINR } from '@/lib/format'
 import { mapReportError, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
@@ -19,9 +26,29 @@ import { KPI_GRID_SX, KpiCard } from './KpiCard'
 
 const PAGE_SIZE = 50
 
+const CUST_SORT_OPTIONS: readonly SortOption<CustomerReportSortField>[] = [
+  { value: 'outstanding:desc', label: 'Outstanding (high → low)', sort_by: 'outstanding', sort_order: 'desc' },
+  { value: 'outstanding:asc', label: 'Outstanding (low → high)', sort_by: 'outstanding', sort_order: 'asc' },
+  { value: 'full_name:asc', label: 'Name (A → Z)', sort_by: 'full_name', sort_order: 'asc' },
+  { value: 'full_name:desc', label: 'Name (Z → A)', sort_by: 'full_name', sort_order: 'desc' },
+  { value: 'active_loans:desc', label: 'Active loans (most)', sort_by: 'active_loans', sort_order: 'desc' },
+  { value: 'principal:desc', label: 'Principal (high → low)', sort_by: 'principal', sort_order: 'desc' },
+  { value: 'paid:desc', label: 'Paid (high → low)', sort_by: 'paid', sort_order: 'desc' },
+]
+
 export function CustomersReportTab() {
   const [page, setPage] = useState(1)
-  const report = useCustomerReport(page, PAGE_SIZE)
+  const [sort, setSort] = useState<SortState<CustomerReportSortField>>({
+    sort_by: 'outstanding',
+    sort_order: 'desc',
+  })
+  // Changing the sort jumps back to page 1 so the user sees the top of the new
+  // ordering rather than a stale middle page.
+  const onSort = (field: CustomerReportSortField, defaultDir: SortOrder) => {
+    setSort((s) => toggleSort(s, field, defaultDir))
+    setPage(1)
+  }
+  const report = useCustomerReport(page, PAGE_SIZE, true, sort)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -48,17 +75,30 @@ export function CustomersReportTab() {
         sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}
       >
         <Typography variant="body2" color="text.secondary">
-          Per-customer outstanding across open loans, highest first.
+          Per-customer outstanding across open loans.
         </Typography>
-        <Btn
-          variant="ghost"
-          size="sm"
-          startIcon={<DownloadIcon />}
-          onClick={onExport}
-          loading={exporting}
-        >
-          Export CSV
-        </Btn>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+            <SortSelect
+              options={CUST_SORT_OPTIONS}
+              sort_by={sort.sort_by}
+              sort_order={sort.sort_order}
+              onChange={(next) => {
+                setSort(next)
+                setPage(1)
+              }}
+            />
+          </Box>
+          <Btn
+            variant="ghost"
+            size="sm"
+            startIcon={<DownloadIcon />}
+            onClick={onExport}
+            loading={exporting}
+          >
+            Export CSV
+          </Btn>
+        </Stack>
       </Stack>
 
       {exportError && <ErrorBanner message={exportError} />}
@@ -84,12 +124,12 @@ export function CustomersReportTab() {
                   <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>Mobile</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">Active loans</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">Principal</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">Paid</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }} align="right">Outstanding</TableCell>
+                        <SortableTh field="full_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                        <SortableTh field="mobile_number" label="Mobile" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                        <SortableTh field="active_loans" label="Active loans" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="principal" label="Principal" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="paid" label="Paid" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="outstanding" label="Outstanding" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                       </TableRow>
                     </TableHead>
                     <TableBody>

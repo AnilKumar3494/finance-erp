@@ -150,6 +150,8 @@ def list_cycles_worklist(
     page: int = 1,
     page_size: int = 20,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> Tuple[List[Tuple[DueCycle, Loan, Customer]], int]:
     """
     Cross-loan due-cycle worklist for the Collections module.
@@ -243,8 +245,24 @@ def list_cycles_worklist(
 
     total = query.count()
 
+    # Sortable columns. Shortfall/days_overdue are derived in Python (not SQL
+    # columns) so they aren't sort keys here; due_date order already mirrors
+    # days_overdue. Unknown/absent sort_by keeps the default (due_date asc =
+    # most overdue first). A stable secondary key (cycle id) keeps pagination
+    # consistent when many rows share a sort value.
+    sortable = {
+        "due_date": DueCycle.due_date,
+        "cycle_number": DueCycle.cycle_number,
+        "cycle_status": DueCycle.cycle_status,
+        "customer_name": Customer.full_name,
+        "loan": Loan.hp_number,
+    }
+    column = sortable.get(sort_by or "due_date", DueCycle.due_date)
+    descending = (sort_order or "asc").lower() == "desc"
+    ordering = column.desc() if descending else column.asc()
+
     rows = (
-        query.order_by(DueCycle.due_date.asc(), Loan.loan_number.asc())
+        query.order_by(ordering, DueCycle.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

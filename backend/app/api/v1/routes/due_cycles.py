@@ -93,6 +93,11 @@ def worklist(
     search: Optional[str] = Query(None, max_length=120),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Sort column: due_date | cycle_number | cycle_status | customer_name | loan",
+    ),
+    sort_order: Optional[str] = Query(None, description="asc | desc"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -110,6 +115,8 @@ def worklist(
         page=page,
         page_size=page_size,
         assigned_employee_id=scope,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
     # "Money in flight" per cycle — PENDING transactions awaiting confirm/fail.

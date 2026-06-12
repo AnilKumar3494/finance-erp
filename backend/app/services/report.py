@@ -374,6 +374,8 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
 def _customer_report_query(
     db: Session,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ):
     """
     Shared SQL composition for the customer report.
@@ -462,12 +464,26 @@ def _customer_report_query(
     if assigned_employee_id is not None:
         q = q.filter(Customer.assigned_employee_id == assigned_employee_id)
 
+    # Sortable columns. The aggregate columns are coalesced to 0 (matching the
+    # displayed values), so NULLs from the outer joins sort as 0 — no explicit
+    # NULL placement needed. Unknown/absent sort_by falls back to the default
+    # (outstanding desc), keeping the CSV stream and old callers unchanged.
+    sortable = {
+        "full_name": Customer.full_name,
+        "mobile_number": Customer.mobile_number,
+        "active_loans": func.coalesce(loan_sub.c.active_loans, 0),
+        "principal": func.coalesce(loan_sub.c.principal, 0),
+        "paid": func.coalesce(paid_sub.c.paid, 0),
+        "outstanding": func.coalesce(outstanding_sub.c.outstanding, 0),
+    }
+    column = sortable.get(sort_by or "outstanding", sortable["outstanding"])
+    descending = (sort_order or "desc").lower() != "asc"
+    ordering = column.desc() if descending else column.asc()
+
     # Secondary key on Customer.id keeps the order stable across pages when
-    # multiple customers share the same outstanding (very common at 0.00),
+    # multiple customers share the same sort value (very common at 0.00),
     # so OFFSET/LIMIT pagination and the CSV stream don't skip/duplicate rows.
-    return q.order_by(
-        outstanding_sub.c.outstanding.desc().nullslast(), Customer.id.asc()
-    )
+    return q.order_by(ordering, Customer.id.asc())
 
 
 def _customer_row_to_dict(r) -> dict:
@@ -487,6 +503,8 @@ def get_customer_report(
     page: int = 1,
     page_size: int = 50,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> dict:
     """
     Per-customer roll-up. Paginated.
@@ -498,7 +516,12 @@ def get_customer_report(
     `assigned_employee_id`, when provided, scopes the report to that
     employee's assigned customers (used to enforce EMPLOYEE-role visibility).
     """
-    query = _customer_report_query(db, assigned_employee_id=assigned_employee_id)
+    query = _customer_report_query(
+        db,
+        assigned_employee_id=assigned_employee_id,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
     total_q = db.query(func.count(Customer.id)).filter(Customer.is_deleted == False)
     active_q = (

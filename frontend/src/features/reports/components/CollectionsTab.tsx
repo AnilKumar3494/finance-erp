@@ -12,6 +12,8 @@ import TableRow from '@mui/material/TableRow'
 
 import { useCollectionReport, type CollectionEntry } from '@/api/queries/reports'
 import { Card, Input } from '@/components/primitives'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { fmtMonthShort, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
@@ -19,6 +21,19 @@ import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { MiniBarChart } from './MiniBarChart'
 
 type Period = 'daily' | 'monthly'
+
+type CollField = 'date' | 'txns' | 'cash' | 'gpay' | 'phonepe' | 'bank' | 'other' | 'total'
+
+const COLL_ACCESSORS: Partial<Record<CollField, (e: CollectionEntry) => string | number | null>> = {
+  date: (e) => e.date,
+  txns: (e) => e.transaction_count,
+  cash: (e) => money(e.cash),
+  gpay: (e) => money(e.gpay),
+  phonepe: (e) => money(e.phonepe),
+  bank: (e) => money(e.bank_transfer),
+  other: (e) => money(e.other),
+  total: (e) => money(e.total_amount),
+}
 
 const WINDOW_OPTIONS = [
   { value: 7, label: 'Last 7 days' },
@@ -31,6 +46,11 @@ export function CollectionsTab() {
   const [period, setPeriod] = useState<Period>('daily')
   const [days, setDays] = useState<number>(30)
   const report = useCollectionReport(period, days)
+
+  const [sort, setSort] = useState<SortState<CollField>>({ sort_by: 'date', sort_order: 'desc' })
+  const onSort = (field: CollField, defaultDir: 'asc' | 'desc') =>
+    setSort((s) => toggleSort(s, field, defaultDir))
+  const rows = useClientSort(report.data?.entries ?? [], sort.sort_by, sort.sort_order, COLL_ACCESSORS)
 
   const labelFor = (e: CollectionEntry) =>
     period === 'daily' ? fmtDate(e.date) : fmtMonthShort(e.date)
@@ -107,20 +127,18 @@ export function CollectionsTab() {
                     <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                       <TableHead>
                         <TableRow>
-                          <TableCell sx={{ fontWeight: 600 }}>
-                            {period === 'daily' ? 'Date' : 'Month'}
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">Txns</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">Cash</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">GPay</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">PhonePe</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">Bank</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">Other</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }} align="right">Total</TableCell>
+                          <SortableTh field="date" label={period === 'daily' ? 'Date' : 'Month'} activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="txns" label="Txns" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="cash" label="Cash" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="gpay" label="GPay" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="phonepe" label="PhonePe" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="bank" label="Bank" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="other" label="Other" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                          <SortableTh field="total" label="Total" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {report.data.entries.map((e) => (
+                        {rows.map((e) => (
                           <TableRow key={e.date}>
                             <TableCell>{labelFor(e)}</TableCell>
                             <TableCell align="right">{e.transaction_count}</TableCell>

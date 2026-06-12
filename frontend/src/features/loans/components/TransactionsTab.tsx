@@ -37,6 +37,9 @@ import { useFinancePermissions } from '../financePermissions'
 import { useTransactionFocus } from '../txnFocus'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, Spinner } from '@/components/primitives'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, useClientSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import type { TransactionStatus, TransactionType } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
@@ -57,6 +60,17 @@ const TXN_TYPE_LABELS: Record<TransactionType, string> = {
   REGULAR: 'Regular',
   DOWN_PAYMENT: 'Down payment',
 }
+
+type TxnField = 'date' | 'amount' | 'mode' | 'cycle' | 'type' | 'status'
+
+const TXN_SORT_OPTIONS: readonly SortOption<TxnField>[] = [
+  { value: 'date:desc', label: 'Date (newest)', sort_by: 'date', sort_order: 'desc' },
+  { value: 'date:asc', label: 'Date (oldest)', sort_by: 'date', sort_order: 'asc' },
+  { value: 'amount:desc', label: 'Amount (high → low)', sort_by: 'amount', sort_order: 'desc' },
+  { value: 'amount:asc', label: 'Amount (low → high)', sort_by: 'amount', sort_order: 'asc' },
+  { value: 'status:asc', label: 'Status (A → Z)', sort_by: 'status', sort_order: 'asc' },
+  { value: 'status:desc', label: 'Status (Z → A)', sort_by: 'status', sort_order: 'desc' },
+]
 
 function mapError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -95,6 +109,23 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const [recordOpen, setRecordOpen] = useState(false)
   const [editTxn, setEditTxn] = useState<TransactionResponse | null>(null)
   const [voidTxn, setVoidTxn] = useState<TransactionResponse | null>(null)
+
+  // Client-side sort over the already-loaded transactions (one loan's worth).
+  const [sort, setSort] = useState<SortState<TxnField>>({ sort_by: 'date', sort_order: 'desc' })
+  const onSort = (field: TxnField, defaultDir: SortOrder) =>
+    setSort((s) => toggleSort(s, field, defaultDir))
+  const sortAccessors = useMemo<Partial<Record<TxnField, (t: TransactionResponse) => string | number | null>>>(
+    () => ({
+      date: (t) => t.effective_payment_date,
+      amount: (t) => Number(t.amount),
+      mode: (t) => PAYMENT_METHOD_LABELS[t.payment_mode],
+      cycle: (t) => (t.due_cycle_id ? cyclesById.get(t.due_cycle_id)?.cycle_number ?? null : null),
+      type: (t) => TXN_TYPE_LABELS[t.transaction_type],
+      status: (t) => t.status,
+    }),
+    [cyclesById],
+  )
+  const sortedRows = useClientSort(query.data?.results ?? [], sort.sort_by, sort.sort_order, sortAccessors)
 
   // Cross-component focus: the cycle's "Pending confirmation" chip in
   // DueCyclesTab fires focusTransaction(txnId); we scroll the row into view
@@ -172,7 +203,7 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     return <ErrorBanner message={mapError(query.error)} />
   }
 
-  const rows = query.data?.results ?? []
+  const rows = sortedRows
   const acting =
     confirm.isPending || fail.isPending || update.isPending || del.isPending
   // Action availability per row:
@@ -217,6 +248,18 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
         )}
       </Stack>
 
+      {rows.length > 0 && (
+        <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
+          <SortSelect
+            options={TXN_SORT_OPTIONS}
+            sort_by={sort.sort_by}
+            sort_order={sort.sort_order}
+            onChange={setSort}
+            sx={{ width: '100%' }}
+          />
+        </Box>
+      )}
+
       {actionError && (
         <Box sx={{ mb: 2 }}>
           <ErrorBanner message={actionError} severity="error" variant="outlined" />
@@ -235,6 +278,8 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
             onReceipt={onReceipt}
             cyclesById={cyclesById}
             highlightedId={highlightedId}
+            sort={sort}
+            onSort={onSort}
           />
           <MobileCards
             rows={rows}
@@ -464,12 +509,16 @@ function DesktopTable({
   onReceipt,
   cyclesById,
   highlightedId,
+  sort,
+  onSort,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
   cyclesById: Map<string, DueCycleResponse>
   highlightedId: string | null
+  sort: SortState<TxnField>
+  onSort: (field: TxnField, defaultDir: SortOrder) => void
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -483,14 +532,12 @@ function DesktopTable({
         >
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">
-                Amount
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Mode</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Cycle</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+              <SortableTh field="date" label="Date" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="amount" label="Amount" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="mode" label="Mode" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="cycle" label="Cycle" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="type" label="Type" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
               <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>

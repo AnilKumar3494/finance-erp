@@ -11,7 +11,6 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
-import TableSortLabel from '@mui/material/TableSortLabel'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 
@@ -27,7 +26,8 @@ import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { EmiDueChip } from '../components/EmiDueChip'
-import { SortSelect } from '../components/SortSelect'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
 import { loanDisplayId } from '../loanIdentity'
 
 const routeApi = getRouteApi('/_authed/finances/')
@@ -59,13 +59,17 @@ const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
   { label: 'Status', sortable: true, field: 'status', defaultDir: 'asc' },
 ]
 
-// MUI hides the sort arrow on inactive columns and only fades it in on hover,
-// which hides the "sortable" affordance. Pin it at reduced opacity so every
-// sortable header advertises itself; the active column gets full opacity.
-const sortLabelSx = {
-  '& .MuiTableSortLabel-icon': { opacity: 0.4 },
-  '&.Mui-active .MuiTableSortLabel-icon': { opacity: 1 },
-} as const
+// Mobile sort dropdown options — one per state the headers can produce.
+const SORT_OPTIONS: readonly SortOption<LoanSortField>[] = [
+  { value: 'created_at:desc', label: 'Newest first', sort_by: 'created_at', sort_order: 'desc' },
+  { value: 'created_at:asc', label: 'Oldest first', sort_by: 'created_at', sort_order: 'asc' },
+  { value: 'full_name:asc', label: 'Name (A → Z)', sort_by: 'full_name', sort_order: 'asc' },
+  { value: 'full_name:desc', label: 'Name (Z → A)', sort_by: 'full_name', sort_order: 'desc' },
+  { value: 'mandal_village:asc', label: 'Mandal/Village (A → Z)', sort_by: 'mandal_village', sort_order: 'asc' },
+  { value: 'mandal_village:desc', label: 'Mandal/Village (Z → A)', sort_by: 'mandal_village', sort_order: 'desc' },
+  { value: 'status:asc', label: 'Status (A → Z)', sort_by: 'status', sort_order: 'asc' },
+  { value: 'status:desc', label: 'Status (Z → A)', sort_by: 'status', sort_order: 'desc' },
+]
 
 function mapListError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -207,7 +211,7 @@ export function LoansListPage() {
         </Box>
 
         <Box sx={{ order: { xs: 4, sm: 2 }, width: { xs: '100%', sm: 'auto' } }}>
-          <SortSelect sort_by={sort_by} sort_order={sort_order} onChange={setSort} />
+          <SortSelect options={SORT_OPTIONS} sort_by={sort_by} sort_order={sort_order} onChange={setSort} />
         </Box>
 
         <Box sx={{ order: { xs: 3, sm: 4 }, width: '100%' }}>
@@ -359,20 +363,15 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
                   h.sortable && h.field && h.defaultDir ? (
-                    <TableCell
+                    <SortableTh
                       key={h.label}
-                      sx={{ fontWeight: 600 }}
-                      sortDirection={activeField === h.field ? activeOrder : false}
-                    >
-                      <TableSortLabel
-                        active={activeField === h.field}
-                        direction={activeField === h.field ? activeOrder : h.defaultDir}
-                        onClick={() => handleHeaderClick(h.field!, h.defaultDir!)}
-                        sx={sortLabelSx}
-                      >
-                        {h.label}
-                      </TableSortLabel>
-                    </TableCell>
+                      field={h.field}
+                      label={h.label}
+                      activeField={activeField}
+                      activeOrder={activeOrder}
+                      defaultDir={h.defaultDir}
+                      onSort={handleHeaderClick}
+                    />
                   ) : (
                     <TableCell key={h.label} sx={{ fontWeight: 600 }}>
                       {h.label}

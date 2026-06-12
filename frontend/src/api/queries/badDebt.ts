@@ -44,11 +44,18 @@ export interface BadDebtProposalListResponse {
   results: BadDebtProposalListItem[]
 }
 
+export type BadDebtSortField = 'principal' | 'proposed_at' | 'customer_name' | 'loan'
+
+export interface BadDebtSort {
+  sort_by?: BadDebtSortField
+  sort_order?: 'asc' | 'desc'
+}
+
 export const badDebtKeys = {
   all: ['badDebtProposals'] as const,
   open: (loanId: string) => [...badDebtKeys.all, 'open', loanId] as const,
-  worklist: (page: number, status: BadDebtProposalStatus) =>
-    [...badDebtKeys.all, 'worklist', status, page] as const,
+  worklist: (page: number, status: BadDebtProposalStatus, sort?: BadDebtSort) =>
+    [...badDebtKeys.all, 'worklist', status, page, sort?.sort_by ?? null, sort?.sort_order ?? null] as const,
 }
 
 // Cross-loan bad-debt review queue (Collections → Bad debt lens, admin-only).
@@ -57,13 +64,14 @@ export function useBadDebtProposals(
   page: number,
   status: BadDebtProposalStatus = 'PROPOSED',
   enabled = true,
+  sort?: BadDebtSort,
 ) {
   return useQuery({
-    queryKey: badDebtKeys.worklist(page, status),
+    queryKey: badDebtKeys.worklist(page, status, sort),
     queryFn: async () => {
       const { data } = await apiClient.get<BadDebtProposalListResponse>(
         '/bad-debt-proposals/',
-        { params: { status, page, page_size: 20 } },
+        { params: { status, page, page_size: 20, ...sort } },
       )
       return data
     },

@@ -27,6 +27,9 @@ import { useLoanTransactions } from '@/api/queries/transactions'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, useClientSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import type { CycleStatus } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { deriveCycleDisplay, type CycleDisplay } from '../cycleDisplay'
@@ -34,6 +37,29 @@ import { deriveNetDue, type CycleNetDue } from '../cycleNetDue'
 import { focusTransaction } from '../txnFocus'
 import { CycleStatusChip } from './CycleStatusChip'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
+
+// Net due is a derived waterfall value (computed after the data hooks) and
+// shows text states, so it's not a client-sort key; every other column is.
+type CycleField = 'cycle' | 'due' | 'total_due' | 'received' | 'shortfall' | 'penalty' | 'status'
+
+const CYCLE_ACCESSORS: Partial<Record<CycleField, (c: DueCycleResponse) => string | number | null>> = {
+  cycle: (c) => c.cycle_number,
+  due: (c) => c.due_date,
+  total_due: (c) => Number(c.total_due),
+  received: (c) => Number(c.total_received),
+  shortfall: (c) => Number(c.shortfall),
+  penalty: (c) => Number(c.penalty_amount),
+  status: (c) => c.cycle_status,
+}
+
+const CYCLE_SORT_OPTIONS: readonly SortOption<CycleField>[] = [
+  { value: 'cycle:asc', label: 'Cycle (1 → N)', sort_by: 'cycle', sort_order: 'asc' },
+  { value: 'cycle:desc', label: 'Cycle (N → 1)', sort_by: 'cycle', sort_order: 'desc' },
+  { value: 'due:asc', label: 'Due date (earliest)', sort_by: 'due', sort_order: 'asc' },
+  { value: 'due:desc', label: 'Due date (latest)', sort_by: 'due', sort_order: 'desc' },
+  { value: 'shortfall:desc', label: 'Shortfall (high → low)', sort_by: 'shortfall', sort_order: 'desc' },
+  { value: 'status:asc', label: 'Status (A → Z)', sort_by: 'status', sort_order: 'asc' },
+]
 
 function mapError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -70,6 +96,13 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
   const [record, setRecord] = useState<{ cycleId: string; amount: string } | null>(null)
   const [classify, setClassify] = useState<{ cycle: DueCycleResponse; mode: 'classify' | 'reclassify' } | null>(null)
 
+  // Client-side sort over this loan's already-loaded cycles. Computed before
+  // the early returns so the hook order stays stable.
+  const [sort, setSort] = useState<SortState<CycleField>>({ sort_by: 'cycle', sort_order: 'asc' })
+  const onSort = (field: CycleField, defaultDir: SortOrder) =>
+    setSort((s) => toggleSort(s, field, defaultDir))
+  const sortedRows = useClientSort(query.data?.results ?? [], sort.sort_by, sort.sort_order, CYCLE_ACCESSORS)
+
   if (query.isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -81,7 +114,7 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
     return <ErrorBanner message={mapError(query.error)} />
   }
 
-  const rows = query.data?.results ?? []
+  const rows = sortedRows
   if (rows.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
@@ -153,6 +186,15 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
 
   return (
     <>
+      <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
+        <SortSelect
+          options={CYCLE_SORT_OPTIONS}
+          sort_by={sort.sort_by}
+          sort_order={sort.sort_order}
+          onChange={setSort}
+          sx={{ width: '100%' }}
+        />
+      </Box>
       <DesktopTable
         rows={rows}
         actions={actions}
@@ -161,6 +203,8 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
         netDueByCycleId={netDueByCycleId}
         staleCycleIds={staleCycleIds}
         onChipClick={onChipClick}
+        sort={sort}
+        onSort={onSort}
       />
       <MobileCards
         rows={rows}
@@ -288,6 +332,8 @@ function DesktopTable({
   netDueByCycleId,
   staleCycleIds,
   onChipClick,
+  sort,
+  onSort,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
@@ -296,6 +342,8 @@ function DesktopTable({
   netDueByCycleId: Map<string, CycleNetDue>
   staleCycleIds: Set<string>
   onChipClick: (d: CycleDisplay) => void
+  sort: SortState<CycleField>
+  onSort: (field: CycleField, defaultDir: SortOrder) => void
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -309,14 +357,14 @@ function DesktopTable({
         >
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 600 }}>#</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Due date</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Total due</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Received</TableCell>
+              <SortableTh field="cycle" label="#" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="due" label="Due date" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="total_due" label="Total due" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="received" label="Received" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
               <TableCell sx={{ fontWeight: 600 }} align="right">Net due</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Shortfall</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Penalty</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+              <SortableTh field="shortfall" label="Shortfall" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="penalty" label="Penalty" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
               {showActions && <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>}
             </TableRow>
           </TableHead>

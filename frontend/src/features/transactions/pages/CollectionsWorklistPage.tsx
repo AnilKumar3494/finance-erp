@@ -18,18 +18,24 @@ import {
   useDueCycleWorklist,
   type DueCycleWorklistItem,
   type WorklistParams,
+  type WorklistSortField,
 } from '@/api/queries/dueCycles'
 import {
   usePendingConfirmations,
   type PendingConfirmationItem,
+  type PendingSortField,
 } from '@/api/queries/transactions'
 import {
   useBadDebtProposals,
   type BadDebtProposalListItem,
+  type BadDebtSortField,
 } from '@/api/queries/badDebt'
 import type { BadDebtProposalStatus } from '@/schemas/enums'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from '@/features/loans/components/CycleStatusChip'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
@@ -52,6 +58,32 @@ const PAGE_SIZE = 20
 const SEARCH_DEBOUNCE_MS = 300
 
 const inr = (s: string) => fmtINR(Number(s))
+
+const CYCLE_SORT_OPTIONS: readonly SortOption<WorklistSortField>[] = [
+  { value: 'due_date:asc', label: 'Due date (earliest)', sort_by: 'due_date', sort_order: 'asc' },
+  { value: 'due_date:desc', label: 'Due date (latest)', sort_by: 'due_date', sort_order: 'desc' },
+  { value: 'customer_name:asc', label: 'Customer (A → Z)', sort_by: 'customer_name', sort_order: 'asc' },
+  { value: 'cycle_number:asc', label: 'Cycle (1 → N)', sort_by: 'cycle_number', sort_order: 'asc' },
+  { value: 'cycle_status:asc', label: 'Status (A → Z)', sort_by: 'cycle_status', sort_order: 'asc' },
+  { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
+]
+
+const PENDING_SORT_OPTIONS: readonly SortOption<PendingSortField>[] = [
+  { value: 'created_at:asc', label: 'Recorded (oldest)', sort_by: 'created_at', sort_order: 'asc' },
+  { value: 'created_at:desc', label: 'Recorded (newest)', sort_by: 'created_at', sort_order: 'desc' },
+  { value: 'amount:desc', label: 'Amount (high → low)', sort_by: 'amount', sort_order: 'desc' },
+  { value: 'effective_payment_date:desc', label: 'Paid on (newest)', sort_by: 'effective_payment_date', sort_order: 'desc' },
+  { value: 'customer_name:asc', label: 'Customer (A → Z)', sort_by: 'customer_name', sort_order: 'asc' },
+  { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
+]
+
+const BADDEBT_SORT_OPTIONS: readonly SortOption<BadDebtSortField>[] = [
+  { value: 'proposed_at:desc', label: 'Proposed (newest)', sort_by: 'proposed_at', sort_order: 'desc' },
+  { value: 'proposed_at:asc', label: 'Proposed (oldest)', sort_by: 'proposed_at', sort_order: 'asc' },
+  { value: 'principal:desc', label: 'Principal (high → low)', sort_by: 'principal', sort_order: 'desc' },
+  { value: 'customer_name:asc', label: 'Customer (A → Z)', sort_by: 'customer_name', sort_order: 'asc' },
+  { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
+]
 
 function mapListError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -106,16 +138,38 @@ export function CollectionsWorklistPage() {
     }
   }, [searchTerm])
 
+  // Per-lens server-side sort. Each lens has its own columns, so it keeps its
+  // own sort state. Changing a sort jumps back to page 1 (URL) so the user
+  // lands on the top of the new ordering.
+  const [cycleSort, setCycleSort] = useState<SortState<WorklistSortField>>({ sort_by: 'due_date', sort_order: 'asc' })
+  const [pendingSort, setPendingSort] = useState<SortState<PendingSortField>>({ sort_by: 'created_at', sort_order: 'asc' })
+  const [badDebtSort, setBadDebtSort] = useState<SortState<BadDebtSortField>>({ sort_by: 'proposed_at', sort_order: 'desc' })
+  const resetPage = () => navigate({ search: (prev) => ({ ...prev, page: 1 }), replace: true })
+  const onCycleSort = (f: WorklistSortField, d: SortOrder) => {
+    setCycleSort((s) => toggleSort(s, f, d))
+    resetPage()
+  }
+  const onPendingSort = (f: PendingSortField, d: SortOrder) => {
+    setPendingSort((s) => toggleSort(s, f, d))
+    resetPage()
+  }
+  const onBadDebtSort = (f: BadDebtSortField, d: SortOrder) => {
+    setBadDebtSort((s) => toggleSort(s, f, d))
+    resetPage()
+  }
+
   const cycleParams: WorklistParams = {
     ...viewToParams(view),
     search: searchTerm,
     page,
     page_size: PAGE_SIZE,
+    sort_by: cycleSort.sort_by,
+    sort_order: cycleSort.sort_order,
   }
   const cycleQuery = useDueCycleWorklist(cycleParams)
   // Pending confirmations: fetch the active page when on that view, else page 1
   // — `total` is page-independent so the tab badge is correct either way.
-  const pendingQuery = usePendingConfirmations(isConfirmations ? page : 1, PAGE_SIZE)
+  const pendingQuery = usePendingConfirmations(isConfirmations ? page : 1, PAGE_SIZE, pendingSort)
   const confirmationsCount = pendingQuery.data?.total ?? 0
   // Bad-debt proposals (admin-only). The chip badge always reflects the
   // pending (PROPOSED) count, regardless of which sub-tab is shown — so a
@@ -131,6 +185,7 @@ export function CollectionsWorklistPage() {
     isBadDebt ? page : 1,
     badDebtStatus,
     isAdmin && isBadDebt,
+    badDebtSort,
   )
 
   const [record, setRecord] = useState<DueCycleWorklistItem | null>(null)
@@ -219,6 +274,43 @@ export function CollectionsWorklistPage() {
         </Box>
       </Box>
 
+      <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
+        {isBadDebt ? (
+          <SortSelect
+            options={BADDEBT_SORT_OPTIONS}
+            sort_by={badDebtSort.sort_by}
+            sort_order={badDebtSort.sort_order}
+            onChange={(next) => {
+              setBadDebtSort(next)
+              resetPage()
+            }}
+            sx={{ width: '100%' }}
+          />
+        ) : isConfirmations ? (
+          <SortSelect
+            options={PENDING_SORT_OPTIONS}
+            sort_by={pendingSort.sort_by}
+            sort_order={pendingSort.sort_order}
+            onChange={(next) => {
+              setPendingSort(next)
+              resetPage()
+            }}
+            sx={{ width: '100%' }}
+          />
+        ) : (
+          <SortSelect
+            options={CYCLE_SORT_OPTIONS}
+            sort_by={cycleSort.sort_by}
+            sort_order={cycleSort.sort_order}
+            onChange={(next) => {
+              setCycleSort(next)
+              resetPage()
+            }}
+            sx={{ width: '100%' }}
+          />
+        )}
+      </Box>
+
       {activeQuery.isError && (
         <Box sx={{ mb: 2 }}>
           <ErrorBanner message={mapListError(activeQuery.error)} />
@@ -243,6 +335,8 @@ export function CollectionsWorklistPage() {
               <BadDebtDesktop
                 rows={badDebtQuery.data!.results}
                 onReview={(proposal, decision) => setReview({ proposal, decision })}
+                sort={badDebtSort}
+                onSort={onBadDebtSort}
               />
               <BadDebtMobile
                 rows={badDebtQuery.data!.results}
@@ -256,7 +350,7 @@ export function CollectionsWorklistPage() {
           <ConfirmationsEmpty />
         ) : (
           <>
-            <ConfirmationsDesktop rows={pendingQuery.data!.results} />
+            <ConfirmationsDesktop rows={pendingQuery.data!.results} sort={pendingSort} onSort={onPendingSort} />
             <ConfirmationsMobile rows={pendingQuery.data!.results} />
           </>
         )
@@ -264,7 +358,7 @@ export function CollectionsWorklistPage() {
         <CyclesEmpty filtered={!!searchTerm} />
       ) : (
         <>
-          <DesktopTable rows={cycleQuery.data!.results} onRecord={setRecord} />
+          <DesktopTable rows={cycleQuery.data!.results} onRecord={setRecord} sort={cycleSort} onSort={onCycleSort} />
           <MobileCards rows={cycleQuery.data!.results} onRecord={setRecord} />
         </>
       )}
@@ -353,9 +447,13 @@ function PendingChip({ count, total }: { count: number; total: string }) {
 function DesktopTable({
   rows,
   onRecord,
+  sort,
+  onSort,
 }: {
   rows: DueCycleWorklistItem[]
   onRecord: (row: DueCycleWorklistItem) => void
+  sort: SortState<WorklistSortField>
+  onSort: (field: WorklistSortField, defaultDir: SortOrder) => void
 }) {
   const navigate = routeApi.useNavigate()
   return (
@@ -365,12 +463,12 @@ function DesktopTable({
           <Table size="small" sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Loan</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Cycle</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Due</TableCell>
+                <SortableTh field="customer_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="loan" label="Loan" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="cycle_number" label="Cycle" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="due_date" label="Due" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
                 <TableCell sx={{ fontWeight: 600 }} align="right">Shortfall</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                <SortableTh field="cycle_status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
                 <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
               </TableRow>
             </TableHead>
@@ -518,7 +616,15 @@ function CyclesEmpty({ filtered }: { filtered: boolean }) {
 // Confirmations (act) — pending payments awaiting confirm/fail
 // --------------------------------------------------
 
-function ConfirmationsDesktop({ rows }: { rows: PendingConfirmationItem[] }) {
+function ConfirmationsDesktop({
+  rows,
+  sort,
+  onSort,
+}: {
+  rows: PendingConfirmationItem[]
+  sort: SortState<PendingSortField>
+  onSort: (field: PendingSortField, defaultDir: SortOrder) => void
+}) {
   const navigate = routeApi.useNavigate()
   const open = (r: PendingConfirmationItem) =>
     navigate({
@@ -533,12 +639,12 @@ function ConfirmationsDesktop({ rows }: { rows: PendingConfirmationItem[] }) {
           <Table size="small" sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Loan</TableCell>
-                <TableCell sx={{ fontWeight: 600 }} align="right">Amount</TableCell>
+                <SortableTh field="customer_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="loan" label="Loan" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="amount" label="Amount" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                 <TableCell sx={{ fontWeight: 600 }}>Cycle</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Paid on</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Recorded</TableCell>
+                <SortableTh field="effective_payment_date" label="Paid on" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                <SortableTh field="created_at" label="Recorded" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                 <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
               </TableRow>
             </TableHead>
@@ -739,9 +845,13 @@ function ReviewButtons({
 function BadDebtDesktop({
   rows,
   onReview,
+  sort,
+  onSort,
 }: {
   rows: BadDebtProposalListItem[]
   onReview: ReviewHandler
+  sort: SortState<BadDebtSortField>
+  onSort: (field: BadDebtSortField, defaultDir: SortOrder) => void
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -750,11 +860,11 @@ function BadDebtDesktop({
           <Table size="small" sx={{ minWidth: 820 }}>
             <TableHead>
               <TableRow sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
-                <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Loan</TableCell>
-                <TableCell sx={{ fontWeight: 600 }} align="right">Principal</TableCell>
+                <SortableTh field="customer_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="loan" label="Loan" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                <SortableTh field="principal" label="Principal" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                 <TableCell sx={{ fontWeight: 600 }}>Reason</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Proposed</TableCell>
+                <SortableTh field="proposed_at" label="Proposed" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                 <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
               </TableRow>
             </TableHead>

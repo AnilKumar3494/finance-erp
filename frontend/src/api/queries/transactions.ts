@@ -104,13 +104,31 @@ export interface PendingConfirmationListResponse {
   results: PendingConfirmationItem[]
 }
 
-export function usePendingConfirmations(page: number, pageSize = 20) {
+export type PendingSortField =
+  | 'amount'
+  | 'effective_payment_date'
+  | 'created_at'
+  | 'customer_name'
+  | 'loan'
+
+export function usePendingConfirmations(
+  page: number,
+  pageSize = 20,
+  sort?: { sort_by?: PendingSortField; sort_order?: 'asc' | 'desc' },
+) {
   return useQuery({
-    queryKey: [...transactionKeys.all, 'pendingConfirmations', page, pageSize] as const,
+    queryKey: [
+      ...transactionKeys.all,
+      'pendingConfirmations',
+      page,
+      pageSize,
+      sort?.sort_by ?? null,
+      sort?.sort_order ?? null,
+    ] as const,
     queryFn: async () => {
       const { data } = await apiClient.get<PendingConfirmationListResponse>(
         '/transactions/pending-confirmations',
-        { params: { page, page_size: pageSize } },
+        { params: { page, page_size: pageSize, ...sort } },
       )
       return data
     },

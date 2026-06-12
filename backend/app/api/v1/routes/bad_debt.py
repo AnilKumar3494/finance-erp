@@ -155,6 +155,11 @@ def list_proposals(
     status_filter: Optional[BadDebtProposalStatus] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Sort column: principal | proposed_at | customer_name | loan",
+    ),
+    sort_order: Optional[str] = Query(None, description="asc | desc"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -174,8 +179,22 @@ def list_proposals(
     if status_filter:
         q = q.filter(BadDebtProposal.status == status_filter)
     total = q.count()
+
+    # Sortable columns. Default is proposed_at desc (newest proposals first),
+    # matching the "Proposed" column shown in the review queue. Stable
+    # secondary key (proposal id) keeps pagination consistent on ties.
+    sortable = {
+        "principal": Loan.principal,
+        "proposed_at": BadDebtProposal.proposed_at,
+        "customer_name": Customer.full_name,
+        "loan": Loan.hp_number,
+    }
+    column = sortable.get(sort_by or "proposed_at", BadDebtProposal.proposed_at)
+    descending = (sort_order or "desc").lower() != "asc"
+    ordering = column.desc() if descending else column.asc()
+
     rows = (
-        q.order_by(BadDebtProposal.created_at.desc())
+        q.order_by(ordering, BadDebtProposal.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

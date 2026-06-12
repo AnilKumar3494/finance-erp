@@ -91,6 +91,13 @@ export interface DueCycleWorklistResponse {
   results: DueCycleWorklistItem[]
 }
 
+export type WorklistSortField =
+  | 'due_date'
+  | 'cycle_number'
+  | 'cycle_status'
+  | 'customer_name'
+  | 'loan'
+
 export interface WorklistParams {
   status?: CycleStatus
   due_before?: string
@@ -99,6 +106,8 @@ export interface WorklistParams {
   search?: string
   page: number
   page_size?: number
+  sort_by?: WorklistSortField
+  sort_order?: 'asc' | 'desc'
 }
 
 export function useDueCycleWorklist(params: WorklistParams) {

@@ -119,6 +119,8 @@ def list_pending_confirmations(
     assigned_employee_id: Optional[uuid.UUID] = None,
     page: int = 1,
     page_size: int = 20,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> tuple[list[tuple], int, Decimal]:
     """
     Cross-loan worklist of PENDING transactions awaiting admin confirm/fail.
@@ -152,8 +154,21 @@ def list_pending_confirmations(
         query.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
     )
 
+    # Sortable columns. Default is created_at asc (oldest-waiting first). A
+    # stable secondary key (txn id) keeps pagination consistent on ties.
+    sortable = {
+        "amount": Transaction.amount,
+        "effective_payment_date": Transaction.effective_payment_date,
+        "created_at": Transaction.created_at,
+        "customer_name": Customer.full_name,
+        "loan": Loan.hp_number,
+    }
+    column = sortable.get(sort_by or "created_at", Transaction.created_at)
+    descending = (sort_order or "asc").lower() == "desc"
+    ordering = column.desc() if descending else column.asc()
+
     rows = (
-        query.order_by(Transaction.created_at.asc())
+        query.order_by(ordering, Transaction.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
