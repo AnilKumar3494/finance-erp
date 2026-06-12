@@ -35,6 +35,7 @@ function mapErr(error: unknown): string {
 }
 
 interface FinFormValues {
+  hp_number: string
   principal: string
   interest_rate: string
   tenure: string
@@ -73,6 +74,7 @@ function FinancialsForm({
     () =>
       z
         .object({
+          hp_number: z.string(),
           principal: z.string(),
           interest_rate: z.string(),
           tenure: z.string(),
@@ -81,6 +83,11 @@ function FinancialsForm({
           documentation_fee: z.string(),
         })
         .superRefine((v, ctx) => {
+          if (v.hp_number.trim() === '') {
+            ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'Enter the HP number' })
+          } else if (v.hp_number.trim().length > 30) {
+            ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'HP number is too long (max 30 characters)' })
+          }
           const principal = parseAmount(v.principal)
           if (principal === null) {
             ctx.addIssue({ code: 'custom', path: ['principal'], message: 'Enter the principal amount' })
@@ -135,6 +142,7 @@ function FinancialsForm({
   } = useForm<FinFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
+      hp_number: loan.hp_number ?? '',
       principal: loan.principal ?? '',
       interest_rate: loan.interest_rate ?? '',
       tenure: loan.tenure != null ? String(loan.tenure) : '',
@@ -167,6 +175,7 @@ function FinancialsForm({
   const onSubmit = (v: FinFormValues) => {
     const feeOrUndef = (s: string) => (s.trim() === '' ? undefined : s.trim())
     const payload: LoanUpdate = {
+      hp_number: v.hp_number.trim().toUpperCase(),
       principal: v.principal.trim(),
       interest_rate: v.interest_rate.trim(),
       tenure: Number(v.tenure),
@@ -201,6 +210,15 @@ function FinancialsForm({
           </Box>
         )}
         <Stack spacing={2.5}>
+          <Input
+            id="fin_hp_number"
+            label="HP number"
+            required
+            placeholder="e.g. SAFTNK0401"
+            hint="Hire-purchase number — shown as this finance's ID. Required to approve."
+            {...register('hp_number')}
+            error={errors.hp_number?.message}
+          />
           <Input
             id="fin_principal"
             label="Principal"

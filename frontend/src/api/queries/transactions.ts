@@ -73,6 +73,69 @@ export function useLoanTransactions(loanId: string | undefined, enabled = true) 
   })
 }
 
+// --------------------------------------------------
+// Pending confirmations worklist — cross-loan PENDING transactions awaiting an
+// admin's confirm/fail, enriched with loan + customer (+ cycle). Mirrors
+// backend GET /transactions/pending-confirmations.
+// --------------------------------------------------
+export interface PendingConfirmationItem {
+  id: string
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+  amount: string
+  payment_mode: PaymentMethod
+  effective_payment_date: string
+  collected_by_id: string | null
+  created_at: string
+  due_cycle_id: string | null
+  cycle_number: number | null
+  cycle_due_date: string | null
+}
+
+export interface PendingConfirmationListResponse {
+  total: number
+  page: number
+  page_size: number
+  total_pending_amount: string
+  results: PendingConfirmationItem[]
+}
+
+export type PendingSortField =
+  | 'amount'
+  | 'effective_payment_date'
+  | 'created_at'
+  | 'customer_name'
+  | 'loan'
+
+export function usePendingConfirmations(
+  page: number,
+  pageSize = 20,
+  sort?: { sort_by?: PendingSortField; sort_order?: 'asc' | 'desc' },
+) {
+  return useQuery({
+    queryKey: [
+      ...transactionKeys.all,
+      'pendingConfirmations',
+      page,
+      pageSize,
+      sort?.sort_by ?? null,
+      sort?.sort_order ?? null,
+    ] as const,
+    queryFn: async () => {
+      const { data } = await apiClient.get<PendingConfirmationListResponse>(
+        '/transactions/pending-confirmations',
+        { params: { page, page_size: pageSize, ...sort } },
+      )
+      return data
+    },
+    placeholderData: (prev) => prev,
+  })
+}
+
 export function useLoanSummary(loanId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: transactionKeys.summary(loanId ?? ''),
@@ -97,8 +160,10 @@ export interface TransactionCreate {
   loan_id: string
   amount: string
   payment_mode: PaymentMethod
+  // Required by the backend as of the cycle-required change — every payment
+  // must land on a specific cycle to keep total_received in sync.
+  due_cycle_id: string
   effective_payment_date?: string | null
-  due_cycle_id?: string | null
   notes?: string | null
 }
 
@@ -152,11 +217,18 @@ export function useFailTransaction(loanId: string) {
   })
 }
 
-// Edit a transaction's notes (admin). Backend accepts `{ notes }` only and
-// rejects edits on a SUCCESS transaction — callers gate the action to
-// PENDING/FAILED rows. A null clears the note.
+// Edit a transaction. All fields optional — only set fields are applied.
+// PENDING/FAILED transactions are editable by any user in scope of the loan;
+// SUCCESS transactions are editable by admins only (server-side gate). When
+// `due_cycle_id` or `amount` changes on a SUCCESS row, the server recomputes
+// total_received on both the old and new cycle.
+// `notes: null` clears the existing note.
 export interface TransactionUpdate {
-  notes: string | null
+  notes?: string | null
+  due_cycle_id?: string | null
+  amount?: string
+  effective_payment_date?: string
+  payment_mode?: PaymentMethod
 }
 
 export function useUpdateTransaction(loanId: string) {

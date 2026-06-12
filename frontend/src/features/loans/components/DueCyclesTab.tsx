@@ -23,13 +23,43 @@ import {
   useReclassifyCycle,
   type DueCycleResponse,
 } from '@/api/queries/dueCycles'
+import { useLoanTransactions } from '@/api/queries/transactions'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, useClientSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import type { CycleStatus } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { deriveCycleDisplay, type CycleDisplay } from '../cycleDisplay'
+import { deriveNetDue, type CycleNetDue } from '../cycleNetDue'
+import { focusTransaction } from '../txnFocus'
 import { CycleStatusChip } from './CycleStatusChip'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
+
+// Net due is a derived waterfall value (computed after the data hooks) and
+// shows text states, so it's not a client-sort key; every other column is.
+type CycleField = 'cycle' | 'due' | 'total_due' | 'received' | 'shortfall' | 'penalty' | 'status'
+
+const CYCLE_ACCESSORS: Partial<Record<CycleField, (c: DueCycleResponse) => string | number | null>> = {
+  cycle: (c) => c.cycle_number,
+  due: (c) => c.due_date,
+  total_due: (c) => Number(c.total_due),
+  received: (c) => Number(c.total_received),
+  shortfall: (c) => Number(c.shortfall),
+  penalty: (c) => Number(c.penalty_amount),
+  status: (c) => c.cycle_status,
+}
+
+const CYCLE_SORT_OPTIONS: readonly SortOption<CycleField>[] = [
+  { value: 'cycle:asc', label: 'Cycle (1 → N)', sort_by: 'cycle', sort_order: 'asc' },
+  { value: 'cycle:desc', label: 'Cycle (N → 1)', sort_by: 'cycle', sort_order: 'desc' },
+  { value: 'due:asc', label: 'Due date (earliest)', sort_by: 'due', sort_order: 'asc' },
+  { value: 'due:desc', label: 'Due date (latest)', sort_by: 'due', sort_order: 'desc' },
+  { value: 'shortfall:desc', label: 'Shortfall (high → low)', sort_by: 'shortfall', sort_order: 'desc' },
+  { value: 'status:asc', label: 'Status (A → Z)', sort_by: 'status', sort_order: 'asc' },
+]
 
 function mapError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -59,8 +89,19 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
   const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
 
   const query = useDueCycles(loan.id)
+  // Shared cache with TransactionsTab — used to derive richer cycle display
+  // states (Pending confirmation / Paid in advance) that the raw cycle_status
+  // doesn't surface. See cycleDisplay.ts for the rules.
+  const txnsQuery = useLoanTransactions(loan.id, loan.status !== 'DRAFT')
   const [record, setRecord] = useState<{ cycleId: string; amount: string } | null>(null)
   const [classify, setClassify] = useState<{ cycle: DueCycleResponse; mode: 'classify' | 'reclassify' } | null>(null)
+
+  // Client-side sort over this loan's already-loaded cycles. Computed before
+  // the early returns so the hook order stays stable.
+  const [sort, setSort] = useState<SortState<CycleField>>({ sort_by: 'cycle', sort_order: 'asc' })
+  const onSort = (field: CycleField, defaultDir: SortOrder) =>
+    setSort((s) => toggleSort(s, field, defaultDir))
+  const sortedRows = useClientSort(query.data?.results ?? [], sort.sort_by, sort.sort_order, CYCLE_ACCESSORS)
 
   if (query.isLoading) {
     return (
@@ -73,7 +114,7 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
     return <ErrorBanner message={mapError(query.error)} />
   }
 
-  const rows = query.data?.results ?? []
+  const rows = sortedRows
   if (rows.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
@@ -82,8 +123,21 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
     )
   }
 
-  const onRecord = (c: DueCycleResponse) =>
-    setRecord({ cycleId: c.id, amount: Number(c.shortfall) > 0 ? c.shortfall : '' })
+  // Transactions feed two things, sharing one cached query with
+  // TransactionsTab: the richer chip display, and the net-due waterfall pool
+  // (Σ SUCCESS = the loan's total paid).
+  const txns = txnsQuery.data?.results ?? []
+  const totalPaid = txns
+    .filter((t) => t.status === 'SUCCESS' && !t.is_deleted)
+    .reduce((sum, t) => sum + Number(t.amount), 0)
+  const netDueByCycleId = deriveNetDue(rows, totalPaid)
+
+  const onRecord = (c: DueCycleResponse) => {
+    // Seed the dialog with the genuinely-owed amount (net of carried-forward
+    // credit), not the raw per-cycle shortfall.
+    const net = netDueByCycleId.get(c.id)?.netDue ?? 0
+    setRecord({ cycleId: c.id, amount: net > 0 ? net.toFixed(2) : '' })
+  }
 
   const actions = {
     payable,
@@ -97,10 +151,70 @@ export function DueCyclesTab({ loan }: { loan: LoanResponse }) {
 
   const showActions = payable || isAdmin
 
+  // "Recovery stale" — a late cycle whose deficit was spread forward (resolved)
+  // but which has since received a SUCCESS payment recorded AFTER it was
+  // classified. The spread was frozen at classification, so that payment isn't
+  // reflected in the schedule yet: the admin must reclassify to apply it. We
+  // surface a nudge on the row instead of leaving the payment silently stranded.
+  const staleCycleIds = new Set<string>()
+  for (const c of rows) {
+    if (!netDueByCycleId.get(c.id)?.resolved || !c.classified_at) continue
+    const classifiedAt = new Date(c.classified_at).getTime()
+    const hasPostClassPayment = txns.some(
+      (t) =>
+        !t.is_deleted &&
+        t.status === 'SUCCESS' &&
+        t.due_cycle_id === c.id &&
+        new Date(t.created_at).getTime() > classifiedAt,
+    )
+    if (hasPostClassPayment) staleCycleIds.add(c.id)
+  }
+
+  // Build display state per cycle once so both the desktop table and the
+  // mobile cards render the same chip without re-deriving.
+  const displayByCycleId = new Map<string, CycleDisplay>(
+    rows.map((c) => [c.id, deriveCycleDisplay(c, txns)]),
+  )
+  // Clicking a "Pending confirmation" chip jumps to the awaiting transaction.
+  // The transaction row in TransactionsTab listens to focusTransaction; the
+  // parent CollapsibleCard (in loan detail) also listens so it auto-expands
+  // if it was collapsed. The cockpit page mounts both tabs unconditionally,
+  // so the listener fires there too.
+  const onChipClick = (d: CycleDisplay) => {
+    if (d.pendingTxnId) focusTransaction(d.pendingTxnId)
+  }
+
   return (
     <>
-      <DesktopTable rows={rows} actions={actions} showActions={showActions} />
-      <MobileCards rows={rows} actions={actions} showActions={showActions} />
+      <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
+        <SortSelect
+          options={CYCLE_SORT_OPTIONS}
+          sort_by={sort.sort_by}
+          sort_order={sort.sort_order}
+          onChange={setSort}
+          sx={{ width: '100%' }}
+        />
+      </Box>
+      <DesktopTable
+        rows={rows}
+        actions={actions}
+        showActions={showActions}
+        displayByCycleId={displayByCycleId}
+        netDueByCycleId={netDueByCycleId}
+        staleCycleIds={staleCycleIds}
+        onChipClick={onChipClick}
+        sort={sort}
+        onSort={onSort}
+      />
+      <MobileCards
+        rows={rows}
+        actions={actions}
+        showActions={showActions}
+        displayByCycleId={displayByCycleId}
+        netDueByCycleId={netDueByCycleId}
+        staleCycleIds={staleCycleIds}
+        onChipClick={onChipClick}
+      />
 
       <RecordPaymentDialog
         loanId={loan.id}
@@ -126,8 +240,30 @@ interface CycleActions {
   onClassify: (c: DueCycleResponse) => void
 }
 
-function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actions: CycleActions }) {
+function CycleActionButtons({
+  cycle,
+  actions,
+  net,
+  stale,
+}: {
+  cycle: DueCycleResponse
+  actions: CycleActions
+  net?: CycleNetDue
+  stale?: boolean
+}) {
   const mode = classifyMode(cycle.cycle_status)
+  // Hide per-cycle Record once nothing is genuinely owed for this cycle. We
+  // gate on NET due, not the raw shortfall: a cycle covered by carried-forward
+  // credit, or a late cycle whose deficit was rolled into later EMIs, has a
+  // non-zero raw shortfall but nothing left to collect here. Showing Record on
+  // those let admins double-pay the same money. The header Record button still
+  // covers any deliberate extra payment.
+  const owed = net ? net.netDue : Number(cycle.shortfall)
+  const showRecord = actions.payable && owed > 0
+  // Highlight Classify (primary) when it's a fresh action-needed state. A stale
+  // cycle (an unapplied payment is waiting on a reclassify) also gets the
+  // primary call-to-action; otherwise Reclassify stays a quiet ghost override.
+  const classifyVariant = mode === 'classify' || stale ? 'primary' : 'ghost'
   return (
     <Stack
       direction="row"
@@ -139,14 +275,14 @@ function CycleActionButtons({ cycle, actions }: { cycle: DueCycleResponse; actio
         '& .MuiButton-root': { whiteSpace: 'nowrap', minWidth: 'auto' },
       }}
     >
-      {actions.payable && (
+      {showRecord && (
         <Btn variant="ghost" size="sm" onClick={() => actions.onRecord(cycle)}>
           Record payment
         </Btn>
       )}
       {actions.isAdmin && mode && (
-        <Btn variant="ghost" size="sm" onClick={() => actions.onClassify(cycle)}>
-          {mode === 'classify' ? 'Classify' : 'Reclassify'}
+        <Btn variant={classifyVariant} size="sm" onClick={() => actions.onClassify(cycle)}>
+          {mode === 'classify' ? 'Classify' : stale ? 'Reclassify to apply' : 'Reclassify'}
         </Btn>
       )}
     </Stack>
@@ -159,14 +295,55 @@ const Dash = () => (
   </Typography>
 )
 
+function NetDueValue({ net, stale }: { net?: CycleNetDue; stale?: boolean }) {
+  // A stale resolved cycle has an unapplied payment — flag it as an action,
+  // not a calm "Recovered".
+  if (stale) {
+    return (
+      <Typography component="span" variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>
+        Reclassify to apply
+      </Typography>
+    )
+  }
+  if (net?.resolved) {
+    const capped = net.resolvedKind === 'capped'
+    return (
+      <Typography
+        component="span"
+        variant="body2"
+        color={capped ? 'error.main' : 'success.main'}
+      >
+        {capped ? 'Bad debt' : 'Recovered'}
+      </Typography>
+    )
+  }
+  return (
+    <Typography component="span" variant="body2">
+      {fmtINR(net?.netDue ?? 0)}
+    </Typography>
+  )
+}
+
 function DesktopTable({
   rows,
   actions,
   showActions,
+  displayByCycleId,
+  netDueByCycleId,
+  staleCycleIds,
+  onChipClick,
+  sort,
+  onSort,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
   showActions: boolean
+  displayByCycleId: Map<string, CycleDisplay>
+  netDueByCycleId: Map<string, CycleNetDue>
+  staleCycleIds: Set<string>
+  onChipClick: (d: CycleDisplay) => void
+  sort: SortState<CycleField>
+  onSort: (field: CycleField, defaultDir: SortOrder) => void
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -180,13 +357,14 @@ function DesktopTable({
         >
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 600 }}>#</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Due date</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Total due</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Received</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Shortfall</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">Penalty</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+              <SortableTh field="cycle" label="#" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="due" label="Due date" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="total_due" label="Total due" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="received" label="Received" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <TableCell sx={{ fontWeight: 600 }} align="right">Net due</TableCell>
+              <SortableTh field="shortfall" label="Shortfall" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="penalty" label="Penalty" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
               {showActions && <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>}
             </TableRow>
           </TableHead>
@@ -200,16 +378,34 @@ function DesktopTable({
                   <TableCell>{fmtDate(c.due_date)}</TableCell>
                   <TableCell align="right">{fmtINR(Number(c.total_due))}</TableCell>
                   <TableCell align="right">{fmtINR(Number(c.total_received))}</TableCell>
+                  <TableCell align="right">
+                    <NetDueValue net={netDueByCycleId.get(c.id)} stale={staleCycleIds.has(c.id)} />
+                  </TableCell>
                   <TableCell align="right" sx={{ color: shortfall ? 'error.main' : undefined }}>
                     {shortfall ?? <Dash />}
                   </TableCell>
                   <TableCell align="right">{penalty ?? <Dash />}</TableCell>
                   <TableCell>
-                    <CycleStatusChip status={c.cycle_status} />
+                    {(() => {
+                      const display = displayByCycleId.get(c.id) ?? {
+                        key: c.cycle_status,
+                      }
+                      return (
+                        <CycleStatusChip
+                          display={display}
+                          onClick={display.pendingTxnId ? onChipClick : undefined}
+                        />
+                      )
+                    })()}
                   </TableCell>
                   {showActions && (
                     <TableCell align="right">
-                      <CycleActionButtons cycle={c} actions={actions} />
+                      <CycleActionButtons
+                        cycle={c}
+                        actions={actions}
+                        net={netDueByCycleId.get(c.id)}
+                        stale={staleCycleIds.has(c.id)}
+                      />
                     </TableCell>
                   )}
                 </TableRow>
@@ -226,15 +422,25 @@ function MobileCards({
   rows,
   actions,
   showActions,
+  displayByCycleId,
+  netDueByCycleId,
+  staleCycleIds,
+  onChipClick,
 }: {
   rows: DueCycleResponse[]
   actions: CycleActions
   showActions: boolean
+  displayByCycleId: Map<string, CycleDisplay>
+  netDueByCycleId: Map<string, CycleNetDue>
+  staleCycleIds: Set<string>
+  onChipClick: (d: CycleDisplay) => void
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((c) => {
         const shortfall = amountOrDash(c.shortfall)
+        const net = netDueByCycleId.get(c.id)
+        const stale = staleCycleIds.has(c.id)
         return (
           <Box
             key={c.id}
@@ -253,16 +459,39 @@ function MobileCards({
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 Cycle {c.cycle_number} · {fmtDate(c.due_date)}
               </Typography>
-              <CycleStatusChip status={c.cycle_status} />
+              {(() => {
+                const display = displayByCycleId.get(c.id) ?? {
+                  key: c.cycle_status,
+                }
+                return (
+                  <CycleStatusChip
+                    display={display}
+                    onClick={display.pendingTxnId ? onChipClick : undefined}
+                  />
+                )
+              })()}
             </Stack>
             <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: 'wrap' }}>
               <LabelValue label="Due" value={fmtINR(Number(c.total_due))} />
               <LabelValue label="Received" value={fmtINR(Number(c.total_received))} />
+              <LabelValue
+                label="Net due"
+                value={
+                  stale
+                    ? 'Reclassify to apply'
+                    : net?.resolved
+                      ? net.resolvedKind === 'capped'
+                        ? 'Bad debt'
+                        : 'Recovered'
+                      : fmtINR(net?.netDue ?? 0)
+                }
+                danger={stale}
+              />
               {shortfall && <LabelValue label="Shortfall" value={shortfall} danger />}
             </Stack>
             {showActions && (
               <Box sx={{ mt: 1.5 }}>
-                <CycleActionButtons cycle={c} actions={actions} />
+                <CycleActionButtons cycle={c} actions={actions} net={net} stale={stale} />
               </Box>
             )}
           </Box>

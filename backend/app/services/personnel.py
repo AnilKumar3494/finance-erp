@@ -281,6 +281,7 @@ def lookup_personnel(
             loan_personnel_id=lp.id,
             loan_id=loan.id,
             loan_number=loan.loan_number,
+            hp_number=loan.hp_number,
             role=lp.role,
             relationship_to_hirer=lp.relationship_to_hirer,
             customer_name=customer.full_name,

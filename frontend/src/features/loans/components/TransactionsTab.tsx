@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
@@ -31,14 +31,20 @@ import {
   useDeleteTransaction,
   type TransactionResponse,
 } from '@/api/queries/transactions'
+import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanResponse } from '@/api/queries/loans'
+import { useFinancePermissions } from '../financePermissions'
+import { useTransactionFocus } from '../txnFocus'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, Spinner } from '@/components/primitives'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
+import { toggleSort, useClientSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import type { TransactionStatus, TransactionType } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
-import { EditNoteDialog } from './EditTransactionNoteDialog'
+import { EditTransactionDialog } from './EditTransactionDialog'
 import { VoidTransactionDialog } from './VoidTransactionDialog'
 
 const TXN_STATUS_META: Record<
@@ -55,6 +61,17 @@ const TXN_TYPE_LABELS: Record<TransactionType, string> = {
   DOWN_PAYMENT: 'Down payment',
 }
 
+type TxnField = 'date' | 'amount' | 'mode' | 'cycle' | 'type' | 'status'
+
+const TXN_SORT_OPTIONS: readonly SortOption<TxnField>[] = [
+  { value: 'date:desc', label: 'Date (newest)', sort_by: 'date', sort_order: 'desc' },
+  { value: 'date:asc', label: 'Date (oldest)', sort_by: 'date', sort_order: 'asc' },
+  { value: 'amount:desc', label: 'Amount (high → low)', sort_by: 'amount', sort_order: 'desc' },
+  { value: 'amount:asc', label: 'Amount (low → high)', sort_by: 'amount', sort_order: 'asc' },
+  { value: 'status:asc', label: 'Status (A → Z)', sort_by: 'status', sort_order: 'asc' },
+  { value: 'status:desc', label: 'Status (Z → A)', sort_by: 'status', sort_order: 'desc' },
+]
+
 function mapError(error: unknown): string {
   if (error instanceof AxiosError) {
     if (error.response?.status === 403) return 'You do not have access to these transactions.'
@@ -67,10 +84,24 @@ function mapError(error: unknown): string {
 export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+  // Assigned employee (or admin) can edit PENDING/FAILED rows so a collector
+  // can correct their own misclick without admin intervention. SUCCESS edits
+  // stay admin-only — server gates this too.
+  const perms = useFinancePermissions(loan)
+  const canEditOpenTxn = isAdmin || perms.isAssignedEmployee
   const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
 
   const query = useLoanTransactions(loan.id)
   const summaryQuery = useLoanSummary(loan.id)
+  // Cycles are joined client-side so the Cycle column resolves to the
+  // cycle # + due date instead of a raw UUID. The query is shared with
+  // DueCyclesTab so this is a cache hit when both render together.
+  const cyclesQuery = useDueCycles(loan.id, loan.status !== 'DRAFT')
+  const cyclesById = useMemo(() => {
+    const map = new Map<string, DueCycleResponse>()
+    for (const c of cyclesQuery.data?.results ?? []) map.set(c.id, c)
+    return map
+  }, [cyclesQuery.data])
   const confirm = useConfirmTransaction(loan.id)
   const fail = useFailTransaction(loan.id)
   const update = useUpdateTransaction(loan.id)
@@ -78,6 +109,47 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const [recordOpen, setRecordOpen] = useState(false)
   const [editTxn, setEditTxn] = useState<TransactionResponse | null>(null)
   const [voidTxn, setVoidTxn] = useState<TransactionResponse | null>(null)
+
+  // Client-side sort over the already-loaded transactions (one loan's worth).
+  const [sort, setSort] = useState<SortState<TxnField>>({ sort_by: 'date', sort_order: 'desc' })
+  const onSort = (field: TxnField, defaultDir: SortOrder) =>
+    setSort((s) => toggleSort(s, field, defaultDir))
+  const sortAccessors = useMemo<Partial<Record<TxnField, (t: TransactionResponse) => string | number | null>>>(
+    () => ({
+      date: (t) => t.effective_payment_date,
+      amount: (t) => Number(t.amount),
+      mode: (t) => PAYMENT_METHOD_LABELS[t.payment_mode],
+      cycle: (t) => (t.due_cycle_id ? cyclesById.get(t.due_cycle_id)?.cycle_number ?? null : null),
+      type: (t) => TXN_TYPE_LABELS[t.transaction_type],
+      status: (t) => t.status,
+    }),
+    [cyclesById],
+  )
+  const sortedRows = useClientSort(query.data?.results ?? [], sort.sort_by, sort.sort_order, sortAccessors)
+
+  // Cross-component focus: the cycle's "Pending confirmation" chip in
+  // DueCyclesTab fires focusTransaction(txnId); we scroll the row into view
+  // and pulse a highlight so the admin's eye lands on the Confirm button.
+  // The highlight clears itself after a beat.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const highlightTimer = useRef<number | null>(null)
+  useTransactionFocus((txnId) => {
+    setHighlightedId(txnId)
+    // Defer until React commits — the targeted row needs to be in the DOM.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-txn-id="${txnId}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    if (highlightTimer.current) window.clearTimeout(highlightTimer.current)
+    highlightTimer.current = window.setTimeout(() => setHighlightedId(null), 2500)
+  })
+  useEffect(
+    () => () => {
+      if (highlightTimer.current) window.clearTimeout(highlightTimer.current)
+    },
+    [],
+  )
 
   // Lazy-load the PDF module (jsPDF) only when a receipt is requested, so it
   // stays out of the loan-detail chunk.
@@ -95,10 +167,15 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     setVoidTxn(txn)
   }
 
-  const onSaveNote = (notes: string | null) => {
+  const onSaveEdit = (payload: import('@/api/queries/transactions').TransactionUpdate) => {
     if (!editTxn) return
+    // No-op save: nothing actually changed. Close without a round trip.
+    if (Object.keys(payload).length === 0) {
+      setEditTxn(null)
+      return
+    }
     update.mutate(
-      { transactionId: editTxn.id, payload: { notes } },
+      { transactionId: editTxn.id, payload },
       { onSuccess: () => setEditTxn(null) },
     )
   }
@@ -126,18 +203,28 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     return <ErrorBanner message={mapError(query.error)} />
   }
 
-  const rows = query.data?.results ?? []
+  const rows = sortedRows
   const acting =
     confirm.isPending || fail.isPending || update.isPending || del.isPending
-  const rowActions: RowActions | null = isAdmin
-    ? {
-        onConfirm: (id: string) => confirm.mutate(id),
-        onFail: (id: string) => fail.mutate(id),
-        onEditNote: openEdit,
-        onVoid: openVoid,
-        acting,
-      }
-    : null
+  // Action availability per row:
+  //   - Confirm / Fail / Void: admin only (server-gated).
+  //   - Edit: in-scope user (admin OR assigned employee) on PENDING/FAILED;
+  //     admin-only on SUCCESS. The server enforces both — we just decide
+  //     whether to show the kebab.
+  const rowActions: RowActions | null =
+    isAdmin || canEditOpenTxn
+      ? {
+          onConfirm: isAdmin ? (id: string) => confirm.mutate(id) : null,
+          onFail: isAdmin ? (id: string) => fail.mutate(id) : null,
+          onEdit: openEdit,
+          onVoid: isAdmin ? openVoid : null,
+          canEditTxn: (txn: TransactionResponse) => {
+            if (txn.status === 'SUCCESS') return isAdmin
+            return canEditOpenTxn
+          },
+          acting,
+        }
+      : null
 
   return (
     <>
@@ -161,6 +248,18 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
         )}
       </Stack>
 
+      {rows.length > 0 && (
+        <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
+          <SortSelect
+            options={TXN_SORT_OPTIONS}
+            sort_by={sort.sort_by}
+            sort_order={sort.sort_order}
+            onChange={setSort}
+            sx={{ width: '100%' }}
+          />
+        </Box>
+      )}
+
       {actionError && (
         <Box sx={{ mb: 2 }}>
           <ErrorBanner message={actionError} severity="error" variant="outlined" />
@@ -173,18 +272,33 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
         </Typography>
       ) : (
         <>
-          <DesktopTable rows={rows} actions={rowActions} onReceipt={onReceipt} />
-          <MobileCards rows={rows} actions={rowActions} onReceipt={onReceipt} />
+          <DesktopTable
+            rows={rows}
+            actions={rowActions}
+            onReceipt={onReceipt}
+            cyclesById={cyclesById}
+            highlightedId={highlightedId}
+            sort={sort}
+            onSort={onSort}
+          />
+          <MobileCards
+            rows={rows}
+            actions={rowActions}
+            onReceipt={onReceipt}
+            cyclesById={cyclesById}
+            highlightedId={highlightedId}
+          />
         </>
       )}
 
       <RecordPaymentDialog loanId={loan.id} open={recordOpen} onClose={() => setRecordOpen(false)} />
 
-      <EditNoteDialog
+      <EditTransactionDialog
         txn={editTxn}
+        loanId={loan.id}
         open={!!editTxn}
         onClose={() => setEditTxn(null)}
-        onSubmit={onSaveNote}
+        onSubmit={onSaveEdit}
         saving={update.isPending}
         error={update.isError ? mapActionError(update.error) : null}
       />
@@ -212,10 +326,15 @@ function mapActionError(error: unknown): string {
 }
 
 interface RowActions {
-  onConfirm: (id: string) => void
-  onFail: (id: string) => void
-  onEditNote: (txn: TransactionResponse) => void
-  onVoid: (txn: TransactionResponse) => void
+  // Admin-only inline buttons (Confirm/Fail/Void). Null when the current user
+  // is an assigned-employee with edit access but not an admin.
+  onConfirm: ((id: string) => void) | null
+  onFail: ((id: string) => void) | null
+  onVoid: ((txn: TransactionResponse) => void) | null
+  // Edit is broader: admins for any row, in-scope users for PENDING/FAILED.
+  // The caller per-row gate is `canEditTxn`.
+  onEdit: (txn: TransactionResponse) => void
+  canEditTxn: (txn: TransactionResponse) => boolean
   acting: boolean
 }
 
@@ -225,29 +344,37 @@ function TxnStatusChip({ status }: { status: TransactionStatus }) {
 }
 
 function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
+  // Confirm/Fail are admin-only. Caller doesn't render this component at all
+  // for non-admin users (see RowActionsCell), but we guard defensively.
+  if (!actions.onConfirm || !actions.onFail) return null
   return (
     <Stack
       direction="row"
       spacing={1}
       sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
     >
-      <Btn variant="success" size="sm" onClick={() => actions.onConfirm(id)} disabled={actions.acting}>
+      <Btn variant="success" size="sm" onClick={() => actions.onConfirm!(id)} disabled={actions.acting}>
         Confirm
       </Btn>
-      <Btn variant="ghost" size="sm" onClick={() => actions.onFail(id)} disabled={actions.acting}>
+      <Btn variant="ghost" size="sm" onClick={() => actions.onFail!(id)} disabled={actions.acting}>
         Fail
       </Btn>
     </Stack>
   )
 }
 
-// Admin overflow menu for the secondary / destructive actions, keeping the
-// inline buttons reserved for the primary lifecycle (confirm / fail / receipt).
-//   PENDING → Edit note
-//   FAILED  → Edit note, Void
-function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: RowActions }) {
+// Overflow menu for per-row actions that aren't the inline lifecycle
+// buttons. Items appear conditionally based on row status + role:
+//   - Edit transaction — any row the current user is allowed to edit
+//   - Void — FAILED rows, admin only
+function RowKebab({ txn, actions }: { txn: TransactionResponse; actions: RowActions }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const close = () => setAnchor(null)
+
+  const showEdit = actions.canEditTxn(txn)
+  const showVoid = txn.status === 'FAILED' && !!actions.onVoid
+
+  if (!showEdit && !showVoid) return null
 
   return (
     <>
@@ -260,22 +387,24 @@ function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: Row
         <MoreVertIcon fontSize="small" />
       </IconButton>
       <Menu anchorEl={anchor} open={!!anchor} onClose={close}>
-        <MenuItem
-          onClick={() => {
-            close()
-            actions.onEditNote(txn)
-          }}
-        >
-          <ListItemIcon>
-            <EditNoteIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Edit note</ListItemText>
-        </MenuItem>
-        {txn.status === 'FAILED' && (
+        {showEdit && (
           <MenuItem
             onClick={() => {
               close()
-              actions.onVoid(txn)
+              actions.onEdit(txn)
+            }}
+          >
+            <ListItemIcon>
+              <EditNoteIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Edit transaction</ListItemText>
+          </MenuItem>
+        )}
+        {showVoid && (
+          <MenuItem
+            onClick={() => {
+              close()
+              actions.onVoid!(txn)
             }}
             sx={{ color: 'error.main' }}
           >
@@ -290,9 +419,11 @@ function AdminRowMenu({ txn, actions }: { txn: TransactionResponse; actions: Row
   )
 }
 
-// Per-row actions: admins confirm/fail a PENDING txn (and get an overflow menu
-// for edit-note / void); anyone can download a receipt for a confirmed
-// (SUCCESS) one. A FAILED txn exposes only the admin menu.
+// Per-row actions:
+//   - SUCCESS: Receipt download for everyone. Admin can edit via kebab.
+//   - PENDING: Admin sees Confirm/Fail inline; in-scope user (admin or
+//     assigned employee) sees the kebab with Edit.
+//   - FAILED: kebab with Edit (in-scope) and Void (admin).
 function RowActionsCell({
   txn,
   actions,
@@ -302,39 +433,92 @@ function RowActionsCell({
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
 }) {
-  if (txn.status === 'SUCCESS') {
-    return (
+  const receiptBtn =
+    txn.status === 'SUCCESS' ? (
       <Btn variant="ghost" size="sm" startIcon={<ReceiptIcon />} onClick={() => onReceipt(txn)}>
         Receipt
       </Btn>
-    )
-  }
-  if (txn.status === 'PENDING' && actions) {
+    ) : null
+
+  if (!actions) return receiptBtn
+
+  if (txn.status === 'SUCCESS') {
+    // Receipt + (optional) edit kebab.
     return (
       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
-        <PendingActions id={txn.id} actions={actions} />
-        <AdminRowMenu txn={txn} actions={actions} />
+        {receiptBtn}
+        <RowKebab txn={txn} actions={actions} />
       </Stack>
     )
   }
-  if (txn.status === 'FAILED' && actions) {
+
+  if (txn.status === 'PENDING') {
+    // Admin gets Confirm/Fail inline; everyone with edit access gets the kebab.
+    return (
+      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+        {actions.onConfirm && <PendingActions id={txn.id} actions={actions} />}
+        <RowKebab txn={txn} actions={actions} />
+      </Stack>
+    )
+  }
+
+  if (txn.status === 'FAILED') {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <AdminRowMenu txn={txn} actions={actions} />
+        <RowKebab txn={txn} actions={actions} />
       </Box>
     )
   }
   return null
 }
 
+// Renders the cycle this txn was allocated to as "#N · 15 Jun" — or an em-dash
+// when the txn is unallocated (DOWN_PAYMENT rows, or a paid-in-advance with no
+// cycle pre-selected). The schedule-tab cycle number is the same N so the user
+// can scan from txn to schedule by eye.
+function CycleCell({
+  txn,
+  cyclesById,
+}: {
+  txn: TransactionResponse
+  cyclesById: Map<string, DueCycleResponse>
+}) {
+  const cycle = txn.due_cycle_id ? cyclesById.get(txn.due_cycle_id) ?? null : null
+  if (!cycle) {
+    return (
+      <Typography component="span" variant="body2" color="text.secondary">
+        —
+      </Typography>
+    )
+  }
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', gap: 0.75, alignItems: 'baseline' }}>
+      <Box component="span" sx={{ fontWeight: 600 }}>
+        #{cycle.cycle_number}
+      </Box>
+      <Typography component="span" variant="caption" color="text.secondary">
+        {fmtDate(cycle.due_date)}
+      </Typography>
+    </Box>
+  )
+}
+
 function DesktopTable({
   rows,
   actions,
   onReceipt,
+  cyclesById,
+  highlightedId,
+  sort,
+  onSort,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
+  cyclesById: Map<string, DueCycleResponse>
+  highlightedId: string | null
+  sort: SortState<TxnField>
+  onSort: (field: TxnField, defaultDir: SortOrder) => void
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -348,31 +532,48 @@ function DesktopTable({
         >
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 600 }} align="right">
-                Amount
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Mode</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+              <SortableTh field="date" label="Date" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="amount" label="Amount" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <SortableTh field="mode" label="Mode" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="cycle" label="Cycle" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="type" label="Type" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+              <SortableTh field="status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
               <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell>{fmtDate(t.effective_payment_date)}</TableCell>
-                <TableCell align="right">{fmtINR(Number(t.amount))}</TableCell>
-                <TableCell>{PAYMENT_METHOD_LABELS[t.payment_mode]}</TableCell>
-                <TableCell>{TXN_TYPE_LABELS[t.transaction_type]}</TableCell>
-                <TableCell>
-                  <TxnStatusChip status={t.status} />
-                </TableCell>
-                <TableCell align="right">
-                  <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((t) => {
+              const isHighlighted = t.id === highlightedId
+              return (
+                <TableRow
+                  key={t.id}
+                  data-txn-id={t.id}
+                  sx={(theme) => ({
+                    transition: 'background-color 600ms ease',
+                    ...(isHighlighted && {
+                      backgroundColor:
+                        theme.palette.mode === 'dark'
+                          ? 'rgba(33, 150, 243, 0.18)'
+                          : 'rgba(33, 150, 243, 0.12)',
+                    }),
+                  })}
+                >
+                  <TableCell>{fmtDate(t.effective_payment_date)}</TableCell>
+                  <TableCell align="right">{fmtINR(Number(t.amount))}</TableCell>
+                  <TableCell>{PAYMENT_METHOD_LABELS[t.payment_mode]}</TableCell>
+                  <TableCell>
+                    <CycleCell txn={t} cyclesById={cyclesById} />
+                  </TableCell>
+                  <TableCell>{TXN_TYPE_LABELS[t.transaction_type]}</TableCell>
+                  <TableCell>
+                    <TxnStatusChip status={t.status} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -384,45 +585,66 @@ function MobileCards({
   rows,
   actions,
   onReceipt,
+  cyclesById,
+  highlightedId,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
+  cyclesById: Map<string, DueCycleResponse>
+  highlightedId: string | null
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((t) => (
-        <Box
-          key={t.id}
-          sx={{
-            p: 1.5,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 'var(--radius-sm)',
-          }}
-        >
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+      {rows.map((t) => {
+        const cycle = t.due_cycle_id ? cyclesById.get(t.due_cycle_id) ?? null : null
+        const isHighlighted = t.id === highlightedId
+        return (
+          <Box
+            key={t.id}
+            data-txn-id={t.id}
+            sx={(theme) => ({
+              p: 1.5,
+              border: '1px solid',
+              borderColor: isHighlighted ? 'info.main' : 'divider',
+              borderRadius: 'var(--radius-sm)',
+              transition: 'background-color 600ms ease, border-color 600ms ease',
+              ...(isHighlighted && {
+                backgroundColor:
+                  theme.palette.mode === 'dark'
+                    ? 'rgba(33, 150, 243, 0.18)'
+                    : 'rgba(33, 150, 243, 0.12)',
+              }),
+            })}
           >
-            <Typography variant="body1" sx={{ fontWeight: 600 }}>
-              {fmtINR(Number(t.amount))}
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                {fmtINR(Number(t.amount))}
+              </Typography>
+              <TxnStatusChip status={t.status} />
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {fmtDate(t.effective_payment_date)} · {PAYMENT_METHOD_LABELS[t.payment_mode]} ·{' '}
+              {TXN_TYPE_LABELS[t.transaction_type]}
             </Typography>
-            <TxnStatusChip status={t.status} />
-          </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {fmtDate(t.effective_payment_date)} · {PAYMENT_METHOD_LABELS[t.payment_mode]} ·{' '}
-            {TXN_TYPE_LABELS[t.transaction_type]}
-          </Typography>
-          {(t.status === 'SUCCESS' ||
-            ((t.status === 'PENDING' || t.status === 'FAILED') && actions)) && (
-            <Box sx={{ mt: 1.5 }}>
-              <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
-            </Box>
-          )}
-        </Box>
-      ))}
+            {cycle && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                Cycle #{cycle.cycle_number} · due {fmtDate(cycle.due_date)}
+              </Typography>
+            )}
+            {(t.status === 'SUCCESS' ||
+              ((t.status === 'PENDING' || t.status === 'FAILED') && actions)) && (
+              <Box sx={{ mt: 1.5 }}>
+                <RowActionsCell txn={t} actions={actions} onReceipt={onReceipt} />
+              </Box>
+            )}
+          </Box>
+        )
+      })}
     </Stack>
   )
 }

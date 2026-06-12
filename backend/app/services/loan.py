@@ -29,6 +29,7 @@ def _loan_audit_snapshot(loan: Loan) -> dict:
     """Stringify Decimals so JSONB stays portable across precisions."""
     return {
         "loan_number": loan.loan_number,
+        "hp_number": loan.hp_number,
         "customer_id": str(loan.customer_id),
         "vehicle_id": str(loan.vehicle_id) if loan.vehicle_id else None,
         "principal": str(loan.principal),
@@ -216,11 +217,12 @@ def list_loans(
     if assigned_employee_id:
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
 
-    # Free-text search across loan number and customer name / mobile / mandal.
+    # Free-text search across HP number, loan number and customer name / mobile / mandal.
     if search:
         s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(
             or_(
+                Loan.hp_number.ilike(f"%{s}%", escape="\\"),
                 Loan.loan_number.ilike(f"%{s}%", escape="\\"),
                 Customer.full_name.ilike(f"%{s}%", escape="\\"),
                 Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
@@ -377,6 +379,7 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
 
     loan = Loan(
         loan_number=generate_loan_number(),
+        hp_number=data.hp_number,
         customer_id=data.customer_id,
         vehicle_id=data.vehicle_id,
         principal=data.principal,
@@ -435,6 +438,9 @@ def approve_loan(
         raise ValueError(
             "Set the loan's financial terms (principal, interest rate, tenure) before approving"
         )
+
+    if not loan.hp_number:
+        raise ValueError("Set the HP number before approving this finance")
 
     if loan.down_payment and loan.down_payment > 0 and not down_payment_mode:
         raise ValueError("down_payment_mode is required when down_payment > 0")

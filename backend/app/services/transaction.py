@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from app.models.customer import Customer
-from app.models.due_cycle import DueCycle
+from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan, LoanStatus
 from app.models.transaction import (
     PunctualityStatus,
@@ -113,6 +113,70 @@ def list_transactions(
     return results, total, Decimal(str(total_collected))
 
 
+def list_pending_confirmations(
+    db: Session,
+    *,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+) -> tuple[list[tuple], int, Decimal]:
+    """
+    Cross-loan worklist of PENDING transactions awaiting admin confirm/fail.
+
+    Joins each pending transaction to its loan + customer (and left-joins the
+    allocated due-cycle) so the Collections & Actions surface can render the
+    row without N+1 lookups. EMPLOYEE scope limits to their assigned customers.
+
+    Returns (rows, total, total_pending_amount) where each row is a
+    (Transaction, Loan, Customer, DueCycle|None) tuple. Oldest-waiting first so
+    the longest-outstanding confirmations float to the top.
+    """
+    query = (
+        db.query(Transaction, Loan, Customer, DueCycle)
+        .join(Loan, Transaction.loan_id == Loan.id)
+        .join(Customer, Loan.customer_id == Customer.id)
+        .outerjoin(DueCycle, Transaction.due_cycle_id == DueCycle.id)
+        .filter(
+            Transaction.status == TransactionStatus.PENDING,
+            Transaction.is_deleted.is_(False),
+            Loan.is_deleted.is_(False),
+            Customer.is_deleted.is_(False),
+        )
+    )
+
+    if assigned_employee_id is not None:
+        query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    total = query.count()
+    total_amount = (
+        query.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
+    )
+
+    # Sortable columns. Default is created_at asc (oldest-waiting first). A
+    # stable secondary key (txn id) keeps pagination consistent on ties.
+    sortable = {
+        "amount": Transaction.amount,
+        "effective_payment_date": Transaction.effective_payment_date,
+        "created_at": Transaction.created_at,
+        "customer_name": Customer.full_name,
+        "loan": Loan.hp_number,
+    }
+    column = sortable.get(sort_by or "created_at", Transaction.created_at)
+    descending = (sort_order or "asc").lower() == "desc"
+    ordering = column.desc() if descending else column.asc()
+
+    rows = (
+        query.order_by(ordering, Transaction.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return rows, total, Decimal(str(total_amount))
+
+
 def get_loan_transaction_summary(db: Session, loan: Loan) -> dict:
     """
     Calculate outstanding balance for a loan.
@@ -188,6 +252,68 @@ def recompute_cycle_totals(db: Session, cycle: DueCycle) -> None:
         .scalar()
     )
     cycle.total_received = Decimal(str(total))
+
+
+def maybe_auto_classify_cycle(
+    db: Session,
+    cycle: DueCycle,
+    classifier_id: uuid.UUID,
+) -> bool:
+    """
+    Auto-promote a cycle to PAID_ON_TIME when the obvious-clean conditions
+    are met — i.e. there's no judgment call left for an admin to make:
+
+      - cycle is currently AWAITING_REVIEW (the "needs classify" state),
+      - the cycle's shortfall is zero (total_received >= total_due),
+      - every SUCCESS transaction allocated to this cycle landed on or
+        before the due_date (no late payments).
+
+    When any payment came in late, leaving the cycle in AWAITING_REVIEW
+    is the right move — an admin still has to decide LATE_PAYMENT vs
+    PAID_ON_TIME (with grace) and the penalty math hangs off that call.
+    The system doesn't make penalty decisions on its own.
+
+    The caller is expected to have already called recompute_cycle_totals
+    on the SAME open transaction so cycle.total_received is fresh.
+
+    Returns True when classification fired, False otherwise.
+    """
+    if cycle.cycle_status != CycleStatus.AWAITING_REVIEW:
+        return False
+    if cycle.total_received < cycle.total_due:
+        return False
+
+    has_late_txn = (
+        db.query(Transaction.id)
+        .filter(
+            Transaction.due_cycle_id == cycle.id,
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted.is_(False),
+            Transaction.effective_payment_date > cycle.due_date,
+        )
+        .first()
+        is not None
+    )
+    if has_late_txn:
+        return False
+
+    cycle.cycle_status = CycleStatus.PAID_ON_TIME
+    cycle.classified_as_of_date = cycle.due_date
+    cycle.classified_by_id = classifier_id
+    cycle.classified_at = datetime.now(timezone.utc)
+    cycle.classification_note = "Auto-classified — paid in full by due date"
+
+    # Mirror the manual classify path: every SUCCESS transaction on this
+    # cycle inherits the cycle's punctuality so individual receipts carry
+    # the same verdict.
+    db.query(Transaction).filter(
+        Transaction.due_cycle_id == cycle.id,
+        Transaction.is_deleted.is_(False),
+    ).update(
+        {Transaction.punctuality_status: PunctualityStatus.PAID_ON_TIME},
+        synchronize_session=False,
+    )
+    return True
 
 
 def resolve_due_cycle_for_payment(
@@ -409,6 +535,10 @@ def confirm_transaction(
         )
         if cycle is not None:
             recompute_cycle_totals(db, cycle)
+            # If this confirm completes the cycle cleanly (no late txns,
+            # shortfall=0), promote it to PAID_ON_TIME so the admin doesn't
+            # have to manually classify the trivial case.
+            maybe_auto_classify_cycle(db, cycle, updated_by)
 
     # --- Move to AWAITING_CLOSURE when fully paid ---
     # No more auto-close: the admin must finalise via /loans/{id}/close,
@@ -484,15 +614,85 @@ def update_transaction(
     *,
     request: Optional[Request] = None,
 ) -> Transaction:
-    """Update transaction notes only. Status changes go through /confirm or /fail."""
-    if transaction.status == TransactionStatus.SUCCESS:
-        raise ValueError("Cannot modify a confirmed transaction")
+    """
+    Edit an existing transaction. Status changes still go through /confirm or
+    /fail — this endpoint corrects mistakes (wrong cycle, wrong amount, wrong
+    mode, wrong date, typo in notes).
 
-    before = {"had_notes": transaction.notes is not None}
-    for field, value in data.model_dump(exclude_unset=True).items():
+    SUCCESS edits are allowed: this is the supported path to rescue a NULL-
+    cycle SUCCESS transaction that bypassed the cycle ledger, or to fix a
+    cycle allocation that landed on the wrong row. Whenever the cycle
+    allocation or amount changes on a SUCCESS row, both the previous and
+    the new cycle's total_received is recomputed so the ledger stays in
+    sync — the read total at any point reflects the SUM of all SUCCESS
+    transactions allocated to that cycle.
+
+    Route-level access control (see routes/transactions.py): SUCCESS rows
+    require admin; PENDING / FAILED rows are editable by any user in scope
+    of the loan.
+    """
+    fields = data.model_dump(exclude_unset=True)
+    if not fields:
+        return transaction
+
+    if "due_cycle_id" in fields:
+        new_cycle_id = fields["due_cycle_id"]
+        # Reuse the create-time resolver so the new cycle is validated against
+        # the same loan and the deletion check fires. None here means "leave
+        # unallocated" — we still permit it via edit because the existing data
+        # has legacy nulls, but new creates can't introduce them (schema).
+        if new_cycle_id is None:
+            new_cycle = None
+        else:
+            new_cycle = (
+                db.query(DueCycle)
+                .filter(
+                    DueCycle.id == new_cycle_id,
+                    DueCycle.loan_id == transaction.loan_id,
+                    DueCycle.is_deleted.is_(False),
+                )
+                .first()
+            )
+            if new_cycle is None:
+                raise ValueError("due_cycle_id does not belong to this loan or is deleted")
+        fields["due_cycle_id"] = new_cycle.id if new_cycle else None
+
+    before = _txn_audit_snapshot(transaction)
+    old_cycle_id = transaction.due_cycle_id
+    old_amount = transaction.amount
+
+    for field, value in fields.items():
         setattr(transaction, field, value)
     transaction.updated_by_id = updated_by
     db.flush()
+
+    # Cycle ledger maintenance: only SUCCESS transactions contribute to
+    # cycle.total_received. PENDING/FAILED edits don't touch the ledger.
+    if transaction.status == TransactionStatus.SUCCESS:
+        affected_cycle_ids = set()
+        if old_cycle_id is not None:
+            affected_cycle_ids.add(old_cycle_id)
+        if transaction.due_cycle_id is not None:
+            affected_cycle_ids.add(transaction.due_cycle_id)
+        # If neither cycle nor amount changed there's nothing to recompute,
+        # but the dict is tiny and recompute is a single aggregate — cheap.
+        for cid in affected_cycle_ids:
+            cycle = (
+                db.query(DueCycle)
+                .filter(DueCycle.id == cid)
+                .with_for_update()
+                .first()
+            )
+            if cycle is not None:
+                recompute_cycle_totals(db, cycle)
+                # An edit that rescues a NULL-cycle SUCCESS into a real
+                # cycle (or fixes an amount that finally clears shortfall)
+                # follows the same auto-classify rule as confirm: clean
+                # on-time completions resolve themselves.
+                maybe_auto_classify_cycle(db, cycle, updated_by)
+        # Avoid unused-variable lint
+        _ = old_amount
+
     write_audit(
         db,
         action_type="TRANSACTION_UPDATE",
@@ -500,7 +700,7 @@ def update_transaction(
         record_id=transaction.id,
         user_id=updated_by,
         old_data=before,
-        new_data={"has_notes": transaction.notes is not None},
+        new_data=_txn_audit_snapshot(transaction),
         request=request,
     )
     db.commit()

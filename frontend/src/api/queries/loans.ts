@@ -45,6 +45,10 @@ export interface LoanResponse {
   customer_id: string
   vehicle_id: string | null
   loan_number: string
+  // Customer-facing hire-purchase number (HP No). null until entered in the
+  // wizard's financial step. Shown as the primary loan id across the UI;
+  // loan_number (LMS-…) stays as the internal id. Use loanDisplayId().
+  hp_number: string | null
   // Financial terms are null on a DRAFT until the wizard's financial step.
   principal: string | null
   interest_rate: string | null
@@ -91,6 +95,8 @@ export interface LoanListResponse {
 export interface LoanCreate {
   customer_id: string
   vehicle_id?: string | null
+  // HP No — optional at create (draft-first); the financials step sends it.
+  hp_number?: string
   // Optional at create: a DRAFT finance starts with just a customer; the
   // financial step fills these in later via PATCH.
   principal?: string
@@ -110,6 +116,7 @@ export interface LoanCreate {
 // dedicated approve/close/bad-debt routes, never a generic PATCH.
 export interface LoanUpdate {
   vehicle_id?: string | null
+  hp_number?: string
   principal?: string
   interest_rate?: string
   tenure?: number

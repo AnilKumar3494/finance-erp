@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.bad_debt_proposal import BadDebtProposal, BadDebtProposalStatus
+from app.models.customer import Customer
 from app.models.loan import Loan
 from app.models.user import User
 from app.schemas.bad_debt_proposal import (
+    BadDebtProposalListItem,
     BadDebtProposalListResponse,
     BadDebtProposalResponse,
     BadDebtProposeRequest,
@@ -18,6 +20,7 @@ from app.schemas.bad_debt_proposal import (
 from app.services.bad_debt import (
     get_open_proposal,
     propose_bad_debt,
+    reopen_proposal,
     review_proposal,
 )
 from app.utils.audit import write_audit
@@ -84,6 +87,65 @@ def propose_route(
     return proposal
 
 
+@review_router.post(
+    "/{proposal_id}/reopen",
+    response_model=BadDebtProposalResponse,
+    summary="Reopen an approved bad-debt proposal (undo approval; admin)",
+)
+def reopen_route(
+    request: Request,
+    proposal_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    proposal = (
+        db.query(BadDebtProposal)
+        .filter(
+            BadDebtProposal.id == proposal_id,
+            BadDebtProposal.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found"
+        )
+
+    loan = (
+        db.query(Loan)
+        .filter(Loan.id == proposal.loan_id, Loan.is_deleted.is_(False))
+        .with_for_update()
+        .first()
+    )
+    if not loan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
+        )
+
+    old_proposal_status = proposal.status.value
+    try:
+        reopen_proposal(
+            db, proposal=proposal, loan=loan, reviewer_id=current_user.id
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    write_audit(
+        db,
+        action_type="BAD_DEBT_REOPEN",
+        target_table="bad_debt_proposals",
+        record_id=proposal.id,
+        user_id=current_user.id,
+        old_data={"proposal_status": old_proposal_status, "loan_status": loan.status.value},
+        new_data={"proposal_status": proposal.status.value, "loan_status": loan.status.value},
+        request=request,
+    )
+    db.commit()
+    db.refresh(proposal)
+    return proposal
+
+
 @review_router.get(
     "/",
     response_model=BadDebtProposalListResponse,
@@ -93,19 +155,63 @@ def list_proposals(
     status_filter: Optional[BadDebtProposalStatus] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Sort column: principal | proposed_at | customer_name | loan",
+    ),
+    sort_order: Optional[str] = Query(None, description="asc | desc"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    q = db.query(BadDebtProposal).filter(BadDebtProposal.is_deleted.is_(False))
+    # Join loan + customer so the cross-loan review queue can render each row
+    # (who / which loan / principal) without a per-row lookup. Excludes rows
+    # whose loan or customer was soft-deleted.
+    q = (
+        db.query(BadDebtProposal, Loan, Customer)
+        .join(Loan, Loan.id == BadDebtProposal.loan_id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            BadDebtProposal.is_deleted.is_(False),
+            Loan.is_deleted.is_(False),
+            Customer.is_deleted.is_(False),
+        )
+    )
     if status_filter:
         q = q.filter(BadDebtProposal.status == status_filter)
     total = q.count()
-    results = (
-        q.order_by(BadDebtProposal.created_at.desc())
+
+    # Sortable columns. Default is proposed_at desc (newest proposals first),
+    # matching the "Proposed" column shown in the review queue. Stable
+    # secondary key (proposal id) keeps pagination consistent on ties.
+    sortable = {
+        "principal": Loan.principal,
+        "proposed_at": BadDebtProposal.proposed_at,
+        "customer_name": Customer.full_name,
+        "loan": Loan.hp_number,
+    }
+    column = sortable.get(sort_by or "proposed_at", BadDebtProposal.proposed_at)
+    descending = (sort_order or "desc").lower() != "asc"
+    ordering = column.desc() if descending else column.asc()
+
+    rows = (
+        q.order_by(ordering, BadDebtProposal.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
+    results = [
+        BadDebtProposalListItem(
+            **BadDebtProposalResponse.model_validate(proposal).model_dump(),
+            loan_number=loan.loan_number,
+            hp_number=loan.hp_number,
+            loan_status=loan.status,
+            principal=loan.principal,
+            customer_id=customer.id,
+            customer_name=customer.full_name,
+            customer_mobile=customer.mobile_number,
+        )
+        for proposal, loan, customer in rows
+    ]
     return BadDebtProposalListResponse(
         total=total, page=page, page_size=page_size, results=results
     )

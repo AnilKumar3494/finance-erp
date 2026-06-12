@@ -1,10 +1,12 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from app.models.bad_debt_proposal import BadDebtProposalStatus
+from app.models.loan import LoanStatus
 
 
 class BadDebtProposeRequest(BaseModel):
@@ -40,11 +42,27 @@ class BadDebtProposalResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BadDebtProposalListItem(BadDebtProposalResponse):
+    """A proposal enriched with its loan + customer for the cross-loan review
+    queue (Collections → Bad debt lens). Joined server-side so the admin sees
+    who/what without a per-row lookup. Extends the base response, so existing
+    consumers that read only the proposal fields keep working."""
+
+    loan_number: str
+    hp_number: Optional[str] = None
+    loan_status: LoanStatus
+    principal: Decimal
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+
+
 class BadDebtProposalListResponse(BaseModel):
     """Uniform paginated shape (G3) — `proposals` renamed to `results` so
-    every list endpoint shares one envelope."""
+    every list endpoint shares one envelope. Items carry the joined loan +
+    customer fields (BadDebtProposalListItem)."""
 
     total: int
     page: int = 1
     page_size: int
-    results: list[BadDebtProposalResponse]
+    results: list[BadDebtProposalListItem]

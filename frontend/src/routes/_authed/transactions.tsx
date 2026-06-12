@@ -16,8 +16,7 @@ export const Route = createFileRoute('/_authed/transactions')({
       typeof raw.view === 'string' && (WORKLIST_VIEWS as readonly string[]).includes(raw.view)
         ? (raw.view as WorklistView)
         : 'due'
-    const search =
-      typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
+    const search = typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
     const page = Number(raw.page)
     return {
       view,

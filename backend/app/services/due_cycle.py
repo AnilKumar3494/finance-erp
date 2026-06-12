@@ -12,8 +12,8 @@ import uuid
 from datetime import date
 from typing import List, Optional, Tuple
 
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, not_, or_
+from sqlalchemy.orm import Session, aliased
 
 from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
@@ -150,6 +150,8 @@ def list_cycles_worklist(
     page: int = 1,
     page_size: int = 20,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> Tuple[List[Tuple[DueCycle, Loan, Customer]], int]:
     """
     Cross-loan due-cycle worklist for the Collections module.
@@ -165,6 +167,12 @@ def list_cycles_worklist(
     Ordered by due_date ascending (most overdue first), then loan_number, so
     the top of the list is the most pressing. Returns (rows, total) where each
     row is a (DueCycle, Loan, Customer) tuple.
+
+    With `unpaid_only`, cycles already classified LATE_PAYMENT / MISSED_CAPPED
+    whose recovery was spread forward into later cycles are excluded — they are
+    being collected through the inflated future EMIs, so re-listing them would
+    invite double collection. A late cycle with no later cycle to absorb the
+    recovery (e.g. the final cycle) is kept, since it is genuinely outstanding.
     """
     query = (
         db.query(DueCycle, Loan, Customer)
@@ -193,6 +201,38 @@ def list_cycles_worklist(
     if unpaid_only:
         query = query.filter(DueCycle.total_received < DueCycle.total_due)
 
+        # A cycle classified LATE_PAYMENT / MISSED_CAPPED has its
+        # (shortfall + penalty) spread forward into the LATER cycles' EMIs by
+        # the penalty engine, so it is already being recovered through those
+        # inflated instalments. Re-listing it here would have a collector chase
+        # money the customer is paying over the remaining months — double
+        # collection. Drop those rows from the collection worklist.
+        #
+        # Exception: a late cycle with NO later cycle on the same loan (e.g. the
+        # final cycle, cases.md Case 26) had nowhere to spread the recovery to,
+        # so it stays a genuine outstanding and remains on the worklist. The
+        # NOT EXISTS(later cycle) guard encodes exactly that.
+        later_cycle = aliased(DueCycle)
+        has_later_cycle = (
+            db.query(later_cycle.id)
+            .filter(
+                later_cycle.loan_id == DueCycle.loan_id,
+                later_cycle.is_deleted.is_(False),
+                later_cycle.cycle_number > DueCycle.cycle_number,
+            )
+            .exists()
+        )
+        query = query.filter(
+            not_(
+                and_(
+                    DueCycle.cycle_status.in_(
+                        (CycleStatus.LATE_PAYMENT, CycleStatus.MISSED_CAPPED)
+                    ),
+                    has_later_cycle,
+                )
+            )
+        )
+
     if search:
         s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(
@@ -205,8 +245,24 @@ def list_cycles_worklist(
 
     total = query.count()
 
+    # Sortable columns. Shortfall/days_overdue are derived in Python (not SQL
+    # columns) so they aren't sort keys here; due_date order already mirrors
+    # days_overdue. Unknown/absent sort_by keeps the default (due_date asc =
+    # most overdue first). A stable secondary key (cycle id) keeps pagination
+    # consistent when many rows share a sort value.
+    sortable = {
+        "due_date": DueCycle.due_date,
+        "cycle_number": DueCycle.cycle_number,
+        "cycle_status": DueCycle.cycle_status,
+        "customer_name": Customer.full_name,
+        "loan": Loan.hp_number,
+    }
+    column = sortable.get(sort_by or "due_date", DueCycle.due_date)
+    descending = (sort_order or "asc").lower() == "desc"
+    ordering = column.desc() if descending else column.asc()
+
     rows = (
-        query.order_by(DueCycle.due_date.asc(), Loan.loan_number.asc())
+        query.order_by(ordering, DueCycle.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

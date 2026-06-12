@@ -1,0 +1,29 @@
+-- =============================================================
+-- Migration 015: add OTHER to payment_method enum
+-- Date: 2026-06-10
+-- =============================================================
+-- HOW TO RUN:
+--   python migrate.py apply        # preferred — records in schema_migrations
+--   python migrate.py status       # list applied vs. pending
+--
+-- Why
+-- ---
+-- PaymentMethod currently covers CASH / GPAY / PHONEPE / BANK_TRANSFER.
+-- Field collectors are increasingly accepting payments through modes that
+-- don't map cleanly onto any of these (third-party UPI handles, IMPS/NEFT
+-- outside the bank-transfer label, occasional cheques). Forcing them into
+-- the closest existing bucket muddies the collections report and erodes
+-- trust in the mode breakdown.
+--
+-- OTHER is the catch-all. The FE keeps the existing Notes field for
+-- "what exactly was it" — we deliberately do not add a separate "specify"
+-- field on the Record-payment dialog to keep the form short.
+--
+-- Postgres specifics
+-- ------------------
+-- ALTER TYPE ... ADD VALUE is supported transactionally as of PG 12 (the
+-- new value just cannot be USED in the same transaction). IF NOT EXISTS
+-- makes this idempotent — re-running the migration is a no-op.
+-- =============================================================
+
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'OTHER';

@@ -47,6 +47,16 @@ class Loan(AuditBase):
         String(30), unique=True, nullable=False, index=True
     )
 
+    # External hire-purchase number (legacy iFinanceBooks "HP No"). User-entered
+    # for now (will be auto-generated from a per-series counter in future). This
+    # is the customer-facing identifier shown across the UI; loan_number (LMS-…)
+    # stays as the internal id. Nullable so the draft-first wizard can create the
+    # loan before financials; enforced as required at approval. Unique when set
+    # (Postgres treats NULLs as distinct, so blank drafts don't collide).
+    hp_number: Mapped[Optional[str]] = mapped_column(
+        String(30), unique=True, nullable=True, index=True
+    )
+
     # Financial terms are nullable on DRAFT rows: the New Finance wizard creates
     # the loan when a customer is chosen and fills these in last. approve_loan
     # rejects a DRAFT with any of them NULL, so no ACTIVE loan lacks a schedule.

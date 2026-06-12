@@ -135,6 +135,47 @@ def review_proposal(
     return proposal
 
 
+def reopen_proposal(
+    db: Session,
+    proposal: BadDebtProposal,
+    loan: Loan,
+    reviewer_id: uuid.UUID,
+) -> BadDebtProposal:
+    """
+    Undo an APPROVED review decision — the proposal returns to PROPOSED so it
+    re-enters the review queue. The loan is left BAD_DEBT_PROPOSED (approve
+    never changed it), so there's no loan-status change. Caller holds the loan
+    lock.
+
+    Guarded by the one-open-proposal-per-loan rule: refuse if another PROPOSED
+    row somehow already exists for this loan (the partial unique index would
+    reject the write anyway).
+    """
+    if proposal.status != BadDebtProposalStatus.APPROVED:
+        raise ValueError(
+            f"Only an APPROVED proposal can be reopened; this one is "
+            f"{proposal.status.value}"
+        )
+    if loan.status != LoanStatus.BAD_DEBT_PROPOSED:
+        raise ValueError(
+            f"Cannot reopen — loan is {loan.status.value}, not BAD_DEBT_PROPOSED"
+        )
+
+    existing = get_open_proposal(db, loan.id)
+    if existing is not None and existing.id != proposal.id:
+        raise DuplicateProposalError(
+            "Another open proposal already exists for this loan"
+        )
+
+    # Clear the prior review so the row reads as genuinely pending again.
+    proposal.status = BadDebtProposalStatus.PROPOSED
+    proposal.reviewed_by_id = None
+    proposal.reviewed_at = None
+    proposal.review_notes = None
+    proposal.updated_by_id = reviewer_id
+    return proposal
+
+
 def auto_propose_bad_debt(
     db: Session,
     loan: Loan,

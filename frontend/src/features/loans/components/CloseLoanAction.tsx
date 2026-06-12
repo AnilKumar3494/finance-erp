@@ -18,6 +18,7 @@ import Typography from '@mui/material/Typography'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 
 import { useCloseLoan, type LoanCloseRequest, type LoanResponse } from '@/api/queries/loans'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { useLoanSummary } from '@/api/queries/transactions'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import type { ClosureType } from '@/schemas/enums'
@@ -92,7 +93,7 @@ export function CloseAction({ loan }: CloseActionProps) {
         fullWidth
         scroll="paper"
       >
-        <DialogTitle>Close loan {loan.loan_number}</DialogTitle>
+        <DialogTitle>Close loan {loanDisplayId(loan)}</DialogTitle>
         {summary.isLoading ? (
           <DialogContent>
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>

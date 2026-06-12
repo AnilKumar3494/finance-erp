@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Stack from '@mui/material/Stack'
 import PrintIcon from '@mui/icons-material/PrintOutlined'
 
@@ -6,6 +7,7 @@ import { useDueCycles } from '@/api/queries/dueCycles'
 import { useLoanTransactions, useLoanSummary } from '@/api/queries/transactions'
 import { Btn } from '@/components/primitives'
 import { printLoanStatement } from '../loanStatement'
+import { useTransactionFocus } from '../txnFocus'
 import { CollapsibleCard } from './CollapsibleCard'
 import { DueCyclesTab } from './DueCyclesTab'
 import { TransactionsTab } from './TransactionsTab'
@@ -13,13 +15,23 @@ import { TransactionsTab } from './TransactionsTab'
 // Due cycles and transactions each live in their own collapsible section so the
 // detail page stays scannable. The statement (which spans both) prints from the
 // Due cycles header.
+//
+// When a cycle's "Pending confirmation" chip is clicked, DueCyclesTab fires a
+// focusTransaction event. TransactionsTab listens too and scrolls/highlights,
+// but its CollapsibleCard wrapper here would normally be collapsed — so we
+// bump openSignal to force it open before TransactionsTab's effect can run.
 export function LoanSubResources({ loan }: { loan: LoanResponse }) {
+  const [txnOpenSignal, setTxnOpenSignal] = useState<number | undefined>(undefined)
+  useTransactionFocus(() => {
+    setTxnOpenSignal((n) => (n ?? 0) + 1)
+  })
+
   return (
     <>
       <CollapsibleCard title="Due cycles" action={<PrintStatementButton loan={loan} />}>
         <DueCyclesTab loan={loan} />
       </CollapsibleCard>
-      <CollapsibleCard title="Transactions">
+      <CollapsibleCard title="Transactions" openSignal={txnOpenSignal}>
         <TransactionsTab loan={loan} />
       </CollapsibleCard>
     </>

@@ -110,6 +110,7 @@ export interface LoanAssociationSummary {
   loan_personnel_id: string
   loan_id: string
   loan_number: string
+  hp_number: string | null
   role: PersonnelRole
   relationship_to_hirer: string | null
   customer_name: string

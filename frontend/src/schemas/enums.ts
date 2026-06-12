@@ -16,7 +16,7 @@ export const LoanStatus = z.enum([
 ])
 export type LoanStatus = z.infer<typeof LoanStatus>
 
-export const PaymentMethod = z.enum(['CASH', 'GPAY', 'PHONEPE', 'BANK_TRANSFER'])
+export const PaymentMethod = z.enum(['CASH', 'GPAY', 'PHONEPE', 'BANK_TRANSFER', 'OTHER'])
 export type PaymentMethod = z.infer<typeof PaymentMethod>
 
 export const TransactionStatus = z.enum(['PENDING', 'SUCCESS', 'FAILED'])

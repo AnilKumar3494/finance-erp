@@ -9,9 +9,11 @@ from app.dependencies.access import assert_loan_access
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.loan import Loan
 from app.models.transaction import Transaction, TransactionStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.transaction import (
     LoanTransactionSummary,
+    PendingConfirmationItem,
+    PendingConfirmationListResponse,
     TransactionCreate,
     TransactionListResponse,
     TransactionResponse,
@@ -24,6 +26,7 @@ from app.services.transaction import (
     fail_transaction,
     get_loan_transaction_summary,
     get_transaction,
+    list_pending_confirmations,
     list_transactions,
     soft_delete_transaction,
     update_transaction,
@@ -72,6 +75,15 @@ def create_transaction_route(
     current_user: User = Depends(get_current_user),
 ):
     _assert_loan_in_user_scope(db, payload.loan_id, current_user)
+    # The frontend sends the dedupe key as an `Idempotency-Key` HTTP header
+    # (client.ts interceptor), while the service dedupes on
+    # payload.idempotency_key. Bridge the two so a retried POST carrying the
+    # same key returns the existing row instead of creating a duplicate. An
+    # explicit body value wins if a caller set both.
+    if not payload.idempotency_key:
+        header_key = request.headers.get("Idempotency-Key")
+        if header_key:
+            payload.idempotency_key = header_key[:64]
     try:
         return create_transaction(
             db=db, data=payload, created_by=current_user.id, request=request,
@@ -112,6 +124,64 @@ def list_all(
         page=page,
         page_size=page_size,
         total_collected=total_collected,
+        results=results,
+    )
+
+
+# --------------------------------------------------
+# PENDING CONFIRMATIONS WORKLIST (Collections & Actions)
+# Registered before /{transaction_id} so the static path isn't shadowed.
+# --------------------------------------------------
+@router.get(
+    "/pending-confirmations",
+    response_model=PendingConfirmationListResponse,
+    summary="Cross-loan list of payments awaiting confirmation",
+)
+def pending_confirmations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Sort column: amount | effective_payment_date | created_at | customer_name | loan",
+    ),
+    sort_order: Optional[str] = Query(None, description="asc | desc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    scope = current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    rows, total, total_amount = list_pending_confirmations(
+        db,
+        assigned_employee_id=scope,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    results = [
+        PendingConfirmationItem(
+            id=txn.id,
+            loan_id=loan.id,
+            loan_number=loan.loan_number,
+            hp_number=loan.hp_number,
+            customer_id=customer.id,
+            customer_name=customer.full_name,
+            customer_mobile=customer.mobile_number,
+            amount=txn.amount,
+            payment_mode=txn.payment_mode,
+            effective_payment_date=txn.effective_payment_date,
+            collected_by_id=txn.collected_by_id,
+            created_at=txn.created_at,
+            due_cycle_id=txn.due_cycle_id,
+            cycle_number=cycle.cycle_number if cycle is not None else None,
+            cycle_due_date=cycle.due_date if cycle is not None else None,
+        )
+        for txn, loan, customer, cycle in rows
+    ]
+    return PendingConfirmationListResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pending_amount=total_amount,
         results=results,
     )
 
@@ -218,24 +288,41 @@ def fail_transaction_route(
 
 
 # --------------------------------------------------
-# UPDATE (Admin only)
+# UPDATE (edit-after-record)
 # --------------------------------------------------
+# Editing a transaction supports two cases:
+#   1. PENDING/FAILED — anyone in scope of the loan (admin or assigned
+#      employee) can correct a misclick before the txn is confirmed. This
+#      mirrors the "the collector who recorded it can fix their own typo"
+#      expectation; the loan-scope check below still applies.
+#   2. SUCCESS — admin only. Editing a confirmed transaction recomputes
+#      the cycle ledger (old + new cycle's total_received), so it's a
+#      sensitive operation we lock behind ADMIN/SUPER_ADMIN.
 @router.patch(
     "/{transaction_id}",
     response_model=TransactionResponse,
-    summary="Update transaction notes",
+    summary="Edit a transaction (cycle, amount, mode, date, notes)",
 )
 def update_transaction_route(
     request: Request,
     transaction_id: uuid.UUID,
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     transaction = get_transaction(db, transaction_id)
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
+        )
+    _assert_transaction_in_user_scope(db, transaction, current_user)
+    if transaction.status == TransactionStatus.SUCCESS and current_user.role not in (
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an admin can edit a confirmed transaction.",
         )
     try:
         return update_transaction(

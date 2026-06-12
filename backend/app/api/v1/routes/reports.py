@@ -1,6 +1,6 @@
 import csv
 import io
-from typing import Iterator, Literal
+from typing import Iterator, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -112,6 +112,11 @@ def customer_report(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Sort column: full_name | mobile_number | active_loans | principal | paid | outstanding",
+    ),
+    sort_order: Optional[str] = Query(None, description="asc | desc (default desc)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_report_access),
 ):
@@ -121,6 +126,8 @@ def customer_report(
         page=page,
         page_size=page_size,
         assigned_employee_id=scope,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
     # R1: the JSON listing of customer rows is the same PII surface the

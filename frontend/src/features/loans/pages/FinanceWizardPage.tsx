@@ -16,6 +16,7 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import PersonAddIcon from '@mui/icons-material/PersonAddAltOutlined'
 
 import { useCreateLoan, useLoan, type LoanResponse } from '@/api/queries/loans'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import type { CustomerResponse } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
@@ -33,8 +34,8 @@ import { WizardGuardContext, type WizardGuardApi } from '@/features/loans/wizard
 const STEPS = [
   'Customer',
   'Customer & KYC',
-  'Vehicle',
   'Personnel',
+  'Vehicle',
   'Photos',
   'Financials',
 ] as const
@@ -149,7 +150,7 @@ export function FinanceWizardPage() {
             {loan?.loan_number && (
               <Typography variant="body2" color="text.secondary">
                 <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}>
-                  {loan.loan_number}
+                  {loanDisplayId(loan)}
                 </Box>
                 {loan.customer?.full_name && (
                   <Box component="span"> · {loan.customer.full_name}</Box>
@@ -320,8 +321,8 @@ function WizardBody({
   return (
     <>
       {step === 1 && <CustomerKycSection financeId={loan.id} customerId={customerId} />}
-      {step === 2 && <VehicleSection financeId={loan.id} customerId={customerId} />}
-      {step === 3 && <PersonnelSection financeId={loan.id} customerId={customerId} />}
+      {step === 2 && <PersonnelSection financeId={loan.id} customerId={customerId} />}
+      {step === 3 && <VehicleSection financeId={loan.id} customerId={customerId} />}
       {step === 4 && <PhotosSection financeId={loan.id} customerId={customerId} />}
       {step === 5 && <FinancialsSection financeId={loan.id} />}
 

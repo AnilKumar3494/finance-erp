@@ -1,9 +1,10 @@
 import { useEffect, useMemo } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
 import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -50,7 +51,9 @@ const Schema = z.object({
   }, 'Enter a valid amount greater than 0'),
   payment_mode: PaymentMethod,
   effective_payment_date: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
-  due_cycle_id: z.string(),
+  due_cycle_id: z
+    .string()
+    .min(1, 'Pick a cycle to apply this payment to'),
   notes: z.string(),
 })
 
@@ -72,15 +75,35 @@ export function RecordPaymentDialog({
   const cyclesQuery = useDueCycles(loanId, open)
   const cycles = cyclesQuery.data?.results ?? []
 
+  // Cycle is required. If the caller didn't pass a default, pick a sensible
+  // one ourselves so the user isn't dropped into an empty dropdown: prefer
+  // the worst-unpaid (AWAITING_REVIEW with shortfall > 0), then the next
+  // UPCOMING, then the first cycle. The seed is recomputed when the cycles
+  // list arrives, so the dialog can open while cycles are still in flight.
+  const seededCycleId = useMemo(() => {
+    if (defaultCycleId) return defaultCycleId
+    if (cycles.length === 0) return ''
+    const worst = cycles.find(
+      (c) =>
+        (c.cycle_status === 'AWAITING_REVIEW' ||
+          c.cycle_status === 'LATE_PAYMENT') &&
+        Number(c.shortfall) > 0,
+    )
+    if (worst) return worst.id
+    const upcoming = cycles.find((c) => c.cycle_status === 'UPCOMING')
+    if (upcoming) return upcoming.id
+    return cycles[0].id
+  }, [defaultCycleId, cycles])
+
   const defaults = useMemo<FormValues>(
     () => ({
       amount: defaultAmount,
       payment_mode: 'CASH',
       effective_payment_date: dayjs(),
-      due_cycle_id: defaultCycleId,
+      due_cycle_id: seededCycleId,
       notes: '',
     }),
-    [defaultAmount, defaultCycleId],
+    [defaultAmount, seededCycleId],
   )
 
   const {
@@ -91,13 +114,45 @@ export function RecordPaymentDialog({
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(Schema), defaultValues: defaults })
 
-  // Re-seed (amount/cycle) each time the dialog opens.
+  // Watch the live cycle pick so we can warn when the user has selected a
+  // cycle that's already fully paid. The backend accepts overpayments (per
+  // the existing "accept and flag" policy) so this is a soft warn, not a
+  // submit block — admins occasionally do post a deliberate extra payment.
+  const watchedCycleId = useWatch({ control, name: 'due_cycle_id' })
+  const selectedCycle = useMemo(
+    () => cycles.find((c) => c.id === watchedCycleId) ?? null,
+    [watchedCycleId, cycles],
+  )
+  const selectedCycleIsPaid =
+    selectedCycle != null && Number(selectedCycle.shortfall) <= 0
+
+  // A late cycle with a later cycle on the loan has already had its dues spread
+  // forward into those later EMIs. Recording against it won't reduce the
+  // schedule — the admin should record against the next due cycle or reclassify
+  // this one. Soft warn (the backend still accepts it).
+  const lastCycleNumber = useMemo(
+    () => cycles.reduce((max, c) => Math.max(max, c.cycle_number), 0),
+    [cycles],
+  )
+  const selectedCycleSpreadForward =
+    selectedCycle != null &&
+    (selectedCycle.cycle_status === 'LATE_PAYMENT' ||
+      selectedCycle.cycle_status === 'MISSED_CAPPED') &&
+    selectedCycle.cycle_number < lastCycleNumber
+
+  // Re-seed (amount/cycle) each time the dialog opens. Deps are intentionally
+  // limited to `open`/`defaults`: the react-query mutation object (`create`)
+  // gets a new identity on every status change, so including it here made the
+  // effect re-run mid-submit and call create.reset(), which cancelled the
+  // pending mutation before its POST ever fired. `create.reset`/`reset` are
+  // stable, so calling them without listing them is safe.
   useEffect(() => {
     if (open) {
       create.reset()
       reset(defaults)
     }
-  }, [open, defaults, reset, create])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaults])
 
   const close = () => {
     if (create.isPending) return
@@ -109,10 +164,12 @@ export function RecordPaymentDialog({
       loan_id: loanId,
       amount: v.amount.trim(),
       payment_mode: v.payment_mode,
+      // Cycle is required (zod-validated) so v.due_cycle_id is always a real
+      // UUID by the time we get here.
+      due_cycle_id: v.due_cycle_id,
       effective_payment_date: v.effective_payment_date
         ? v.effective_payment_date.format('YYYY-MM-DD')
         : undefined,
-      due_cycle_id: v.due_cycle_id || undefined,
       notes: v.notes.trim() || undefined,
     }
     create.mutate(payload, { onSuccess: () => onClose() })
@@ -127,6 +184,25 @@ export function RecordPaymentDialog({
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2.5}>
             {error && <ErrorBanner message={error} />}
+
+            {selectedCycleSpreadForward && selectedCycle && (
+              <Alert severity="warning" variant="outlined">
+                Cycle #{selectedCycle.cycle_number} was classified late — its
+                dues are already being recovered through the later EMIs.
+                Recording here won't reduce the schedule. Record against the
+                next due cycle instead, or reclassify cycle #
+                {selectedCycle.cycle_number} once the customer settles it.
+              </Alert>
+            )}
+
+            {selectedCycleIsPaid && !selectedCycleSpreadForward && selectedCycle && (
+              <Alert severity="warning" variant="outlined">
+                Cycle #{selectedCycle.cycle_number} has already received its
+                full due ({fmtINR(Number(selectedCycle.total_received))}{' '}
+                received of {fmtINR(Number(selectedCycle.total_due))}).
+                Continue only if this is a legitimate extra payment.
+              </Alert>
+            )}
 
             <Input
               id="rp_amount"
@@ -188,17 +264,18 @@ export function RecordPaymentDialog({
             <Controller
               control={control}
               name="due_cycle_id"
-              render={({ field }) => (
+              render={({ field, fieldState }) => (
                 <Input
                   select
                   id="rp_cycle"
                   label="Apply to cycle"
-                  hint="Optional — leave as General to record an unallocated payment."
+                  required
+                  hint="Defaults to the next unpaid cycle — change if this payment belongs elsewhere."
                   value={field.value}
                   onChange={field.onChange}
                   onBlur={field.onBlur}
+                  error={fieldState.error?.message}
                 >
-                  <MenuItem value="">General (unallocated)</MenuItem>
                   {cycles.map((c) => (
                     <MenuItem key={c.id} value={c.id}>
                       #{c.cycle_number} · {fmtDate(c.due_date)} · due {fmtINR(Number(c.total_due))}

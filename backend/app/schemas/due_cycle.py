@@ -146,8 +146,15 @@ class DueCycleWorklistItem(BaseModel):
     # Days the due date is in the past as of today (0 if not yet due).
     days_overdue: int
 
+    # Money in flight: PENDING transactions allocated to this cycle that an
+    # admin hasn't confirmed/failed yet. Lets the worklist show "₹X · N pending"
+    # so a collector knows a payment loop is already open on the row.
+    pending_count: int = 0
+    pending_total: Decimal = Decimal("0.00")
+
     # Loan
     loan_number: str
+    hp_number: Optional[str] = None
     loan_status: LoanStatus
 
     # Customer (for the collector to act on)

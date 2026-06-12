@@ -210,12 +210,30 @@ export function useMonthlyTrends(months: number, enabled = true) {
   })
 }
 
-export function useCustomerReport(page: number, pageSize: number, enabled = true) {
+export type CustomerReportSortField =
+  | 'full_name'
+  | 'mobile_number'
+  | 'active_loans'
+  | 'principal'
+  | 'paid'
+  | 'outstanding'
+
+export interface CustomerReportSort {
+  sort_by?: CustomerReportSortField
+  sort_order?: 'asc' | 'desc'
+}
+
+export function useCustomerReport(
+  page: number,
+  pageSize: number,
+  enabled = true,
+  sort?: CustomerReportSort,
+) {
   return useQuery({
-    queryKey: reportKeys.customers(page, pageSize),
+    queryKey: [...reportKeys.customers(page, pageSize), sort?.sort_by ?? null, sort?.sort_order ?? null],
     queryFn: async () => {
       const { data } = await apiClient.get<CustomerReport>('/reports/customers', {
-        params: { page, page_size: pageSize },
+        params: { page, page_size: pageSize, ...sort },
       })
       return data
     },

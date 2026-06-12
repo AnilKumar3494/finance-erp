@@ -10,6 +10,7 @@ import {
   type LoanAssociationSummary,
 } from '@/api/queries/personnel'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { MOBILE_RE } from '@/schemas/primitives'
 import type { PersonnelRole } from '@/schemas/enums'
 
@@ -131,7 +132,7 @@ export function FindExistingPerson({
                 <Stack spacing={0.25} sx={{ mt: 0.5 }}>
                   {associations.map((a: LoanAssociationSummary) => (
                     <Typography key={a.loan_personnel_id} variant="body2" color="text.secondary">
-                      • {a.loan_number} — {a.customer_name} ({ROLE_LABEL[a.role]})
+                      • {loanDisplayId(a)} — {a.customer_name} ({ROLE_LABEL[a.role]})
                     </Typography>
                   ))}
                 </Stack>

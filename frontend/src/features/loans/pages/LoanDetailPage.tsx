@@ -6,8 +6,10 @@ import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
+import PaymentsIcon from '@mui/icons-material/PaymentsOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
+import type { LoanStatus } from '@/schemas/enums'
 import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
@@ -18,6 +20,7 @@ import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
+import { loanDisplayId } from '../loanIdentity'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
 import { VehicleInfoSection } from '../sections/VehicleInfoSection'
@@ -29,6 +32,15 @@ import { AllDocumentsSection } from '../sections/AllDocumentsSection'
 interface LoanDetailPageProps {
   loanId: string
 }
+
+// Loans whose cycles can still be collected on — the loans for which the
+// Collections workspace (cockpit) is a useful destination. Mirrors the
+// backend worklist's _COLLECTIBLE_LOAN_STATUSES.
+const COLLECTIBLE_STATUSES: ReadonlySet<LoanStatus> = new Set<LoanStatus>([
+  'ACTIVE',
+  'AWAITING_CLOSURE',
+  'BAD_DEBT_PROPOSED',
+])
 
 function mapDetailError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -47,7 +59,10 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
 
   return (
     <Box sx={{ width: { xs: '100%', md: '80%' }, mx: 'auto' }}>
-      <Stack direction="row" sx={{ mb: 2 }}>
+      <Stack
+        direction="row"
+        sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between', gap: 1 }}
+      >
         <Btn
           variant="ghost"
           size="sm"
@@ -56,6 +71,21 @@ export function LoanDetailPage({ loanId }: LoanDetailPageProps) {
         >
           Finances
         </Btn>
+        {query.data && COLLECTIBLE_STATUSES.has(query.data.status) && (
+          <Btn
+            variant="primary"
+            size="sm"
+            startIcon={<PaymentsIcon />}
+            onClick={() =>
+              navigate({
+                to: '/finances/$loanId/collections',
+                params: { loanId },
+              })
+            }
+          >
+            Collections workspace
+          </Btn>
+        )}
       </Stack>
 
       {query.isLoading ? (
@@ -162,8 +192,17 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
               variant="h1"
               sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}
             >
-              {loan.loan_number}
+              {loanDisplayId(loan)}
             </Typography>
+            {loan.hp_number && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontFamily: 'var(--font-mono)' }}
+              >
+                LMS: {loan.loan_number}
+              </Typography>
+            )}
             {loan.customer?.full_name && (
               <Box sx={{ mt: 0.75 }}>
                 <Typography variant="body2">
@@ -217,8 +256,14 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
           {nextEmi && (
             <HeaderStat
               label="Next EMI"
-              value={fmtINR(Number(nextEmi.base_emi))}
-              hint={`due ${fmtDate(nextEmi.due_date)}`}
+              // Show the actual amount due that month (base EMI + any penalty
+              // add-on spread from an earlier late cycle), not the sticker EMI.
+              value={fmtINR(Number(nextEmi.total_due))}
+              hint={
+                Number(nextEmi.addon_from_penalties) > 0
+                  ? `due ${fmtDate(nextEmi.due_date)} · ${fmtINR(Number(nextEmi.base_emi))} + ${fmtINR(Number(nextEmi.addon_from_penalties))} penalty`
+                  : `due ${fmtDate(nextEmi.due_date)}`
+              }
             />
           )}
           {loan.tenure != null && <HeaderStat label="Tenure" value={`${loan.tenure} months`} />}

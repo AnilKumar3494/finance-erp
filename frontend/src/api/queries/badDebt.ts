@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import { loanKeys } from '@/api/queries/loans'
-import type { BadDebtProposalStatus } from '@/schemas/enums'
+import type { BadDebtProposalStatus, LoanStatus } from '@/schemas/enums'
 
 // --------------------------------------------------
 // Types — mirror backend/app/schemas/bad_debt_proposal.py
@@ -24,30 +24,80 @@ export interface BadDebtProposalResponse {
   updated_at: string
 }
 
+// List items carry the joined loan + customer fields (backend
+// BadDebtProposalListItem) so the cross-loan review queue renders without a
+// per-row lookup. Extends the base proposal shape.
+export interface BadDebtProposalListItem extends BadDebtProposalResponse {
+  loan_number: string
+  hp_number: string | null
+  loan_status: LoanStatus
+  principal: string
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+}
+
 export interface BadDebtProposalListResponse {
   total: number
   page: number
   page_size: number
-  results: BadDebtProposalResponse[]
+  results: BadDebtProposalListItem[]
+}
+
+export type BadDebtSortField = 'principal' | 'proposed_at' | 'customer_name' | 'loan'
+
+export interface BadDebtSort {
+  sort_by?: BadDebtSortField
+  sort_order?: 'asc' | 'desc'
 }
 
 export const badDebtKeys = {
   all: ['badDebtProposals'] as const,
   open: (loanId: string) => [...badDebtKeys.all, 'open', loanId] as const,
+  worklist: (page: number, status: BadDebtProposalStatus, sort?: BadDebtSort) =>
+    [...badDebtKeys.all, 'worklist', status, page, sort?.sort_by ?? null, sort?.sort_order ?? null] as const,
 }
 
-// There is no "get the open proposal for a loan" endpoint, so we list the
-// PROPOSED proposals (admin-only, low volume) and match by loan_id. Used by
-// the review action when a loan is BAD_DEBT_PROPOSED.
+// Cross-loan bad-debt review queue (Collections → Bad debt lens, admin-only).
+// Defaults to PROPOSED — the proposals awaiting an admin's approve/reject.
+export function useBadDebtProposals(
+  page: number,
+  status: BadDebtProposalStatus = 'PROPOSED',
+  enabled = true,
+  sort?: BadDebtSort,
+) {
+  return useQuery({
+    queryKey: badDebtKeys.worklist(page, status, sort),
+    queryFn: async () => {
+      const { data } = await apiClient.get<BadDebtProposalListResponse>(
+        '/bad-debt-proposals/',
+        { params: { status, page, page_size: 20, ...sort } },
+      )
+      return data
+    },
+    enabled,
+    placeholderData: (prev) => prev,
+  })
+}
+
+// There is no "get the proposal for a loan" endpoint, so we list the proposals
+// (admin-only, low volume) and match by loan_id. Returns the loan's live
+// proposal — PROPOSED (awaiting review) or APPROVED (reviewed, can be
+// reopened); REJECTED ones are history and ignored. Used by the per-loan
+// review action when a loan is BAD_DEBT_PROPOSED.
 export function useOpenBadDebtProposal(loanId: string, enabled: boolean) {
   return useQuery({
     queryKey: badDebtKeys.open(loanId),
     queryFn: async () => {
       const { data } = await apiClient.get<BadDebtProposalListResponse>(
         '/bad-debt-proposals/',
-        { params: { status: 'PROPOSED', page_size: 200 } },
+        { params: { page_size: 200 } },
       )
-      return data.results.find((p) => p.loan_id === loanId) ?? null
+      return (
+        data.results.find(
+          (p) => p.loan_id === loanId && p.status !== 'REJECTED',
+        ) ?? null
+      )
     },
     enabled,
   })
@@ -65,6 +115,25 @@ export function useProposeBadDebt(loanId: string) {
         `/loans/${loanId}/bad-debt/propose`,
         payload,
         { headers: { 'Idempotency-Key': uuidv4() } },
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: loanKeys.detail(loanId) })
+      qc.invalidateQueries({ queryKey: loanKeys.lists() })
+      qc.invalidateQueries({ queryKey: badDebtKeys.all })
+    },
+  })
+}
+
+// Undo an approval — moves the proposal back to PROPOSED (re-enters the review
+// queue). Loan stays BAD_DEBT_PROPOSED. Admin only.
+export function useReopenBadDebt(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (proposalId: string) => {
+      const { data } = await apiClient.post<BadDebtProposalResponse>(
+        `/bad-debt-proposals/${proposalId}/reopen`,
       )
       return data
     },

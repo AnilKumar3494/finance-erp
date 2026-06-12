@@ -14,6 +14,7 @@ import { useApproveLoan, type LoanResponse } from '@/api/queries/loans'
 import {
   useOpenBadDebtProposal,
   useProposeBadDebt,
+  useReopenBadDebt,
   useReviewBadDebt,
 } from '@/api/queries/badDebt'
 import { useCustomer } from '@/api/queries/customers'
@@ -389,15 +390,20 @@ function ProposeAction({ loan }: { loan: LoanResponse }) {
 function ReviewAction({ loan }: { loan: LoanResponse }) {
   const proposalQuery = useOpenBadDebtProposal(loan.id, true)
   const review = useReviewBadDebt(loan.id)
+  const reopen = useReopenBadDebt(loan.id)
   const { capture, restore } = useFocusRestore()
-  const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | null>(null)
+  const [decision, setDecision] = useState<'APPROVE' | 'REJECT' | 'REOPEN' | null>(null)
   const [notes, setNotes] = useState('')
 
   const proposal = proposalQuery.data
+  const isApproved = proposal?.status === 'APPROVED'
+  const isReopen = decision === 'REOPEN'
+  const mutation = isReopen ? reopen : review
 
-  const openDialog = (d: 'APPROVE' | 'REJECT') => {
+  const openDialog = (d: 'APPROVE' | 'REJECT' | 'REOPEN') => {
     capture()
     review.reset()
+    reopen.reset()
     setNotes('')
     setDecision(d)
   }
@@ -408,6 +414,10 @@ function ReviewAction({ loan }: { loan: LoanResponse }) {
 
   const confirm = () => {
     if (!proposal || !decision) return
+    if (decision === 'REOPEN') {
+      reopen.mutate(proposal.id, { onSuccess: () => closeDialog() })
+      return
+    }
     review.mutate(
       { proposalId: proposal.id, decision, review_notes: notes.trim() || undefined },
       { onSuccess: () => closeDialog() },
@@ -417,7 +427,9 @@ function ReviewAction({ loan }: { loan: LoanResponse }) {
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        This loan has an open bad-debt proposal awaiting your review.
+        {isApproved
+          ? 'This loan’s bad-debt proposal has been approved — it’s eligible for write-off. Close the loan to finalise, or reopen to undo the approval.'
+          : 'This loan has an open bad-debt proposal awaiting your review.'}
       </Typography>
 
       {proposalQuery.isLoading ? (
@@ -437,14 +449,22 @@ function ReviewAction({ loan }: { loan: LoanResponse }) {
               Proposed {fmtDateTime(proposal.proposed_at)}
             </Typography>
           </Box>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Btn variant="success" onClick={() => openDialog('APPROVE')}>
-              Approve proposal
-            </Btn>
-            <Btn variant="ghost" onClick={() => openDialog('REJECT')}>
-              Reject proposal
-            </Btn>
-          </Stack>
+          {isApproved ? (
+            <Stack direction="row">
+              <Btn variant="ghost" onClick={() => openDialog('REOPEN')}>
+                Reopen for review
+              </Btn>
+            </Stack>
+          ) : (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <Btn variant="success" onClick={() => openDialog('APPROVE')}>
+                Approve proposal
+              </Btn>
+              <Btn variant="ghost" onClick={() => openDialog('REJECT')}>
+                Reject proposal
+              </Btn>
+            </Stack>
+          )}
         </Stack>
       ) : proposalQuery.isError ? (
         <ErrorBanner message={mapActionError(proposalQuery.error)} />
@@ -456,44 +476,52 @@ function ReviewAction({ loan }: { loan: LoanResponse }) {
 
       <Dialog
         open={decision !== null}
-        onClose={review.isPending ? undefined : closeDialog}
+        onClose={mutation.isPending ? undefined : closeDialog}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          {decision === 'APPROVE' ? 'Approve bad-debt proposal?' : 'Reject bad-debt proposal?'}
+          {decision === 'APPROVE'
+            ? 'Approve bad-debt proposal?'
+            : decision === 'REOPEN'
+              ? 'Reopen this proposal?'
+              : 'Reject bad-debt proposal?'}
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {decision === 'APPROVE'
               ? 'Approving marks the loan eligible for write-off. To finalise, close the loan with a write-off. This is audited.'
-              : 'Rejecting returns the loan to ACTIVE. This is audited.'}
+              : decision === 'REOPEN'
+                ? 'Reopening undoes the approval and puts the proposal back in the review queue (the loan stays Bad debt proposed). This is audited.'
+                : 'Rejecting returns the loan to ACTIVE. This is audited.'}
           </Typography>
-          <Input
-            id="review_notes"
-            label="Review notes"
-            multiline
-            minRows={2}
-            maxRows={6}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-          {review.isError && (
+          {decision !== 'REOPEN' && (
+            <Input
+              id="review_notes"
+              label="Review notes"
+              multiline
+              minRows={2}
+              maxRows={6}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          )}
+          {mutation.isError && (
             <Box sx={{ mt: 2 }}>
-              <ErrorBanner message={mapActionError(review.error)} />
+              <ErrorBanner message={mapActionError(mutation.error)} />
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Btn variant="ghost" onClick={closeDialog} disabled={review.isPending}>
+          <Btn variant="ghost" onClick={closeDialog} disabled={mutation.isPending}>
             Cancel
           </Btn>
           <Btn
-            variant={decision === 'APPROVE' ? 'success' : 'danger'}
+            variant={decision === 'APPROVE' ? 'success' : decision === 'REOPEN' ? 'primary' : 'danger'}
             onClick={confirm}
-            loading={review.isPending}
+            loading={mutation.isPending}
           >
-            {decision === 'APPROVE' ? 'Approve' : 'Reject'}
+            {decision === 'APPROVE' ? 'Approve' : decision === 'REOPEN' ? 'Reopen' : 'Reject'}
           </Btn>
         </DialogActions>
       </Dialog>

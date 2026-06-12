@@ -10,7 +10,6 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
-import TableSortLabel from '@mui/material/TableSortLabel'
 import AddIcon from '@mui/icons-material/Add'
 
 import {
@@ -20,7 +19,8 @@ import {
   type SortOrder,
 } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
-import { SortSelect } from '@/features/customers/components/SortSelect'
+import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
+import { SortableTh } from '@/components/sort/SortableTh'
 import { fmtDate } from '@/lib/format'
 
 const routeApi = getRouteApi('/_authed/customers/')
@@ -125,11 +125,12 @@ export function CustomersListPage() {
           />
         </Box>
         <Stack
-          direction="row"
+          direction={{ xs: 'column', sm: 'row' }}
           spacing={1.5}
-          sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'flex-end' }}
         >
           <SortSelect
+            options={SORT_OPTIONS}
             sort_by={sort_by}
             sort_order={sort_order}
             onChange={setSort}
@@ -138,7 +139,7 @@ export function CustomersListPage() {
             variant="primary"
             startIcon={<AddIcon />}
             onClick={goToCreate}
-            sx={{ whiteSpace: 'nowrap' }}
+            sx={{ whiteSpace: 'nowrap', width: { xs: '100%', sm: 'auto' } }}
           >
             New customer
           </Btn>
@@ -247,15 +248,15 @@ const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
   { label: 'Created', sortable: true, field: 'created_at', defaultDir: 'desc' },
 ]
 
-// MUI hides the sort arrow on inactive columns by default and only fades
-// it in on hover, which makes the "this column is sortable" affordance
-// invisible until you mouse over it. Pin the icon at reduced opacity so
-// every sortable header advertises itself; the active column still gets
-// full opacity for emphasis.
-const sortLabelSx = {
-  '& .MuiTableSortLabel-icon': { opacity: 0.4 },
-  '&.Mui-active .MuiTableSortLabel-icon': { opacity: 1 },
-} as const
+// Mobile sort dropdown options — one per state the headers can produce.
+const SORT_OPTIONS: readonly SortOption<CustomerSortField>[] = [
+  { value: 'created_at:desc', label: 'Newest first', sort_by: 'created_at', sort_order: 'desc' },
+  { value: 'created_at:asc', label: 'Oldest first', sort_by: 'created_at', sort_order: 'asc' },
+  { value: 'full_name:asc', label: 'Name (A → Z)', sort_by: 'full_name', sort_order: 'asc' },
+  { value: 'full_name:desc', label: 'Name (Z → A)', sort_by: 'full_name', sort_order: 'desc' },
+  { value: 'assigned_employee_name:asc', label: 'Assigned (A → Z)', sort_by: 'assigned_employee_name', sort_order: 'asc' },
+  { value: 'assigned_employee_name:desc', label: 'Assigned (Z → A)', sort_by: 'assigned_employee_name', sort_order: 'desc' },
+]
 
 function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
@@ -294,18 +295,15 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
                   h.sortable && h.field && h.defaultDir ? (
-                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
-                      <TableSortLabel
-                        active={activeField === h.field}
-                        direction={
-                          activeField === h.field ? activeOrder : h.defaultDir
-                        }
-                        onClick={() => handleHeaderClick(h.field!, h.defaultDir!)}
-                        sx={sortLabelSx}
-                      >
-                        {h.label}
-                      </TableSortLabel>
-                    </TableCell>
+                    <SortableTh
+                      key={h.label}
+                      field={h.field}
+                      label={h.label}
+                      activeField={activeField}
+                      activeOrder={activeOrder}
+                      defaultDir={h.defaultDir}
+                      onSort={handleHeaderClick}
+                    />
                   ) : (
                     <TableCell key={h.label} sx={{ fontWeight: 600 }}>
                       {h.label}

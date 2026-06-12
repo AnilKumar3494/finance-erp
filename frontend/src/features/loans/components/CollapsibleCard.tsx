@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
@@ -10,18 +10,29 @@ import { Card } from '@/components/primitives'
 // A plain (non-editable) section card that collapses, matching EditableSection.
 // Defaults to collapsed so the detail page stays scannable. An optional header
 // `action` (e.g. a print button) is rendered on the right and doesn't toggle.
+// `openSignal` mirrors EditableSection's pattern: a parent bumps it (typically
+// by incrementing a useState number) to imperatively force the card open
+// without seizing control of its open/closed state. Used by LoanSubResources
+// when a cycle's "Pending confirmation" chip targets a transaction inside the
+// (otherwise collapsed) Transactions card.
 export function CollapsibleCard({
   title,
   action,
   children,
   defaultOpen = false,
+  openSignal,
 }: {
   title: string
   action?: ReactNode
   children: ReactNode
   defaultOpen?: boolean
+  openSignal?: number
 }) {
   const [open, setOpen] = useState(defaultOpen)
+
+  useEffect(() => {
+    if (openSignal !== undefined) setOpen(true)
+  }, [openSignal])
 
   return (
     <Card>

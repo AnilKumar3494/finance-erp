@@ -5,4 +5,5 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   GPAY: 'Google Pay',
   PHONEPE: 'PhonePe',
   BANK_TRANSFER: 'Bank transfer',
+  OTHER: 'Other',
 }
