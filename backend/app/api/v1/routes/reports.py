@@ -1,6 +1,6 @@
 import csv
 import io
-from typing import Iterator, Literal
+from typing import Iterator, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
