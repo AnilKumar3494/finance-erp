@@ -3,6 +3,7 @@ import type { DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { ORG_NAME } from './branding'
+import { loanDisplayId } from './loanIdentity'
 import { CYCLE_STATUS_META } from './cycleStatusMeta'
 import { LOAN_STATUS_META } from './loanStatusMeta'
 import { PAYMENT_METHOD_LABELS } from './paymentMethodLabels'
@@ -93,7 +94,7 @@ export function printLoanStatement({
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Statement ${esc(loan.loan_number)}</title>
+<title>Statement ${esc(loanDisplayId(loan))}</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 32px; font-size: 12px; }
@@ -121,7 +122,8 @@ export function printLoanStatement({
       <div class="muted">Loan Statement</div>
     </div>
     <div class="meta">
-      Finance: <strong>${esc(loan.loan_number)}</strong><br/>
+      Finance: <strong>${esc(loanDisplayId(loan))}</strong><br/>
+      ${loan.hp_number ? `<span class="muted">LMS: ${esc(loan.loan_number)}</span><br/>` : ''}
       Status: ${esc(LOAN_STATUS_META[loan.status]?.label ?? loan.status)}
     </div>
   </div>
@@ -173,7 +175,7 @@ export function printLoanStatement({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `Statement_${loan.loan_number}.html`
+    a.download = `Statement_${loanDisplayId(loan)}.html`
     a.click()
     URL.revokeObjectURL(url)
     return

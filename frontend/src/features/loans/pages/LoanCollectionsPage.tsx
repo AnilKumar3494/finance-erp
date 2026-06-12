@@ -10,6 +10,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
 import AddIcon from '@mui/icons-material/AddOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
 import {
   useLoanTransactions,
@@ -271,7 +272,7 @@ function HeaderCard({
               variant="h1"
               sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}
             >
-              {loan.loan_number}
+              {loanDisplayId(loan)}
             </Typography>
             {loan.customer?.full_name && (
               <Box sx={{ mt: 0.75 }}>

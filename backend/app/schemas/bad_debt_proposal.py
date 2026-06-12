@@ -49,6 +49,7 @@ class BadDebtProposalListItem(BadDebtProposalResponse):
     consumers that read only the proposal fields keep working."""
 
     loan_number: str
+    hp_number: Optional[str] = None
     loan_status: LoanStatus
     principal: Decimal
     customer_id: uuid.UUID

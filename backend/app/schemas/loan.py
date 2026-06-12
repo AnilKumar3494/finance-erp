@@ -54,6 +54,12 @@ class VehicleNested(BaseModel):
 class LoanBase(BaseModel):
     customer_id: uuid.UUID
     vehicle_id: Optional[uuid.UUID] = None
+    # Customer-facing hire-purchase number ("HP No"). User-entered for now;
+    # optional at create (draft-first wizard), required at approval. Normalised
+    # to trimmed uppercase; blank strings collapse to None.
+    hp_number: Optional[str] = Field(
+        default=None, max_length=30, description="Hire-purchase number (HP No)"
+    )
     # Financial terms are optional: a DRAFT loan may be created before they're
     # entered (New Finance wizard). They become mandatory at approval — see
     # services/loan.approve_loan.
@@ -69,6 +75,14 @@ class LoanBase(BaseModel):
     down_payment: Decimal = Field(default=Decimal("0.00"), ge=0)
     processing_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     documentation_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
+
+    @field_validator("hp_number")
+    @classmethod
+    def normalize_hp_number(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip().upper()
+        return v or None
 
     @field_validator("principal")
     @classmethod
@@ -142,6 +156,7 @@ class LoanApproveRequest(BaseModel):
 class LoanUpdate(BaseModel):
     status: Optional[LoanStatus] = None
     vehicle_id: Optional[uuid.UUID] = None
+    hp_number: Optional[str] = Field(None, max_length=30)
     principal: Optional[Decimal] = Field(None, gt=0)
     interest_rate: Optional[Decimal] = Field(None, gt=0, le=100)
     tenure: Optional[int] = Field(None, gt=0, le=360)
@@ -151,6 +166,14 @@ class LoanUpdate(BaseModel):
     penalty_rate: Optional[Decimal] = Field(None, ge=0, le=1000)
 
     model_config = {"extra": "forbid"}
+
+    @field_validator("hp_number")
+    @classmethod
+    def normalize_hp_number(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip().upper()
+        return v or None
 
 
 # --------------------------------------------------

@@ -154,6 +154,7 @@ class DueCycleWorklistItem(BaseModel):
 
     # Loan
     loan_number: str
+    hp_number: Optional[str] = None
     loan_status: LoanStatus
 
     # Customer (for the collector to act on)

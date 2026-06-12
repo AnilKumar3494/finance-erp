@@ -184,6 +184,7 @@ def list_proposals(
         BadDebtProposalListItem(
             **BadDebtProposalResponse.model_validate(proposal).model_dump(),
             loan_number=loan.loan_number,
+            hp_number=loan.hp_number,
             loan_status=loan.status,
             principal=loan.principal,
             customer_id=customer.id,

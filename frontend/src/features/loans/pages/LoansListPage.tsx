@@ -28,6 +28,7 @@ import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { EmiDueChip } from '../components/EmiDueChip'
 import { SortSelect } from '../components/SortSelect'
+import { loanDisplayId } from '../loanIdentity'
 
 const routeApi = getRouteApi('/_authed/finances/')
 
@@ -40,7 +41,7 @@ const DEFAULT_SORT_FIELD: LoanSortField = 'created_at'
 const DEFAULT_SORT_ORDER: SortOrder = 'desc'
 
 // Headers in column order. `sortable` headers map to a backend LoanSortField;
-// the rest (Loan ID, Mobile, REG No) are display-only.
+// the rest (HP No, Mobile, REG No) are display-only.
 interface ColumnHeader {
   label: string
   sortable: boolean
@@ -50,7 +51,7 @@ interface ColumnHeader {
 
 const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
   { label: 'SNO', sortable: true, field: 'created_at', defaultDir: 'desc' },
-  { label: 'Loan ID', sortable: false },
+  { label: 'HP No', sortable: false },
   { label: 'Customer Name', sortable: true, field: 'full_name', defaultDir: 'asc' },
   { label: 'Mobile', sortable: false },
   { label: 'Mandal/Village', sortable: true, field: 'mandal_village', defaultDir: 'asc' },
@@ -392,7 +393,7 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                 >
                   <TableCell>{serialNumber(page, i)}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {l.loan_number}
+                    {loanDisplayId(l)}
                   </TableCell>
                   <TableCell>{l.customer?.full_name ?? <Dash />}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
@@ -452,7 +453,7 @@ function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
               variant="h3"
               sx={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)' }}
             >
-              {l.loan_number}
+              {loanDisplayId(l)}
             </Typography>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <LoanStatusChip status={l.status} />

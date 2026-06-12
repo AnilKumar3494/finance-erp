@@ -152,6 +152,7 @@ def pending_confirmations(
             id=txn.id,
             loan_id=loan.id,
             loan_number=loan.loan_number,
+            hp_number=loan.hp_number,
             customer_id=customer.id,
             customer_name=customer.full_name,
             customer_mobile=customer.mobile_number,

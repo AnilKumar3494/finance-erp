@@ -11,6 +11,7 @@ import Typography from '@mui/material/Typography'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 
 import { useDeleteLoan, type LoanResponse } from '@/api/queries/loans'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { Btn, Card, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 
 const CONFIRM_WORD = 'delete'
@@ -79,7 +80,7 @@ export function DeleteDraftAction({ loan }: { loan: LoanResponse }) {
             <Typography variant="body2" color="text.secondary">
               This permanently deletes draft{' '}
               <Box component="span" sx={{ fontFamily: 'var(--font-mono)', color: 'text.primary' }}>
-                {loan.loan_number}
+                {loanDisplayId(loan)}
               </Box>
               {loan.customer?.full_name ? ` for ${loan.customer.full_name}` : ''}. This action
               cannot be undone.

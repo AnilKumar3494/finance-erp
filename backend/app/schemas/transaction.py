@@ -150,6 +150,7 @@ class PendingConfirmationItem(BaseModel):
     id: uuid.UUID  # transaction id
     loan_id: uuid.UUID
     loan_number: str
+    hp_number: Optional[str] = None
 
     customer_id: uuid.UUID
     customer_name: str

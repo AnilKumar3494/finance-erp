@@ -82,6 +82,7 @@ export interface PendingConfirmationItem {
   id: string
   loan_id: string
   loan_number: string
+  hp_number: string | null
   customer_id: string
   customer_name: string
   customer_mobile: string

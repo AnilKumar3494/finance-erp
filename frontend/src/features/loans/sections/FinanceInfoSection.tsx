@@ -94,6 +94,7 @@ function FinanceView({ loan }: { loan: LoanResponse }) {
       : undefined
   return (
     <FieldGrid>
+      <FieldRow label="HP number" value={loan.hp_number ?? undefined} />
       <FieldRow label="Principal" value={money(loan.principal)} />
       <FieldRow
         label="Interest rate"
@@ -129,6 +130,7 @@ function FinanceView({ loan }: { loan: LoanResponse }) {
 // --------------------------------------------------
 
 interface FormValues {
+  hp_number: string
   principal: string
   interest_rate: string
   tenure: string
@@ -155,6 +157,7 @@ function FinanceEditForm({
     () =>
       z
         .object({
+          hp_number: z.string(),
           principal: z.string(),
           interest_rate: z.string(),
           tenure: z.string(),
@@ -164,6 +167,11 @@ function FinanceEditForm({
           penalty_rate: z.string(),
         })
         .superRefine((v, ctx) => {
+          if (v.hp_number.trim() === '') {
+            ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'Enter the HP number' })
+          } else if (v.hp_number.trim().length > 30) {
+            ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'HP number is too long (max 30 characters)' })
+          }
           if (canEditSensitive) {
             const principal = parseAmount(v.principal)
             if (principal === null) {
@@ -227,6 +235,7 @@ function FinanceEditForm({
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
+      hp_number: loan.hp_number ?? '',
       principal: loan.principal ?? '',
       interest_rate: loan.interest_rate ?? '',
       tenure: loan.tenure != null ? String(loan.tenure) : '',
@@ -256,6 +265,15 @@ function FinanceEditForm({
         </Box>
       )}
       <Stack spacing={2.5}>
+        <Input
+          id="fin_hp_number"
+          label="HP number"
+          required
+          placeholder="e.g. SAFTNK0401"
+          hint="Hire-purchase number — shown as this finance's ID."
+          {...register('hp_number')}
+          error={errors.hp_number?.message}
+        />
         {canEditSensitive ? (
           <>
             <Input
@@ -345,6 +363,9 @@ function FinanceEditForm({
 function buildDiff(v: FormValues, loan: LoanResponse, canEditSensitive: boolean): LoanUpdate {
   const p: LoanUpdate = {}
   const numChanged = (input: string, orig: string) => Number(input) !== Number(orig)
+
+  const hp = v.hp_number.trim().toUpperCase()
+  if (hp !== (loan.hp_number ?? '')) p.hp_number = hp
 
   if (canEditSensitive) {
     if (numChanged(v.principal, loan.principal ?? '')) p.principal = v.principal.trim()

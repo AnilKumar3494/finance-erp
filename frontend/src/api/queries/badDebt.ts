@@ -29,6 +29,7 @@ export interface BadDebtProposalResponse {
 // per-row lookup. Extends the base proposal shape.
 export interface BadDebtProposalListItem extends BadDebtProposalResponse {
   loan_number: string
+  hp_number: string | null
   loan_status: LoanStatus
   principal: string
   customer_id: string

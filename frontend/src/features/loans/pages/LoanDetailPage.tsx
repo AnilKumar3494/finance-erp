@@ -20,6 +20,7 @@ import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
+import { loanDisplayId } from '../loanIdentity'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
 import { VehicleInfoSection } from '../sections/VehicleInfoSection'
@@ -191,8 +192,17 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
               variant="h1"
               sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}
             >
-              {loan.loan_number}
+              {loanDisplayId(loan)}
             </Typography>
+            {loan.hp_number && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontFamily: 'var(--font-mono)' }}
+              >
+                LMS: {loan.loan_number}
+              </Typography>
+            )}
             {loan.customer?.full_name && (
               <Box sx={{ mt: 0.75 }}>
                 <Typography variant="body2">

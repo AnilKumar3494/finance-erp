@@ -32,6 +32,7 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from '@/features/loans/components/CycleStatusChip'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { RecordPaymentDialog } from '@/features/loans/components/RecordPaymentDialog'
 import {
   BadDebtReviewDialog,
@@ -394,7 +395,7 @@ function DesktopTable({
                       {r.customer_mobile}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{r.loan_number}</TableCell>
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
                   <TableCell>#{r.cycle_number}</TableCell>
                   <TableCell>
                     <Stack spacing={0.25}>
@@ -462,7 +463,7 @@ function MobileCards({
             <CycleStatusChip status={r.cycle_status} />
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
-            {r.customer_mobile} · {r.loan_number}
+            {r.customer_mobile} · {loanDisplayId(r)}
           </Typography>
           <Stack direction="row" sx={{ mt: 1, justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <Box>
@@ -552,7 +553,7 @@ function ConfirmationsDesktop({ rows }: { rows: PendingConfirmationItem[] }) {
                       {r.customer_mobile}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{r.loan_number}</TableCell>
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>{inr(r.amount)}</TableCell>
                   <TableCell>{r.cycle_number != null ? `#${r.cycle_number}` : '—'}</TableCell>
                   <TableCell>{fmtDate(r.effective_payment_date)}</TableCell>
@@ -605,7 +606,7 @@ function ConfirmationsMobile({ rows }: { rows: PendingConfirmationItem[] }) {
             </Typography>
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
-            {r.customer_mobile} · {r.loan_number}
+            {r.customer_mobile} · {loanDisplayId(r)}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             {r.cycle_number != null ? `Cycle #${r.cycle_number} · ` : ''}paid {fmtDate(r.effective_payment_date)} · recorded {fmtDate(r.created_at)}
@@ -769,7 +770,7 @@ function BadDebtDesktop({
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                    {r.loan_number}
+                    {loanDisplayId(r)}
                   </TableCell>
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{inr(r.principal)}</TableCell>
                   <TableCell sx={{ maxWidth: 280 }}>
@@ -815,7 +816,7 @@ function BadDebtMobile({
             </Typography>
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
-            {r.customer_mobile} · {r.loan_number}
+            {r.customer_mobile} · {loanDisplayId(r)}
           </Typography>
           <Typography variant="body2" sx={{ mt: 0.75, whiteSpace: 'pre-wrap' }}>
             {r.auto_proposed ? '⚙ ' : ''}{r.proposed_reason}

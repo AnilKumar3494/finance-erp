@@ -76,6 +76,7 @@ export interface DueCycleWorklistItem {
   pending_count: number
   pending_total: string
   loan_number: string
+  hp_number: string | null
   loan_status: LoanStatus
   customer_id: string
   customer_name: string

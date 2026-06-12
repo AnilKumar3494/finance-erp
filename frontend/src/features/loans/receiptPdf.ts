@@ -4,6 +4,7 @@ import type { LoanResponse } from '@/api/queries/loans'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { ORG_NAME } from './branding'
+import { loanDisplayId } from './loanIdentity'
 import { PAYMENT_METHOD_LABELS } from './paymentMethodLabels'
 
 const TXN_TYPE_LABELS: Record<TransactionResponse['transaction_type'], string> = {
@@ -62,7 +63,11 @@ export function downloadReceiptPdf({
   y += 56
 
   // Loan reference line
-  const ref = [`Finance: ${loan.loan_number}`, vehicle ? `Vehicle: ${vehicle}` : null]
+  const ref = [
+    `Finance: ${loanDisplayId(loan)}`,
+    loan.hp_number ? `LMS: ${loan.loan_number}` : null,
+    vehicle ? `Vehicle: ${vehicle}` : null,
+  ]
     .filter(Boolean)
     .join('     ')
   doc.setFontSize(10).text(ref, left, y)
@@ -99,5 +104,5 @@ export function downloadReceiptPdf({
   doc.text(`Generated ${fmtDateTime(new Date())}`, left, y + 18)
   doc.text('This is a computer-generated receipt.', right, y + 18, { align: 'right' })
 
-  doc.save(`${receiptNo(txn)}_${loan.loan_number}.pdf`)
+  doc.save(`${receiptNo(txn)}_${loanDisplayId(loan)}.pdf`)
 }

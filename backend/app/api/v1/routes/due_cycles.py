@@ -152,6 +152,7 @@ def worklist(
                 pending_count=pend_count,
                 pending_total=pend_total,
                 loan_number=loan.loan_number,
+                hp_number=loan.hp_number,
                 loan_status=loan.status,
                 customer_id=customer.id,
                 customer_name=customer.full_name,

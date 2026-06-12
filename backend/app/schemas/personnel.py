@@ -180,6 +180,7 @@ class LoanAssociationSummary(BaseModel):
     loan_personnel_id: uuid.UUID
     loan_id: uuid.UUID
     loan_number: str
+    hp_number: Optional[str] = None
     role: PersonnelRole
     relationship_to_hirer: Optional[str] = None
     customer_name: str

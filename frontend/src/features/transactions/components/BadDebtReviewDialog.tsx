@@ -13,6 +13,7 @@ import {
   type BadDebtProposalListItem,
 } from '@/api/queries/badDebt'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
+import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { fmtDateTime } from '@/lib/format'
 
 export type BadDebtDecision = 'APPROVE' | 'REJECT' | 'REOPEN'
@@ -118,7 +119,7 @@ export function BadDebtReviewDialog({
                 Loan:{' '}
               </Box>
               <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                {proposal.loan_number}
+                {loanDisplayId(proposal)}
               </Box>
               <Box component="span" sx={{ color: 'text.secondary' }}>
                 {' '}
