@@ -71,18 +71,24 @@ export function useBadDebtProposals(
   })
 }
 
-// There is no "get the open proposal for a loan" endpoint, so we list the
-// PROPOSED proposals (admin-only, low volume) and match by loan_id. Used by
-// the review action when a loan is BAD_DEBT_PROPOSED.
+// There is no "get the proposal for a loan" endpoint, so we list the proposals
+// (admin-only, low volume) and match by loan_id. Returns the loan's live
+// proposal — PROPOSED (awaiting review) or APPROVED (reviewed, can be
+// reopened); REJECTED ones are history and ignored. Used by the per-loan
+// review action when a loan is BAD_DEBT_PROPOSED.
 export function useOpenBadDebtProposal(loanId: string, enabled: boolean) {
   return useQuery({
     queryKey: badDebtKeys.open(loanId),
     queryFn: async () => {
       const { data } = await apiClient.get<BadDebtProposalListResponse>(
         '/bad-debt-proposals/',
-        { params: { status: 'PROPOSED', page_size: 200 } },
+        { params: { page_size: 200 } },
       )
-      return data.results.find((p) => p.loan_id === loanId) ?? null
+      return (
+        data.results.find(
+          (p) => p.loan_id === loanId && p.status !== 'REJECTED',
+        ) ?? null
+      )
     },
     enabled,
   })
@@ -100,6 +106,25 @@ export function useProposeBadDebt(loanId: string) {
         `/loans/${loanId}/bad-debt/propose`,
         payload,
         { headers: { 'Idempotency-Key': uuidv4() } },
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: loanKeys.detail(loanId) })
+      qc.invalidateQueries({ queryKey: loanKeys.lists() })
+      qc.invalidateQueries({ queryKey: badDebtKeys.all })
+    },
+  })
+}
+
+// Undo an approval — moves the proposal back to PROPOSED (re-enters the review
+// queue). Loan stays BAD_DEBT_PROPOSED. Admin only.
+export function useReopenBadDebt(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (proposalId: string) => {
+      const { data } = await apiClient.post<BadDebtProposalResponse>(
+        `/bad-debt-proposals/${proposalId}/reopen`,
       )
       return data
     },

@@ -27,12 +27,16 @@ import {
   useBadDebtProposals,
   type BadDebtProposalListItem,
 } from '@/api/queries/badDebt'
+import type { BadDebtProposalStatus } from '@/schemas/enums'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from '@/features/loans/components/CycleStatusChip'
 import { RecordPaymentDialog } from '@/features/loans/components/RecordPaymentDialog'
-import { BadDebtReviewDialog } from '../components/BadDebtReviewDialog'
+import {
+  BadDebtReviewDialog,
+  type BadDebtDecision,
+} from '../components/BadDebtReviewDialog'
 import {
   WORKLIST_VIEWS,
   WORKLIST_VIEW_LABELS,
@@ -112,15 +116,26 @@ export function CollectionsWorklistPage() {
   // — `total` is page-independent so the tab badge is correct either way.
   const pendingQuery = usePendingConfirmations(isConfirmations ? page : 1, PAGE_SIZE)
   const confirmationsCount = pendingQuery.data?.total ?? 0
-  // Bad-debt proposals (admin-only). Same fetch-page-or-1 trick so the chip
-  // badge count is correct from any view. Disabled entirely for non-admins.
-  const badDebtQuery = useBadDebtProposals(isBadDebt ? page : 1, 'PROPOSED', isAdmin)
-  const badDebtCount = badDebtQuery.data?.total ?? 0
+  // Bad-debt proposals (admin-only). The chip badge always reflects the
+  // pending (PROPOSED) count, regardless of which sub-tab is shown — so a
+  // lightweight PROPOSED count query runs for any admin (deduped with the
+  // table query when that's also PROPOSED page 1).
+  const badDebtCountQuery = useBadDebtProposals(1, 'PROPOSED', isAdmin)
+  const badDebtCount = badDebtCountQuery.data?.total ?? 0
+  // The lens itself can show either the review queue (PROPOSED) or already-
+  // approved proposals (so an admin can reopen/undo one). Local — reset to
+  // page 1 on toggle.
+  const [badDebtStatus, setBadDebtStatus] = useState<BadDebtProposalStatus>('PROPOSED')
+  const badDebtQuery = useBadDebtProposals(
+    isBadDebt ? page : 1,
+    badDebtStatus,
+    isAdmin && isBadDebt,
+  )
 
   const [record, setRecord] = useState<DueCycleWorklistItem | null>(null)
   const [review, setReview] = useState<{
     proposal: BadDebtProposalListItem
-    decision: 'APPROVE' | 'REJECT'
+    decision: BadDebtDecision
   } | null>(null)
 
   const activeQuery = isBadDebt ? badDebtQuery : isConfirmations ? pendingQuery : cycleQuery
@@ -129,6 +144,12 @@ export function CollectionsWorklistPage() {
 
   const setView = (next: WorklistView) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, view: next }), replace: true })
+
+  // Switch the Bad debt sub-tab (review queue vs approved) and reset paging.
+  const setBadDebtTab = (next: BadDebtProposalStatus) => {
+    setBadDebtStatus(next)
+    navigate({ search: (prev) => ({ ...prev, page: 1 }), replace: true })
+  }
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
@@ -208,20 +229,27 @@ export function CollectionsWorklistPage() {
           <Spinner size={28} />
         </Box>
       ) : isBadDebt ? (
-        (badDebtQuery.data?.results.length ?? 0) === 0 ? (
-          <BadDebtEmpty />
-        ) : (
-          <>
-            <BadDebtDesktop
-              rows={badDebtQuery.data!.results}
-              onReview={(proposal, decision) => setReview({ proposal, decision })}
-            />
-            <BadDebtMobile
-              rows={badDebtQuery.data!.results}
-              onReview={(proposal, decision) => setReview({ proposal, decision })}
-            />
-          </>
-        )
+        <>
+          <BadDebtSubtabs
+            status={badDebtStatus}
+            reviewCount={badDebtCount}
+            onChange={setBadDebtTab}
+          />
+          {(badDebtQuery.data?.results.length ?? 0) === 0 ? (
+            <BadDebtEmpty status={badDebtStatus} />
+          ) : (
+            <>
+              <BadDebtDesktop
+                rows={badDebtQuery.data!.results}
+                onReview={(proposal, decision) => setReview({ proposal, decision })}
+              />
+              <BadDebtMobile
+                rows={badDebtQuery.data!.results}
+                onReview={(proposal, decision) => setReview({ proposal, decision })}
+              />
+            </>
+          )}
+        </>
       ) : isConfirmations ? (
         (pendingQuery.data?.results.length ?? 0) === 0 ? (
           <ConfirmationsEmpty />
@@ -257,7 +285,9 @@ export function CollectionsWorklistPage() {
           <Typography variant="body2" color="text.secondary">
             Page {page} of {totalPages} · {total}{' '}
             {isBadDebt
-              ? `proposal${total === 1 ? '' : 's'} to review`
+              ? badDebtStatus === 'APPROVED'
+                ? `approved proposal${total === 1 ? '' : 's'}`
+                : `proposal${total === 1 ? '' : 's'} to review`
               : isConfirmations
                 ? `payment${total === 1 ? '' : 's'} to confirm`
                 : `cycle${total === 1 ? '' : 's'} due`}
@@ -330,8 +360,8 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
@@ -498,8 +528,8 @@ function ConfirmationsDesktop({ rows }: { rows: PendingConfirmationItem[] }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
@@ -605,13 +635,46 @@ function ConfirmationsEmpty() {
 }
 
 // --------------------------------------------------
-// Bad debt (review) — proposals awaiting an admin's approve/reject
+// Bad debt (review) — proposals awaiting approve/reject, or already-approved
+// ones an admin can reopen (undo).
 // --------------------------------------------------
 
 type ReviewHandler = (
   proposal: BadDebtProposalListItem,
-  decision: 'APPROVE' | 'REJECT',
+  decision: BadDebtDecision,
 ) => void
+
+// Sub-tabs within the Bad debt lens: the review queue (PROPOSED) vs proposals
+// already approved (where the only action is Reopen / undo).
+function BadDebtSubtabs({
+  status,
+  reviewCount,
+  onChange,
+}: {
+  status: BadDebtProposalStatus
+  reviewCount: number
+  onChange: (s: BadDebtProposalStatus) => void
+}) {
+  const tabs: { value: BadDebtProposalStatus; label: string }[] = [
+    { value: 'PROPOSED', label: reviewCount > 0 ? `To review (${reviewCount})` : 'To review' },
+    { value: 'APPROVED', label: 'Approved' },
+  ]
+  return (
+    <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
+      {tabs.map((t) => (
+        <Chip
+          key={t.value}
+          label={t.label}
+          size="small"
+          onClick={() => onChange(t.value)}
+          color={status === t.value ? 'primary' : 'default'}
+          variant={status === t.value ? 'filled' : 'outlined'}
+          sx={{ height: 30 }}
+        />
+      ))}
+    </Stack>
+  )
+}
 
 function ReviewButtons({
   proposal,
@@ -622,6 +685,24 @@ function ReviewButtons({
   onReview: ReviewHandler
   fullWidth?: boolean
 }) {
+  // An already-approved proposal offers only Reopen (undo the approval).
+  if (proposal.status === 'APPROVED') {
+    return (
+      <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
+        <Btn
+          variant="ghost"
+          size="sm"
+          fullWidth={fullWidth}
+          onClick={(e) => {
+            e.stopPropagation()
+            onReview(proposal, 'REOPEN')
+          }}
+        >
+          Reopen
+        </Btn>
+      </Stack>
+    )
+  }
   return (
     <Stack
       direction="row"
@@ -664,8 +745,8 @@ function BadDebtDesktop({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small">
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 820 }}>
             <TableHead>
               <TableRow sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                 <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
@@ -751,13 +832,18 @@ function BadDebtMobile({
   )
 }
 
-function BadDebtEmpty() {
+function BadDebtEmpty({ status }: { status: BadDebtProposalStatus }) {
+  const approved = status === 'APPROVED'
   return (
     <Card>
       <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-        <Typography variant="h3">No proposals to review</Typography>
+        <Typography variant="h3">
+          {approved ? 'No approved proposals' : 'No proposals to review'}
+        </Typography>
         <Typography variant="body2" color="text.secondary">
-          No loans are awaiting a bad-debt decision right now.
+          {approved
+            ? 'No bad-debt proposals have been approved yet.'
+            : 'No loans are awaiting a bad-debt decision right now.'}
         </Typography>
       </Stack>
     </Card>

@@ -22,6 +22,7 @@ import { LoanStatusChip } from '../components/LoanStatusChip'
 import { EmiDueChip } from '../components/EmiDueChip'
 import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
+import { LoanActions } from '../components/LoanActions'
 import { RecordPaymentDialog } from '../components/RecordPaymentDialog'
 import { deriveNetDue, type CycleNetDue } from '../cycleNetDue'
 import { focusTransaction } from '../txnFocus'
@@ -153,6 +154,15 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
     setRecordOpen(true)
   }
 
+  // Loan actions (Close / Propose / Review / Reopen) live at the bottom of the
+  // cockpit. A status chip that implies a pending decision (Bad debt proposed,
+  // Awaiting closure) scrolls there so the admin lands on the right action.
+  const actionsRef = useRef<HTMLDivElement>(null)
+  const statusNeedsAction =
+    loan.status === 'BAD_DEBT_PROPOSED' || loan.status === 'AWAITING_CLOSURE'
+  const scrollToActions = () =>
+    actionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
   return (
     <Stack spacing={3}>
       <HeaderCard
@@ -165,6 +175,7 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
         pendingTotal={pendingTotal}
         payable={payable}
         onRecord={onHeaderRecord}
+        onStatusClick={statusNeedsAction ? scrollToActions : undefined}
       />
 
       {pendingTxns.length > 0 && (
@@ -188,6 +199,12 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
         </Typography>
         <DueCyclesTab loan={loan} />
       </Card>
+
+      {/* Loan-level actions (Close / Propose / Review / Reopen). Renders
+          nothing when no action applies to the current status. */}
+      <Box ref={actionsRef}>
+        <LoanActions loan={loan} />
+      </Box>
 
       <RecordPaymentDialog
         loanId={loan.id}
@@ -214,6 +231,7 @@ interface HeaderCardProps {
   pendingTotal: number
   payable: boolean
   onRecord: () => void
+  onStatusClick?: () => void
 }
 
 function HeaderCard({
@@ -226,6 +244,7 @@ function HeaderCard({
   pendingTotal,
   payable,
   onRecord,
+  onStatusClick,
 }: HeaderCardProps) {
   // Nominal monthly instalment (base EMI) — total payable spread over tenure.
   const nextEmi =
@@ -294,7 +313,12 @@ function HeaderCard({
               },
             }}
           >
-            <LoanStatusChip status={loan.status} size="medium" />
+            <LoanStatusChip
+              status={loan.status}
+              size="medium"
+              onClick={onStatusClick}
+              title={onStatusClick ? 'Go to loan actions' : undefined}
+            />
             <EmiDueChip status={loan.emi_due_status} size="medium" />
           </Stack>
         </Stack>

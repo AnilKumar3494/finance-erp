@@ -9,10 +9,13 @@ import Typography from '@mui/material/Typography'
 
 import {
   useReviewBadDebt,
+  useReopenBadDebt,
   type BadDebtProposalListItem,
 } from '@/api/queries/badDebt'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { fmtDateTime } from '@/lib/format'
+
+export type BadDebtDecision = 'APPROVE' | 'REJECT' | 'REOPEN'
 
 function mapReviewError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -30,6 +33,26 @@ function mapReviewError(error: unknown): string {
 // proposal row already carries everything we need (loan_id + proposal id), so
 // no per-loan fetch — unlike the per-loan ReviewAction which has to look the
 // open proposal up. Always mounted; `proposal` null = closed.
+const DIALOG_COPY: Record<BadDebtDecision, { title: string; blurb: string; cta: string }> = {
+  APPROVE: {
+    title: 'Approve bad-debt proposal?',
+    blurb:
+      'Approving marks the loan eligible for write-off. To finalise, close the loan with a write-off. This is audited.',
+    cta: 'Approve',
+  },
+  REJECT: {
+    title: 'Reject bad-debt proposal?',
+    blurb: 'Rejecting returns the loan to ACTIVE. This is audited.',
+    cta: 'Reject',
+  },
+  REOPEN: {
+    title: 'Reopen this proposal?',
+    blurb:
+      'Reopening undoes the approval and puts the proposal back in the review queue (the loan stays Bad debt proposed). This is audited.',
+    cta: 'Reopen',
+  },
+}
+
 export function BadDebtReviewDialog({
   proposal,
   decision,
@@ -37,48 +60,56 @@ export function BadDebtReviewDialog({
   onReviewed,
 }: {
   proposal: BadDebtProposalListItem | null
-  decision: 'APPROVE' | 'REJECT'
+  decision: BadDebtDecision
   onClose: () => void
   onReviewed?: () => void
 }) {
-  const review = useReviewBadDebt(proposal?.loan_id ?? '')
+  const loanId = proposal?.loan_id ?? ''
+  const review = useReviewBadDebt(loanId)
+  const reopen = useReopenBadDebt(loanId)
   const [notes, setNotes] = useState('')
+
+  const isReopen = decision === 'REOPEN'
+  const mutation = isReopen ? reopen : review
 
   // Re-seed (clear notes, drop any prior error) each time a new proposal opens.
   useEffect(() => {
     if (proposal) {
       setNotes('')
       review.reset()
+      reopen.reset()
     }
     // Only when the targeted proposal/decision changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposal?.id, decision])
 
   const close = () => {
-    if (review.isPending) return
+    if (mutation.isPending) return
     onClose()
   }
 
   const confirm = () => {
     if (!proposal) return
-    review.mutate(
-      { proposalId: proposal.id, decision, review_notes: notes.trim() || undefined },
-      {
-        onSuccess: () => {
-          onReviewed?.()
-          onClose()
-        },
-      },
-    )
+    const onSuccess = () => {
+      onReviewed?.()
+      onClose()
+    }
+    if (isReopen) {
+      reopen.mutate(proposal.id, { onSuccess })
+    } else {
+      review.mutate(
+        { proposalId: proposal.id, decision, review_notes: notes.trim() || undefined },
+        { onSuccess },
+      )
+    }
   }
 
+  const copy = DIALOG_COPY[decision]
   const isApprove = decision === 'APPROVE'
 
   return (
     <Dialog open={proposal != null} onClose={close} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        {isApprove ? 'Approve bad-debt proposal?' : 'Reject bad-debt proposal?'}
-      </DialogTitle>
+      <DialogTitle>{copy.title}</DialogTitle>
       <DialogContent>
         {proposal && (
           <Box sx={{ mb: 2 }}>
@@ -109,35 +140,36 @@ export function BadDebtReviewDialog({
         )}
 
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {isApprove
-            ? 'Approving marks the loan eligible for write-off. To finalise, close the loan with a write-off. This is audited.'
-            : 'Rejecting returns the loan to ACTIVE. This is audited.'}
+          {copy.blurb}
         </Typography>
-        <Input
-          id="queue_review_notes"
-          label="Review notes"
-          multiline
-          minRows={2}
-          maxRows={6}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-        {review.isError && (
+        {/* Reopen carries no notes (the endpoint clears the prior review). */}
+        {!isReopen && (
+          <Input
+            id="queue_review_notes"
+            label="Review notes"
+            multiline
+            minRows={2}
+            maxRows={6}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        )}
+        {mutation.isError && (
           <Box sx={{ mt: 2 }}>
-            <ErrorBanner message={mapReviewError(review.error)} />
+            <ErrorBanner message={mapReviewError(mutation.error)} />
           </Box>
         )}
       </DialogContent>
       <DialogActions>
-        <Btn variant="ghost" onClick={close} disabled={review.isPending}>
+        <Btn variant="ghost" onClick={close} disabled={mutation.isPending}>
           Cancel
         </Btn>
         <Btn
-          variant={isApprove ? 'success' : 'danger'}
+          variant={isApprove ? 'success' : isReopen ? 'primary' : 'danger'}
           onClick={confirm}
-          loading={review.isPending}
+          loading={mutation.isPending}
         >
-          {isApprove ? 'Approve' : 'Reject'}
+          {copy.cta}
         </Btn>
       </DialogActions>
     </Dialog>

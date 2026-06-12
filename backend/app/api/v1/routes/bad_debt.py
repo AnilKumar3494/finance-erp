@@ -20,6 +20,7 @@ from app.schemas.bad_debt_proposal import (
 from app.services.bad_debt import (
     get_open_proposal,
     propose_bad_debt,
+    reopen_proposal,
     review_proposal,
 )
 from app.utils.audit import write_audit
@@ -79,6 +80,65 @@ def propose_route(
             "auto_proposed": False,
             "reason_length": len(payload.proposed_reason or ""),
         },
+        request=request,
+    )
+    db.commit()
+    db.refresh(proposal)
+    return proposal
+
+
+@review_router.post(
+    "/{proposal_id}/reopen",
+    response_model=BadDebtProposalResponse,
+    summary="Reopen an approved bad-debt proposal (undo approval; admin)",
+)
+def reopen_route(
+    request: Request,
+    proposal_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    proposal = (
+        db.query(BadDebtProposal)
+        .filter(
+            BadDebtProposal.id == proposal_id,
+            BadDebtProposal.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found"
+        )
+
+    loan = (
+        db.query(Loan)
+        .filter(Loan.id == proposal.loan_id, Loan.is_deleted.is_(False))
+        .with_for_update()
+        .first()
+    )
+    if not loan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found"
+        )
+
+    old_proposal_status = proposal.status.value
+    try:
+        reopen_proposal(
+            db, proposal=proposal, loan=loan, reviewer_id=current_user.id
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    write_audit(
+        db,
+        action_type="BAD_DEBT_REOPEN",
+        target_table="bad_debt_proposals",
+        record_id=proposal.id,
+        user_id=current_user.id,
+        old_data={"proposal_status": old_proposal_status, "loan_status": loan.status.value},
+        new_data={"proposal_status": proposal.status.value, "loan_status": loan.status.value},
         request=request,
     )
     db.commit()
