@@ -11,5 +11,7 @@ export const USER_ROLE_META: Record<
   EMPLOYEE: { label: 'Employee', color: 'default' },
 }
 
-// Order for the list filter chips.
-export const USER_ROLE_ORDER: UserRole[] = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']
+// Order for the list filter chips. SUPER_ADMIN is intentionally omitted — the
+// Team roster excludes super admins (see backend list_users), so a SUPER_ADMIN
+// filter would always be empty.
+export const USER_ROLE_ORDER: UserRole[] = ['EMPLOYEE', 'ADMIN']
