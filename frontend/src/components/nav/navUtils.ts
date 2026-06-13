@@ -1,10 +1,20 @@
 import { useRouterState } from '@tanstack/react-router'
 
-import type { NavItem } from './navConfig'
+import { useAuth } from '@/app/auth-context'
+import { NAV_ITEMS, type NavItem } from './navConfig'
 
 export function isActive(currentPath: string, itemPath: NavItem['path']): boolean {
   if (itemPath === '/') return currentPath === '/'
   return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`)
+}
+
+// NAV_ITEMS filtered by the current user's role: `adminOnly` items are hidden
+// from non-admins. Shared by every nav surface (sidebar, mobile drawer, bottom
+// bar) so visibility stays consistent.
+export function useVisibleNavItems(): readonly NavItem[] {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+  return NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin)
 }
 
 export function getInitials(source: string | null | undefined, fallback: string): string {

@@ -4,18 +4,17 @@ import Typography from '@mui/material/Typography'
 import MoreHorizOutlined from '@mui/icons-material/MoreHorizOutlined'
 import { Link } from '@tanstack/react-router'
 
-import { NAV_ITEMS } from './navConfig'
-import { isActive, useCurrentPath } from './navUtils'
+import { isActive, useCurrentPath, useVisibleNavItems } from './navUtils'
 
 interface MobileBottomBarProps {
   onOpenDrawer: () => void
 }
 
-const BOTTOM_ITEMS = NAV_ITEMS.filter((i) => i.showInBottomBar)
-
 export function MobileBottomBar({ onOpenDrawer }: MobileBottomBarProps) {
   const currentPath = useCurrentPath()
-  const otherActive = NAV_ITEMS.some(
+  const navItems = useVisibleNavItems()
+  const bottomItems = navItems.filter((i) => i.showInBottomBar)
+  const otherActive = navItems.some(
     (i) => !i.showInBottomBar && isActive(currentPath, i.path),
   )
 
@@ -38,7 +37,7 @@ export function MobileBottomBar({ onOpenDrawer }: MobileBottomBarProps) {
         display: 'flex',
       }}
     >
-      {BOTTOM_ITEMS.map((item) => {
+      {bottomItems.map((item) => {
         const active = isActive(currentPath, item.path)
         const Icon = item.icon
         return (
