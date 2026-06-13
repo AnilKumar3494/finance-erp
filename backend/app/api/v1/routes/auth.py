@@ -187,7 +187,7 @@ def get_all_employees(
     "/users",
     response_model=UserListResponse,
     status_code=status.HTTP_200_OK,
-    summary="List active Employee/Admin users (paginated; excludes Super Admins)",
+    summary="List active users across all roles (paginated)",
 )
 def get_all_users(
     search: Optional[str] = Query(
@@ -199,7 +199,7 @@ def get_all_users(
     db: Session = Depends(get_db),
     current_admin: User = Depends(require_admin),
 ):
-    """Admin Team screen: roster of employees + admins (Super Admins hidden)."""
+    """Admin Team screen: full roster (employees, admins, super admins)."""
     if page < 1:
         page = 1
     if page_size < 1 or page_size > 200:

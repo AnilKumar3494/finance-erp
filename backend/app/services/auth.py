@@ -208,11 +208,9 @@ def list_users(
     role: Optional[UserRole] = None,
 ) -> tuple[list[User], int]:
     """
-    Paginated list of active EMPLOYEE / ADMIN users. Powers the Team
-    management screen. SUPER_ADMIN accounts are intentionally excluded — they
-    can't be managed here (no create/role-change/delete target) and are hidden
-    from the roster. An optional `role` filter (EMPLOYEE or ADMIN) narrows it
-    further.
+    Paginated list of active users across ALL roles. Powers the Team
+    management screen. Unlike `list_employees` there's no role restriction,
+    but an optional `role` filter is supported.
 
     `search` matches full_name / username / email case-insensitively, with
     LIKE wildcards escaped (consistent with customer search).
@@ -220,7 +218,6 @@ def list_users(
     query = db.query(User).filter(
         User.is_active == True,  # noqa: E712
         User.is_deleted == False,  # noqa: E712
-        User.role != UserRole.SUPER_ADMIN,
     )
 
     if role is not None:

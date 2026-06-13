@@ -97,7 +97,8 @@ export function TeamPage() {
 
   const total = query.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  const rows = query.data?.results ?? []
+  // Super admins are hidden from the roster (they can't be managed here).
+  const rows = (query.data?.results ?? []).filter((u) => u.role !== 'SUPER_ADMIN')
 
   const setRole = (next: UserRole | undefined) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, role: next }) })
