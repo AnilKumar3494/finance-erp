@@ -95,9 +95,16 @@ export function TeamPage() {
 
   const query = useUsers({ page, page_size: PAGE_SIZE, search: searchTerm, role })
 
-  const total = query.data?.total ?? 0
+  // Super admins are hidden from the roster (they can't be managed here). We
+  // filter them out of the rows, and subtract their count from the paginated
+  // total so the "X members" count + page count stay accurate. The count query
+  // is tiny (page_size 1, we only read `total`) and cached. Skipped while a
+  // role filter is active, since EMPLOYEE/ADMIN results never include them.
+  const saCountQuery = useUsers({ role: 'SUPER_ADMIN', page: 1, page_size: 1 })
+  const hiddenCount = role ? 0 : saCountQuery.data?.total ?? 0
+
+  const total = Math.max(0, (query.data?.total ?? 0) - hiddenCount)
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  // Super admins are hidden from the roster (they can't be managed here).
   const rows = (query.data?.results ?? []).filter((u) => u.role !== 'SUPER_ADMIN')
 
   const setRole = (next: UserRole | undefined) =>
