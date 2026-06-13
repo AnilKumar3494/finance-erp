@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
+import type { LoanListResponse } from '@/api/queries/loans'
 import type { AssetStatus, AssetType } from '@/schemas/enums'
 
 // --------------------------------------------------
@@ -40,12 +41,30 @@ export interface VehicleListResponse {
   results: VehicleResponse[]
 }
 
+// Source of truth: the runtime array. The type is derived from it so the
+// URL/state whitelist and the type system stay in lock-step. Must match the
+// backend _SORTABLE_COLUMNS dict in services/vehicle.py.
+export const VEHICLE_SORT_FIELDS = [
+  'plate_number',
+  'make',
+  'year',
+  'status',
+  'market_value',
+  'created_at',
+] as const
+
+export type VehicleSortField = (typeof VEHICLE_SORT_FIELDS)[number]
+
+export type SortOrder = 'asc' | 'desc'
+
 export interface VehicleListParams {
   page: number
   page_size?: number
   search?: string
   status?: AssetStatus
   type?: AssetType
+  sort_by?: VehicleSortField
+  sort_order?: SortOrder
 }
 
 export const vehicleKeys = {
@@ -141,5 +160,54 @@ export function useUpdateVehicle(id: string) {
       // so detail/list cards reflect the change.
       qc.invalidateQueries({ queryKey: ['loans'] })
     },
+  })
+}
+
+// Soft delete (DELETE /vehicles/{id} → 204). Blocked server-side when the
+// vehicle is collateral on an active loan (400). We deliberately do NOT remove
+// the detail cache: the detail page stays mounted afterwards so the user can
+// Restore in place (GET /vehicles/{id} 404s on deleted rows, so navigating back
+// to it would be impossible).
+export function useDeleteVehicle(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await apiClient.delete(`/vehicles/${id}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: vehicleKeys.lists() })
+    },
+  })
+}
+
+// Reverse a soft delete (POST /vehicles/{id}/restore). Returns the restored
+// vehicle; 409 if another active vehicle now holds the plate.
+export function useRestoreVehicle(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post<VehicleResponse>(`/vehicles/${id}/restore`)
+      return data
+    },
+    onSuccess: (restored) => {
+      qc.setQueryData(vehicleKeys.detail(id), restored)
+      qc.invalidateQueries({ queryKey: vehicleKeys.lists() })
+    },
+  })
+}
+
+// Loans backed by this vehicle (GET /vehicles/{id}/loans). Returns the standard
+// paginated loan list shape; we ask for the embedded customer so rows can show
+// the borrower's name without an extra fetch.
+export function useVehicleLoans(id: string | undefined) {
+  return useQuery({
+    queryKey: [...vehicleKeys.detail(id ?? ''), 'loans'] as const,
+    queryFn: async () => {
+      const { data } = await apiClient.get<LoanListResponse>(`/vehicles/${id}/loans`, {
+        params: { include: 'customer', page_size: 100 },
+      })
+      return data
+    },
+    enabled: !!id,
   })
 }
