@@ -291,6 +291,61 @@ def create_user(
 
 
 # --------------------------------------------------
+# CHANGE PASSWORD (self-service)
+# --------------------------------------------------
+def change_password(
+    db: Session,
+    user: User,
+    current_password: str,
+    new_password: str,
+    *,
+    request: Optional[Request] = None,
+) -> User:
+    """
+    Change `user`'s own password after verifying the current one.
+
+    Raises ValueError("Current password is incorrect") on a bad current
+    password — the route maps that to a 400. Both the failure and the
+    success are audited (PASSWORD_CHANGE_FAIL / PASSWORD_CHANGE) so the
+    security trail mirrors the login flow. Password material is never
+    written to the audit payload.
+
+    NOTE: JWTs are stateless and this system has no token-revocation store,
+    so changing the password does NOT invalidate already-issued tokens —
+    the caller's session (and any other active one) stays valid until it
+    expires. Revoking on change would require a token-version column.
+    """
+    if not verify_password(current_password, user.password_hash):
+        write_audit(
+            db,
+            action_type="PASSWORD_CHANGE_FAIL",
+            target_table="users",
+            record_id=user.id,
+            user_id=user.id,
+            new_data={"reason": "wrong_current_password"},
+            request=request,
+        )
+        db.commit()
+        raise ValueError("Current password is incorrect")
+
+    user.password_hash = hash_password(new_password)
+    user.updated_by_id = user.id
+
+    write_audit(
+        db,
+        action_type="PASSWORD_CHANGE",
+        target_table="users",
+        record_id=user.id,
+        user_id=user.id,
+        new_data={"self_service": True},
+        request=request,
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# --------------------------------------------------
 # AUTHENTICATION (login)
 # --------------------------------------------------
 def _is_locked(user: User) -> bool:

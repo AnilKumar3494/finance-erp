@@ -29,6 +29,7 @@ from app.dependencies.auth import get_current_user, require_admin, require_super
 from app.models.user import User, UserRole
 from app.schemas.user import (
     AdminUserCreate,
+    PasswordChangeRequest,
     RoleChangeRequest,
     Token,
     UserCreate,
@@ -37,6 +38,7 @@ from app.schemas.user import (
 )
 from app.services.auth import (
     authenticate_user,
+    change_password,
     change_user_role,
     create_access_token,
     create_user,
@@ -146,6 +148,40 @@ def login(
 )
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+# --------------------------------------------------
+# CHANGE OWN PASSWORD (self-service, any authenticated user)
+# --------------------------------------------------
+@router.post(
+    "/me/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change your own password",
+)
+def change_my_password(
+    request: Request,
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Self-service password change. Requires the current password; the new one
+    must satisfy the complexity policy and differ from the current (enforced
+    by PasswordChangeRequest). A wrong current password returns 400.
+    """
+    try:
+        change_password(
+            db,
+            current_user,
+            payload.current_password,
+            payload.new_password,
+            request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+    return None
 
 
 # --------------------------------------------------
