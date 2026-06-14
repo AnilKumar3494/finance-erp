@@ -10,8 +10,8 @@ import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import { Link, useNavigate } from '@tanstack/react-router'
 
 import { useAuth } from '@/app/auth-context'
-import { BRAND, NAV_ITEMS } from './navConfig'
-import { getInitials, isActive, useCurrentPath } from './navUtils'
+import { BRAND } from './navConfig'
+import { getInitials, isActive, useCurrentPath, useVisibleNavItems } from './navUtils'
 
 interface MobileDrawerProps {
   open: boolean
@@ -22,6 +22,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const currentPath = useCurrentPath()
+  const navItems = useVisibleNavItems()
 
   const handleLogout = () => {
     onClose()
@@ -89,7 +90,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
       </Stack>
 
       <Stack component="nav" spacing={0.5} sx={{ flex: 1, px: 1, py: 1.5, overflowY: 'auto' }}>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = isActive(currentPath, item.path)
           const Icon = item.icon
           return (

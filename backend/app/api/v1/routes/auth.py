@@ -42,6 +42,7 @@ from app.services.auth import (
     create_user,
     get_user_by_id,
     list_employees,
+    list_users,
     login_identity_exists,
 )
 from app.utils.audit import write_audit
@@ -173,6 +174,39 @@ def get_all_employees(
 
     results, total = list_employees(
         db, page=page, page_size=page_size, search=search
+    )
+    return UserListResponse(
+        total=total, page=page, page_size=page_size, results=results
+    )
+
+
+# --------------------------------------------------
+# LIST USERS (paginated, all roles) — powers the Team management screen
+# --------------------------------------------------
+@router.get(
+    "/users",
+    response_model=UserListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List active users across all roles (paginated)",
+)
+def get_all_users(
+    search: Optional[str] = Query(
+        None, description="Case-insensitive match on name, username, or email"
+    ),
+    role: Optional[UserRole] = Query(None, description="Optional role filter"),
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    """Admin Team screen: full roster (employees, admins, super admins)."""
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 200:
+        page_size = 50
+
+    results, total = list_users(
+        db, page=page, page_size=page_size, search=search, role=role
     )
     return UserListResponse(
         total=total, page=page, page_size=page_size, results=results

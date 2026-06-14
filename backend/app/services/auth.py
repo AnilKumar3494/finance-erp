@@ -200,6 +200,49 @@ def list_employees(
     return results, total
 
 
+def list_users(
+    db: Session,
+    page: int = 1,
+    page_size: int = 50,
+    search: Optional[str] = None,
+    role: Optional[UserRole] = None,
+) -> tuple[list[User], int]:
+    """
+    Paginated list of active users across ALL roles. Powers the Team
+    management screen. Unlike `list_employees` there's no role restriction,
+    but an optional `role` filter is supported.
+
+    `search` matches full_name / username / email case-insensitively, with
+    LIKE wildcards escaped (consistent with customer search).
+    """
+    query = db.query(User).filter(
+        User.is_active == True,  # noqa: E712
+        User.is_deleted == False,  # noqa: E712
+    )
+
+    if role is not None:
+        query = query.filter(User.role == role)
+
+    if search:
+        s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.filter(
+            or_(
+                User.full_name.ilike(f"%{s}%", escape="\\"),
+                User.username.ilike(f"%{s}%", escape="\\"),
+                User.email.ilike(f"%{s}%", escape="\\"),
+            )
+        )
+
+    total = query.count()
+    results = (
+        query.order_by(User.full_name.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return results, total
+
+
 # --------------------------------------------------
 # USER CREATION
 # --------------------------------------------------

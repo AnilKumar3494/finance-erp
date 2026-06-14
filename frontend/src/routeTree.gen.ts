@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedRouteRouteImport } from './routes/_authed/route'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedTransactionsRouteImport } from './routes/_authed/transactions'
+import { Route as AuthedTeamRouteImport } from './routes/_authed/team'
 import { Route as AuthedReportsRouteImport } from './routes/_authed/reports'
 import { Route as AuthedVehiclesIndexRouteImport } from './routes/_authed/vehicles/index'
 import { Route as AuthedFinancesIndexRouteImport } from './routes/_authed/finances/index'
@@ -44,6 +45,11 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
 const AuthedTransactionsRoute = AuthedTransactionsRouteImport.update({
   id: '/transactions',
   path: '/transactions',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedTeamRoute = AuthedTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
 const AuthedReportsRoute = AuthedReportsRouteImport.update({
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/login': typeof LoginRoute
   '/reports': typeof AuthedReportsRoute
+  '/team': typeof AuthedTeamRoute
   '/transactions': typeof AuthedTransactionsRoute
   '/customers/new': typeof AuthedCustomersNewRoute
   '/finances/new': typeof AuthedFinancesNewRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reports': typeof AuthedReportsRoute
+  '/team': typeof AuthedTeamRoute
   '/transactions': typeof AuthedTransactionsRoute
   '/': typeof AuthedIndexRoute
   '/customers/new': typeof AuthedCustomersNewRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/_authed': typeof AuthedRouteRouteWithChildren
   '/login': typeof LoginRoute
   '/_authed/reports': typeof AuthedReportsRoute
+  '/_authed/team': typeof AuthedTeamRoute
   '/_authed/transactions': typeof AuthedTransactionsRoute
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/customers/new': typeof AuthedCustomersNewRoute
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/reports'
+    | '/team'
     | '/transactions'
     | '/customers/new'
     | '/finances/new'
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/reports'
+    | '/team'
     | '/transactions'
     | '/'
     | '/customers/new'
@@ -216,6 +227,7 @@ export interface FileRouteTypes {
     | '/_authed'
     | '/login'
     | '/_authed/reports'
+    | '/_authed/team'
     | '/_authed/transactions'
     | '/_authed/'
     | '/_authed/customers/new'
@@ -265,6 +277,13 @@ declare module '@tanstack/react-router' {
       path: '/transactions'
       fullPath: '/transactions'
       preLoaderRoute: typeof AuthedTransactionsRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/team': {
+      id: '/_authed/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof AuthedTeamRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/reports': {
@@ -363,6 +382,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthedRouteRouteChildren {
   AuthedReportsRoute: typeof AuthedReportsRoute
+  AuthedTeamRoute: typeof AuthedTeamRoute
   AuthedTransactionsRoute: typeof AuthedTransactionsRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedCustomersNewRoute: typeof AuthedCustomersNewRoute
@@ -381,6 +401,7 @@ interface AuthedRouteRouteChildren {
 
 const AuthedRouteRouteChildren: AuthedRouteRouteChildren = {
   AuthedReportsRoute: AuthedReportsRoute,
+  AuthedTeamRoute: AuthedTeamRoute,
   AuthedTransactionsRoute: AuthedTransactionsRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedCustomersNewRoute: AuthedCustomersNewRoute,
