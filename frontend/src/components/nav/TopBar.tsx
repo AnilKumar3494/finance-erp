@@ -12,10 +12,12 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import LightModeOutlined from '@mui/icons-material/LightModeOutlined'
 import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
+import LockResetOutlined from '@mui/icons-material/LockResetOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useAuth } from '@/app/auth-context'
 import { useThemeMode } from '@/hooks/useTheme'
+import { ChangePasswordDialog } from '@/features/auth/components/ChangePasswordDialog'
 import { getInitials, usePageTitle } from './navUtils'
 
 export function TopBar() {
@@ -23,6 +25,7 @@ export function TopBar() {
   const { mode, toggle } = useThemeMode()
   const navigate = useNavigate()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const [pwOpen, setPwOpen] = useState(false)
   const triggerRef = useRef<HTMLElement | null>(null)
   const title = usePageTitle()
 
@@ -49,6 +52,11 @@ export function TopBar() {
     triggerRef.current = null
     logout()
     navigate({ to: '/login' })
+  }
+  const openChangePassword = () => {
+    setAnchor(null)
+    triggerRef.current = null
+    setPwOpen(true)
   }
 
   const initials = getInitials(user?.full_name, user?.username ?? '?')
@@ -124,6 +132,12 @@ export function TopBar() {
           </Typography>
         </Box>
         <Divider />
+        <MenuItem onClick={openChangePassword}>
+          <ListItemIcon>
+            <LockResetOutlined fontSize="small" />
+          </ListItemIcon>
+          Change password
+        </MenuItem>
         <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>
           <ListItemIcon sx={{ color: 'inherit' }}>
             <LogoutOutlined fontSize="small" />
@@ -131,6 +145,8 @@ export function TopBar() {
           Logout
         </MenuItem>
       </Menu>
+
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
     </Box>
   )
 }
