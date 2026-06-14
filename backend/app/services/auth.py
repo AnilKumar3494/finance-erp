@@ -291,6 +291,104 @@ def create_user(
 
 
 # --------------------------------------------------
+# CHANGE PASSWORD (self-service)
+# --------------------------------------------------
+def change_password(
+    db: Session,
+    user: User,
+    current_password: str,
+    new_password: str,
+    *,
+    request: Optional[Request] = None,
+) -> User:
+    """
+    Change `user`'s own password after verifying the current one.
+
+    Raises ValueError("Current password is incorrect") on a bad current
+    password — the route maps that to a 400. Both the failure and the
+    success are audited (PASSWORD_CHANGE_FAIL / PASSWORD_CHANGE) so the
+    security trail mirrors the login flow. Password material is never
+    written to the audit payload.
+
+    NOTE: JWTs are stateless and this system has no token-revocation store,
+    so changing the password does NOT invalidate already-issued tokens —
+    the caller's session (and any other active one) stays valid until it
+    expires. Revoking on change would require a token-version column.
+    """
+    if not verify_password(current_password, user.password_hash):
+        write_audit(
+            db,
+            action_type="PASSWORD_CHANGE_FAIL",
+            target_table="users",
+            record_id=user.id,
+            user_id=user.id,
+            new_data={"reason": "wrong_current_password"},
+            request=request,
+        )
+        db.commit()
+        raise ValueError("Current password is incorrect")
+
+    user.password_hash = hash_password(new_password)
+    user.updated_by_id = user.id
+
+    write_audit(
+        db,
+        action_type="PASSWORD_CHANGE",
+        target_table="users",
+        record_id=user.id,
+        user_id=user.id,
+        new_data={"self_service": True},
+        request=request,
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# --------------------------------------------------
+# ADMIN PASSWORD RESET
+# --------------------------------------------------
+def admin_reset_password(
+    db: Session,
+    target: User,
+    new_password: str,
+    *,
+    actor_id: uuid.UUID,
+    request: Optional[Request] = None,
+) -> User:
+    """
+    Set a NEW password for `target` on behalf of an admin/super-admin.
+
+    Unlike `change_password`, no current password is verified — the admin is
+    issuing a temporary credential for a user who can't sign in. Any active
+    login lockout (failed-attempt counter + locked_until) is cleared so the
+    user can sign in with the new password immediately. Authorization (which
+    actor may reset which target) is enforced by the route before this runs.
+    Password material is never written to the audit payload.
+
+    Same stateless-JWT caveat as `change_password`: existing tokens for
+    `target` are not revoked.
+    """
+    target.password_hash = hash_password(new_password)
+    target.failed_login_attempts = 0
+    target.locked_until = None
+    target.updated_by_id = actor_id
+
+    write_audit(
+        db,
+        action_type="PASSWORD_RESET",
+        target_table="users",
+        record_id=target.id,
+        user_id=actor_id,
+        new_data={"target_role": target.role.value},
+        request=request,
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+# --------------------------------------------------
 # AUTHENTICATION (login)
 # --------------------------------------------------
 def _is_locked(user: User) -> bool:

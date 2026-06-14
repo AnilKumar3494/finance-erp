@@ -22,6 +22,7 @@ import { RoleChip } from '../components/RoleChip'
 import { CreateAccountDialog } from '../components/CreateAccountDialog'
 import { RemoveAccountDialog } from '../components/RemoveAccountDialog'
 import { ChangeRoleDialog } from '../components/ChangeRoleDialog'
+import { ResetPasswordDialog } from '../components/ResetPasswordDialog'
 
 const routeApi = getRouteApi('/_authed/team')
 
@@ -50,6 +51,15 @@ function canChangeRole(target: UserAccount, p: Perms): boolean {
 function canRemove(target: UserAccount, p: Perms): boolean {
   if (target.role === 'SUPER_ADMIN' || target.id === p.currentUserId) return false
   return target.role === 'ADMIN' ? p.isSuperAdmin : p.isAdmin
+}
+// Admin/super-admin may set a new temp password for another user. Self is
+// excluded (use the account-menu "Change password" instead). Resetting a
+// SUPER_ADMIN is super-admin-only, mirroring the backend route guard — in
+// practice SUPER_ADMIN rows aren't listed, so that clause is defense-in-depth.
+function canResetPassword(target: UserAccount, p: Perms): boolean {
+  if (target.id === p.currentUserId) return false
+  if (target.role === 'SUPER_ADMIN') return p.isSuperAdmin
+  return p.isAdmin
 }
 
 export function TeamPage() {
@@ -92,6 +102,7 @@ export function TeamPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<UserAccount | null>(null)
   const [roleTarget, setRoleTarget] = useState<UserAccount | null>(null)
+  const [resetTarget, setResetTarget] = useState<UserAccount | null>(null)
 
   const query = useUsers({ page, page_size: PAGE_SIZE, search: searchTerm, role })
 
@@ -208,12 +219,14 @@ export function TeamPage() {
             perms={perms}
             onChangeRole={setRoleTarget}
             onRemove={setRemoveTarget}
+            onResetPassword={setResetTarget}
           />
           <MobileCards
             rows={rows}
             perms={perms}
             onChangeRole={setRoleTarget}
             onRemove={setRemoveTarget}
+            onResetPassword={setResetTarget}
           />
 
           {total > 0 && (
@@ -257,6 +270,9 @@ export function TeamPage() {
       {roleTarget && (
         <ChangeRoleDialog user={roleTarget} open onClose={() => setRoleTarget(null)} />
       )}
+      {resetTarget && (
+        <ResetPasswordDialog user={resetTarget} open onClose={() => setResetTarget(null)} />
+      )}
     </Box>
   )
 }
@@ -266,6 +282,7 @@ interface RowActionsProps {
   perms: Perms
   onChangeRole: (u: UserAccount) => void
   onRemove: (u: UserAccount) => void
+  onResetPassword: (u: UserAccount) => void
 }
 
 function RowActions({
@@ -273,15 +290,18 @@ function RowActions({
   perms,
   onChangeRole,
   onRemove,
+  onResetPassword,
 }: {
   user: UserAccount
   perms: Perms
   onChangeRole: (u: UserAccount) => void
   onRemove: (u: UserAccount) => void
+  onResetPassword: (u: UserAccount) => void
 }) {
   const showRole = canChangeRole(user, perms)
   const showRemove = canRemove(user, perms)
-  if (!showRole && !showRemove) {
+  const showReset = canResetPassword(user, perms)
+  if (!showRole && !showRemove && !showReset) {
     return (
       <Typography component="span" variant="body2" color="text.secondary">
         —
@@ -290,6 +310,11 @@ function RowActions({
   }
   return (
     <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+      {showReset && (
+        <Btn variant="ghost" size="sm" onClick={() => onResetPassword(user)}>
+          Reset password
+        </Btn>
+      )}
       {showRole && (
         <Btn variant="ghost" size="sm" onClick={() => onChangeRole(user)}>
           Change role
@@ -308,7 +333,7 @@ function RowActions({
 // Desktop table — md and up
 // --------------------------------------------------
 
-function DesktopTable({ rows, perms, onChangeRole, onRemove }: RowActionsProps) {
+function DesktopTable({ rows, perms, onChangeRole, onRemove, onResetPassword }: RowActionsProps) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
@@ -346,6 +371,7 @@ function DesktopTable({ rows, perms, onChangeRole, onRemove }: RowActionsProps) 
                       perms={perms}
                       onChangeRole={onChangeRole}
                       onRemove={onRemove}
+                      onResetPassword={onResetPassword}
                     />
                   </TableCell>
                 </TableRow>
@@ -362,7 +388,7 @@ function DesktopTable({ rows, perms, onChangeRole, onRemove }: RowActionsProps) 
 // Mobile cards — below md
 // --------------------------------------------------
 
-function MobileCards({ rows, perms, onChangeRole, onRemove }: RowActionsProps) {
+function MobileCards({ rows, perms, onChangeRole, onRemove, onResetPassword }: RowActionsProps) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((u) => (
@@ -379,9 +405,15 @@ function MobileCards({ rows, perms, onChangeRole, onRemove }: RowActionsProps) {
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, wordBreak: 'break-all' }}>
             {u.email}
           </Typography>
-          {(canChangeRole(u, perms) || canRemove(u, perms)) && (
+          {(canChangeRole(u, perms) || canRemove(u, perms) || canResetPassword(u, perms)) && (
             <Box sx={{ mt: 1.5 }}>
-              <RowActions user={u} perms={perms} onChangeRole={onChangeRole} onRemove={onRemove} />
+              <RowActions
+                user={u}
+                perms={perms}
+                onChangeRole={onChangeRole}
+                onRemove={onRemove}
+                onResetPassword={onResetPassword}
+              />
             </Box>
           )}
         </Card>

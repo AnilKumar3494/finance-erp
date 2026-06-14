@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Drawer from '@mui/material/Drawer'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
@@ -7,9 +8,11 @@ import Divider from '@mui/material/Divider'
 import Avatar from '@mui/material/Avatar'
 import CloseOutlined from '@mui/icons-material/CloseOutlined'
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
+import LockResetOutlined from '@mui/icons-material/LockResetOutlined'
 import { Link, useNavigate } from '@tanstack/react-router'
 
 import { useAuth } from '@/app/auth-context'
+import { ChangePasswordDialog } from '@/features/auth/components/ChangePasswordDialog'
 import { BRAND } from './navConfig'
 import { getInitials, isActive, useCurrentPath, useVisibleNavItems } from './navUtils'
 
@@ -23,16 +26,25 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const navigate = useNavigate()
   const currentPath = useCurrentPath()
   const navItems = useVisibleNavItems()
+  const [pwOpen, setPwOpen] = useState(false)
 
   const handleLogout = () => {
     onClose()
     logout()
     navigate({ to: '/login' })
   }
+  // Close the drawer first; the dialog is rendered as a sibling of the Drawer
+  // (the Drawer unmounts its children when closed) so it survives and floats
+  // above the page.
+  const openChangePassword = () => {
+    onClose()
+    setPwOpen(true)
+  }
 
   const initials = getInitials(user?.full_name, user?.username ?? '?')
 
   return (
+    <>
     <Drawer
       anchor="left"
       open={open}
@@ -158,6 +170,19 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
           </Typography>
         </Box>
         <IconButton
+          onClick={openChangePassword}
+          aria-label="Change password"
+          sx={{
+            color: 'var(--sidebar-text)',
+            '&:hover': {
+              color: 'var(--sidebar-text-strong)',
+              bgcolor: 'var(--sidebar-hover)',
+            },
+          }}
+        >
+          <LockResetOutlined fontSize="small" />
+        </IconButton>
+        <IconButton
           onClick={handleLogout}
           aria-label="Logout"
           sx={{
@@ -172,5 +197,8 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
         </IconButton>
       </Stack>
     </Drawer>
+
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
+    </>
   )
 }
