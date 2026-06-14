@@ -125,3 +125,14 @@ export function useChangeUserRole() {
     onSuccess: invalidate,
   })
 }
+
+// POST /auth/users/{id}/reset-password — admin/super-admin sets a new temp
+// password for a user. 204 (no body); the caller already holds the value it
+// sent and the roster shape is unaffected, so there's nothing to invalidate.
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {
+      await apiClient.post(`/auth/users/${userId}/reset-password`, { new_password: newPassword })
+    },
+  })
+}
