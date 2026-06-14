@@ -346,6 +346,49 @@ def change_password(
 
 
 # --------------------------------------------------
+# ADMIN PASSWORD RESET
+# --------------------------------------------------
+def admin_reset_password(
+    db: Session,
+    target: User,
+    new_password: str,
+    *,
+    actor_id: uuid.UUID,
+    request: Optional[Request] = None,
+) -> User:
+    """
+    Set a NEW password for `target` on behalf of an admin/super-admin.
+
+    Unlike `change_password`, no current password is verified — the admin is
+    issuing a temporary credential for a user who can't sign in. Any active
+    login lockout (failed-attempt counter + locked_until) is cleared so the
+    user can sign in with the new password immediately. Authorization (which
+    actor may reset which target) is enforced by the route before this runs.
+    Password material is never written to the audit payload.
+
+    Same stateless-JWT caveat as `change_password`: existing tokens for
+    `target` are not revoked.
+    """
+    target.password_hash = hash_password(new_password)
+    target.failed_login_attempts = 0
+    target.locked_until = None
+    target.updated_by_id = actor_id
+
+    write_audit(
+        db,
+        action_type="PASSWORD_RESET",
+        target_table="users",
+        record_id=target.id,
+        user_id=actor_id,
+        new_data={"target_role": target.role.value},
+        request=request,
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+# --------------------------------------------------
 # AUTHENTICATION (login)
 # --------------------------------------------------
 def _is_locked(user: User) -> bool:

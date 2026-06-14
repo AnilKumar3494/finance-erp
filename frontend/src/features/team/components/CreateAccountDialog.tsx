@@ -15,7 +15,6 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOffOutlined'
-import ContentCopyIcon from '@mui/icons-material/ContentCopyOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlined'
 import AutorenewIcon from '@mui/icons-material/AutorenewOutlined'
 
@@ -29,6 +28,7 @@ import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 import type { UserRole } from '@/schemas/enums'
 import { USER_ROLE_META } from '../userRoleMeta'
 import { generatePassword } from '../generatePassword'
+import { CopyField } from './CopyField'
 
 // Roles an admin can provision. SUPER_ADMIN is never creatable via the API.
 const CREATABLE_ROLES = ['EMPLOYEE', 'ADMIN'] as const
@@ -261,51 +261,5 @@ function CreatedPanel({ creds, onDone }: { creds: CreatedCreds; onDone: () => vo
         </Btn>
       </DialogActions>
     </>
-  )
-}
-
-function CopyField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    navigator.clipboard?.writeText(value).then(
-      () => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      },
-      () => {},
-    )
-  }
-  return (
-    <Box>
-      <FieldLabel>{label}</FieldLabel>
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          p: 1.25,
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 'var(--radius-sm)',
-        }}
-      >
-        <Typography
-          variant="body2"
-          sx={{ fontFamily: mono ? 'var(--font-mono)' : undefined, wordBreak: 'break-all' }}
-        >
-          {value}
-        </Typography>
-        <Btn
-          variant="ghost"
-          size="sm"
-          startIcon={copied ? <CheckCircleIcon /> : <ContentCopyIcon />}
-          onClick={copy}
-          sx={{ flexShrink: 0 }}
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </Btn>
-      </Stack>
-    </Box>
   )
 }

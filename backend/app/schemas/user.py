@@ -80,6 +80,22 @@ class PasswordChangeRequest(BaseModel):
 
 
 # --------------------------------------------------
+# ADMIN PASSWORD RESET — an admin/super-admin sets a NEW temporary password for
+# another user (who forgot theirs). No current password is supplied: the admin
+# doesn't know it. Same complexity policy as account creation. The caller-chosen
+# value is revealed once to the admin to share; the server never returns it.
+# Authorization (who may reset whom) is enforced in the route.
+# --------------------------------------------------
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=64)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        return _check_password_strength(v)
+
+
+# --------------------------------------------------
 # CREATE — Public registration. Service forces role=EMPLOYEE.
 # --------------------------------------------------
 class UserCreate(UserBase, _PasswordMixin):

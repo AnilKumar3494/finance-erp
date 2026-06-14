@@ -28,6 +28,7 @@ from app.core.rate_limit import limiter
 from app.dependencies.auth import get_current_user, require_admin, require_super_admin
 from app.models.user import User, UserRole
 from app.schemas.user import (
+    AdminPasswordResetRequest,
     AdminUserCreate,
     PasswordChangeRequest,
     RoleChangeRequest,
@@ -37,6 +38,7 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.auth import (
+    admin_reset_password,
     authenticate_user,
     change_password,
     change_user_role,
@@ -478,3 +480,52 @@ def change_role(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         )
+
+
+# --------------------------------------------------
+# ADMIN PASSWORD RESET — admin/super-admin sets a temp password for a user
+# --------------------------------------------------
+@router.post(
+    "/users/{user_id}/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Set a new temporary password for a user (admin / super admin)",
+)
+def reset_user_password(
+    request: Request,
+    user_id: uuid.UUID,
+    payload: AdminPasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    """
+    Admin/super-admin sets a new temporary password for another user (e.g. one
+    who forgot theirs and can't sign in).
+
+    Authorization: ADMIN may reset EMPLOYEE and ADMIN accounts; resetting a
+    SUPER_ADMIN is SUPER_ADMIN-only (an admin must not be able to take over the
+    top account). The caller chooses the password and shares it out-of-band —
+    the server never returns it (204). Clears any login lockout on the target.
+    """
+    target = get_user_by_id(db, user_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if (
+        target.role == UserRole.SUPER_ADMIN
+        and current_admin.role != UserRole.SUPER_ADMIN
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a Super Admin can reset a Super Admin's password.",
+        )
+
+    admin_reset_password(
+        db,
+        target,
+        payload.new_password,
+        actor_id=current_admin.id,
+        request=request,
+    )
+    return None
