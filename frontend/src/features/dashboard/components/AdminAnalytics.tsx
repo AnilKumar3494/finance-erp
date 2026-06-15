@@ -2,8 +2,6 @@ import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import { useNavigate } from '@tanstack/react-router'
 
 import {
@@ -17,6 +15,7 @@ import { Btn, Card } from '@/components/primitives'
 import { fmtINR } from '@/lib/format'
 import { AsyncSection } from '@/features/reports/components/AsyncSection'
 import { MiniBarChart } from '@/features/reports/components/MiniBarChart'
+import { RangeToggle } from '@/features/reports/components/RangeToggle'
 import { fmtMonthShort, money } from '@/features/reports/reportUtils'
 
 const PAYMENT_METHODS = [
@@ -34,11 +33,12 @@ const METHOD_DAYS = 30
 // Reuses the Reports module's data hooks + chart atoms.
 export function AdminAnalytics() {
   const navigate = useNavigate()
-  const [months, setMonths] = useState(12)
+  const [months, setMonths] = useState(3)
+  const [growthMonths, setGrowthMonths] = useState(3)
 
   const portfolio = useLoanPortfolio()
   const chart = useCollectionChart(months)
-  const trends = useMonthlyTrends(12)
+  const trends = useMonthlyTrends(growthMonths)
   const methods = useCollectionReport('daily', METHOD_DAYS)
 
   return (
@@ -77,18 +77,7 @@ export function AdminAnalytics() {
           sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 2, flexWrap: 'wrap' }}
         >
           <Typography variant="h3">Collections trend</Typography>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={months}
-            onChange={(_, v: number | null) => {
-              if (v != null) setMonths(v)
-            }}
-          >
-            <ToggleButton value={3}>3M</ToggleButton>
-            <ToggleButton value={6}>6M</ToggleButton>
-            <ToggleButton value={12}>12M</ToggleButton>
-          </ToggleButtonGroup>
+          <RangeToggle value={months} onChange={setMonths} />
         </Stack>
         <Card>
           <AsyncSection isLoading={chart.isLoading} isError={chart.isError} error={chart.error}>
@@ -115,9 +104,13 @@ export function AdminAnalytics() {
           </Card>
         </Box>
         <Box>
-          <Typography variant="h3" sx={{ mb: 1.5 }}>
-            Growth · last 12 months
-          </Typography>
+          <Stack
+            direction="row"
+            sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 2, flexWrap: 'wrap' }}
+          >
+            <Typography variant="h3">Growth</Typography>
+            <RangeToggle value={growthMonths} onChange={setGrowthMonths} />
+          </Stack>
           <AsyncSection isLoading={trends.isLoading} isError={trends.isError} error={trends.error}>
             {trends.data && (
               <Stack spacing={2}>
