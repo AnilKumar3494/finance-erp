@@ -24,6 +24,7 @@ import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { fmtDateTime, fmtINR } from '@/lib/format'
+import { isValidVehiclePlate } from '@/schemas/primitives'
 import { EditableSection } from '@/features/loans/components/EditableSection'
 import { CollapsibleCard } from '@/features/loans/components/CollapsibleCard'
 import { DocumentLine } from '@/features/loans/components/DocumentLine'
@@ -118,6 +119,7 @@ function DetailBody({ vehicle }: { vehicle: VehicleResponse }) {
 
 function HeaderCard({ vehicle }: { vehicle: VehicleResponse }) {
   const makeModel = [vehicle.make, vehicle.model].filter(Boolean).join(' ') || '—'
+  const plateNeedsReview = !isValidVehiclePlate(vehicle.plate_number.trim().toUpperCase())
   return (
     <Card>
       <Stack spacing={1.5}>
@@ -133,6 +135,18 @@ function HeaderCard({ vehicle }: { vehicle: VehicleResponse }) {
             <Typography variant="h1" sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}>
               {vehicle.plate_number}
             </Typography>
+            {plateNeedsReview && (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{ mt: 0.5, alignItems: 'center', color: 'var(--warning)' }}
+              >
+                <WarningAmberRoundedIcon sx={{ fontSize: 14 }} />
+                <Typography sx={{ fontSize: 11, fontWeight: 500, color: 'var(--warning)' }}>
+                  Non-standard plate format — confirm or update
+                </Typography>
+              </Stack>
+            )}
           </Box>
           <Box sx={{ flexShrink: 0 }}>
             <VehicleStatusChip status={vehicle.status} size="medium" />
