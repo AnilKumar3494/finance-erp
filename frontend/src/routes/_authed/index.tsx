@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ComingSoonPage } from '@/features/_shell/pages/ComingSoonPage'
+import { DashboardPage } from '@/features/dashboard/pages/DashboardPage'
 
 export const Route = createFileRoute('/_authed/')({
   staticData: { title: 'Dashboard' },
-  component: () => <ComingSoonPage module="Dashboard" />,
+  component: DashboardPage,
 })

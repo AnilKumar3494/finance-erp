@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.models.user import UserRole
 
@@ -31,6 +31,19 @@ class UserBase(BaseModel):
 
 
 # --------------------------------------------------
+# PASSWORD STRENGTH (shared rule)
+# Single source of truth for the complexity policy so account creation and
+# self-service password changes never drift apart.
+# --------------------------------------------------
+def _check_password_strength(v: str) -> str:
+    if not any(c.isupper() for c in v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not any(c.isdigit() for c in v):
+        raise ValueError("Password must contain at least one number")
+    return v
+
+
+# --------------------------------------------------
 # PASSWORD MIX-IN
 # --------------------------------------------------
 class _PasswordMixin(BaseModel):
@@ -39,11 +52,47 @@ class _PasswordMixin(BaseModel):
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:
-        if not any(c.isupper() for c in v):
-            raise ValueError("Password must contain at least one uppercase letter")
-        if not any(c.isdigit() for c in v):
-            raise ValueError("Password must contain at least one number")
-        return v
+        return _check_password_strength(v)
+
+
+# --------------------------------------------------
+# CHANGE PASSWORD — self-service (any authenticated user).
+#
+# `new_password` carries the same complexity policy as account creation.
+# `current_password` is only checked for presence here; correctness is
+# verified against the stored hash in the service layer. Rejecting an
+# unchanged password at the boundary keeps the 422 message clear.
+# --------------------------------------------------
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=64)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        return _check_password_strength(v)
+
+    @model_validator(mode="after")
+    def _new_differs_from_current(self) -> "PasswordChangeRequest":
+        if self.current_password == self.new_password:
+            raise ValueError("New password must be different from the current password")
+        return self
+
+
+# --------------------------------------------------
+# ADMIN PASSWORD RESET — an admin/super-admin sets a NEW temporary password for
+# another user (who forgot theirs). No current password is supplied: the admin
+# doesn't know it. Same complexity policy as account creation. The caller-chosen
+# value is revealed once to the admin to share; the server never returns it.
+# Authorization (who may reset whom) is enforced in the route.
+# --------------------------------------------------
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=64)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        return _check_password_strength(v)
 
 
 # --------------------------------------------------

@@ -89,11 +89,26 @@ def list_all(
     type: Optional[AssetType] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: Optional[str] = Query(
+        None,
+        description=(
+            "Column to sort by. One of: plate_number, make, year, status, "
+            "market_value, created_at. Unknown values fall back to created_at."
+        ),
+    ),
+    sort_order: Optional[str] = Query(None, description="asc or desc. Defaults to desc."),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     results, total = list_vehicles(
-        db=db, search=search, status=status, type=type, page=page, page_size=page_size
+        db=db,
+        search=search,
+        status=status,
+        type=type,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     return VehicleListResponse(
         total=total, page=page, page_size=page_size, results=results

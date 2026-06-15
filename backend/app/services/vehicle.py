@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Request
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +8,19 @@ from sqlalchemy.orm import Session
 from app.models.vehicle import AssetStatus, AssetType, Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleUpdate
 from app.utils.audit import write_audit
+
+
+# Whitelist of columns the list endpoint can sort by. Mirrors the frontend
+# VEHICLE_SORT_FIELDS in api/queries/vehicles.ts. Unknown values fall back to
+# created_at desc so the response stays deterministic.
+_SORTABLE_COLUMNS: dict[str, Any] = {
+    "plate_number": Vehicle.plate_number,
+    "make": Vehicle.make,
+    "year": Vehicle.year,
+    "status": Vehicle.status,
+    "market_value": Vehicle.market_value,
+    "created_at": Vehicle.created_at,
+}
 
 
 def _vehicle_audit_snapshot(v: Vehicle) -> dict:
@@ -116,6 +129,8 @@ def list_vehicles(
     type: Optional[AssetType] = None,
     page: int = 1,
     page_size: int = 20,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> tuple[list[Vehicle], int]:
     """
     List vehicles with optional filters.
@@ -134,8 +149,14 @@ def list_vehicles(
 
     total = query.count()
 
+    # Sort. Unknown sort_by falls back to created_at desc. The id tie-breaker
+    # keeps pagination stable when many rows share the same sort key.
+    column = _SORTABLE_COLUMNS.get(sort_by or "", Vehicle.created_at)
+    descending = (sort_order or "desc").lower() != "asc"
+    ordering = column.desc() if descending else column.asc()
+
     results = (
-        query.order_by(Vehicle.created_at.desc())
+        query.order_by(ordering, Vehicle.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

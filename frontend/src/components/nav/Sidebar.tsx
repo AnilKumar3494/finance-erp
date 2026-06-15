@@ -7,8 +7,8 @@ import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
 import { Link } from '@tanstack/react-router'
 
-import { BRAND, NAV_ITEMS } from './navConfig'
-import { isActive, useCurrentPath } from './navUtils'
+import { BRAND } from './navConfig'
+import { isActive, useCurrentPath, useVisibleNavItems } from './navUtils'
 
 interface SidebarProps {
   collapsed: boolean
@@ -17,6 +17,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const currentPath = useCurrentPath()
+  const navItems = useVisibleNavItems()
   const width = collapsed ? 'var(--sidebar-w-collapsed)' : 'var(--sidebar-w)'
 
   return (
@@ -83,7 +84,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         spacing={0.5}
         sx={{ flex: 1, px: collapsed ? 0.5 : 1, py: 1.5, overflowY: 'auto' }}
       >
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = isActive(currentPath, item.path)
           const Icon = item.icon
           const row = (

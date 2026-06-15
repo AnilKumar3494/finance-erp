@@ -28,7 +28,9 @@ from app.core.rate_limit import limiter
 from app.dependencies.auth import get_current_user, require_admin, require_super_admin
 from app.models.user import User, UserRole
 from app.schemas.user import (
+    AdminPasswordResetRequest,
     AdminUserCreate,
+    PasswordChangeRequest,
     RoleChangeRequest,
     Token,
     UserCreate,
@@ -36,12 +38,15 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.auth import (
+    admin_reset_password,
     authenticate_user,
+    change_password,
     change_user_role,
     create_access_token,
     create_user,
     get_user_by_id,
     list_employees,
+    list_users,
     login_identity_exists,
 )
 from app.utils.audit import write_audit
@@ -148,6 +153,40 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 
 # --------------------------------------------------
+# CHANGE OWN PASSWORD (self-service, any authenticated user)
+# --------------------------------------------------
+@router.post(
+    "/me/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change your own password",
+)
+def change_my_password(
+    request: Request,
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Self-service password change. Requires the current password; the new one
+    must satisfy the complexity policy and differ from the current (enforced
+    by PasswordChangeRequest). A wrong current password returns 400.
+    """
+    try:
+        change_password(
+            db,
+            current_user,
+            payload.current_password,
+            payload.new_password,
+            request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+    return None
+
+
+# --------------------------------------------------
 # LIST EMPLOYEES (paginated)
 # --------------------------------------------------
 @router.get(
@@ -173,6 +212,39 @@ def get_all_employees(
 
     results, total = list_employees(
         db, page=page, page_size=page_size, search=search
+    )
+    return UserListResponse(
+        total=total, page=page, page_size=page_size, results=results
+    )
+
+
+# --------------------------------------------------
+# LIST USERS (paginated, all roles) — powers the Team management screen
+# --------------------------------------------------
+@router.get(
+    "/users",
+    response_model=UserListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List active users across all roles (paginated)",
+)
+def get_all_users(
+    search: Optional[str] = Query(
+        None, description="Case-insensitive match on name, username, or email"
+    ),
+    role: Optional[UserRole] = Query(None, description="Optional role filter"),
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    """Admin Team screen: full roster (employees, admins, super admins)."""
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 200:
+        page_size = 50
+
+    results, total = list_users(
+        db, page=page, page_size=page_size, search=search, role=role
     )
     return UserListResponse(
         total=total, page=page, page_size=page_size, results=results
@@ -408,3 +480,52 @@ def change_role(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         )
+
+
+# --------------------------------------------------
+# ADMIN PASSWORD RESET — admin/super-admin sets a temp password for a user
+# --------------------------------------------------
+@router.post(
+    "/users/{user_id}/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Set a new temporary password for a user (admin / super admin)",
+)
+def reset_user_password(
+    request: Request,
+    user_id: uuid.UUID,
+    payload: AdminPasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    """
+    Admin/super-admin sets a new temporary password for another user (e.g. one
+    who forgot theirs and can't sign in).
+
+    Authorization: ADMIN may reset EMPLOYEE and ADMIN accounts; resetting a
+    SUPER_ADMIN is SUPER_ADMIN-only (an admin must not be able to take over the
+    top account). The caller chooses the password and shares it out-of-band —
+    the server never returns it (204). Clears any login lockout on the target.
+    """
+    target = get_user_by_id(db, user_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if (
+        target.role == UserRole.SUPER_ADMIN
+        and current_admin.role != UserRole.SUPER_ADMIN
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a Super Admin can reset a Super Admin's password.",
+        )
+
+    admin_reset_password(
+        db,
+        target,
+        payload.new_password,
+        actor_id=current_admin.id,
+        request=request,
+    )
+    return None

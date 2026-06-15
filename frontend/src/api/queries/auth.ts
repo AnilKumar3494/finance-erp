@@ -28,6 +28,14 @@ export interface LoginCredentials {
   password: string
 }
 
+// Mirrors backend PasswordChangeRequest. The new password carries the same
+// complexity policy as account creation (8–64 chars, an uppercase + a number)
+// and must differ from the current one.
+export interface ChangePasswordPayload {
+  current_password: string
+  new_password: string
+}
+
 // --------------------------------------------------
 // Query keys
 // --------------------------------------------------
@@ -93,4 +101,15 @@ export function useLogout() {
     // server-state gone, not just marked stale.
     qc.clear()
   }, [qc])
+}
+
+// POST /auth/me/password — self-service change. Returns 204 (no body). Nothing
+// to invalidate: /me doesn't change shape, and the token stays valid (JWTs are
+// stateless, so the current session is unaffected).
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async (payload: ChangePasswordPayload) => {
+      await apiClient.post('/auth/me/password', payload)
+    },
+  })
 }
