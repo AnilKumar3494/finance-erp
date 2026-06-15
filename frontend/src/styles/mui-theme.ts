@@ -261,11 +261,21 @@ export function buildMuiTheme(mode: Mode) {
       //    light-theme "error messages not coming" bug). We pin filled alerts
       //    to a solid saturated background + white text, identical in both
       //    themes, so they're always legible regardless of the mode token.
+      //
+      //  - backgroundImage: Alert extends Paper, and the MuiPaper override
+      //    paints a solid `linear-gradient(surface, surface)` over every
+      //    Paper's backgroundColor. background-image stacks ABOVE
+      //    background-color, so in light mode that white gradient hid the
+      //    alert's severity fill entirely — white text on a white box, the
+      //    "error banner text not visible in light mode" bug. We clear it on
+      //    every alert so the severity background (filled fill or standard
+      //    tint) always shows through.
       MuiAlert: {
         styleOverrides: {
           root: ({ ownerState }) => {
             const variant = ownerState.variant
             const severity = ownerState.severity
+            const base = { backgroundImage: 'none' }
 
             if (variant === 'filled') {
               // Saturated, mid-dark fills that white text always reads on —
@@ -277,8 +287,9 @@ export function buildMuiTheme(mode: Mode) {
                 info: '#2563eb',
               }
               const bg = severity ? filledBg[severity] : undefined
-              if (!bg) return {}
+              if (!bg) return base
               return {
+                ...base,
                 backgroundColor: bg,
                 color: '#fff',
                 '& .MuiAlert-icon': { color: '#fff' },
@@ -293,9 +304,10 @@ export function buildMuiTheme(mode: Mode) {
             }
             const c = severity ? sev[severity] : undefined
             if (!c || (variant !== 'outlined' && variant !== 'standard')) {
-              return {}
+              return base
             }
             return {
+              ...base,
               color: c,
               '& .MuiAlert-icon': { color: c },
               ...(variant === 'outlined' ? { borderColor: c } : {}),
