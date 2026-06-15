@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -13,13 +14,14 @@ import { fmtMonthShort, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { MiniBarChart } from './MiniBarChart'
-
-const TRENDS_MONTHS = 12
+import { RangeToggle } from './RangeToggle'
 
 export function OverviewTab() {
+  const [trendsMonths, setTrendsMonths] = useState(3)
+
   const summary = useDashboardSummary()
   const portfolio = useLoanPortfolio()
-  const trends = useMonthlyTrends(TRENDS_MONTHS)
+  const trends = useMonthlyTrends(trendsMonths)
 
   return (
     <Stack spacing={4}>
@@ -105,9 +107,13 @@ export function OverviewTab() {
       </Box>
 
       <Box>
-        <Typography variant="h3" sx={{ mb: 1.5 }}>
-          Trends · last {TRENDS_MONTHS} months
-        </Typography>
+        <Stack
+          direction="row"
+          sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 2, flexWrap: 'wrap' }}
+        >
+          <Typography variant="h3">Trends</Typography>
+          <RangeToggle value={trendsMonths} onChange={setTrendsMonths} />
+        </Stack>
         <AsyncSection
           isLoading={trends.isLoading}
           isError={trends.isError}
