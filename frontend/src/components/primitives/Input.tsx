@@ -13,17 +13,22 @@ export interface InputProps extends Omit<TextFieldProps, 'label' | 'error' | 'he
   error?: string
   // Muted helper text shown below the input when no error is present.
   hint?: string
+  // Non-blocking warning message: draws a yellow outline + amber message below
+  // the field but does NOT prevent submit. Use for advisory checks (e.g. a
+  // non-standard vehicle plate that should still be saved). An `error` wins.
+  warning?: string
   // Draws a warning (yellow) outline to flag a required-but-missing field —
   // used by the approval walk-through. An actual `error` takes precedence.
   highlight?: boolean
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, required, error, hint, highlight, id, sx, ...rest },
+  { label, required, error, hint, warning, highlight, id, sx, ...rest },
   ref,
 ) {
+  const showWarning = !!warning && !error
   const highlightSx =
-    highlight && !error
+    (highlight || showWarning) && !error
       ? {
           '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--warning)' },
           '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--warning)' },
@@ -58,6 +63,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           }}
         >
           {error}
+        </Typography>
+      ) : showWarning ? (
+        <Typography
+          sx={{
+            mt: 0.5,
+            fontSize: 11,
+            fontWeight: 500,
+            color: 'var(--warning)',
+          }}
+        >
+          {warning}
         </Typography>
       ) : hint ? (
         <Typography

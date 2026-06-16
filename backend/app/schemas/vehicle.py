@@ -36,19 +36,32 @@ def _max_vehicle_year() -> int:
     return utcnow().year + 1
 
 
+def is_standard_plate(v: Optional[str]) -> bool:
+    """True if `v` matches a recognised Indian plate format after normalization.
+
+    Advisory only — used by clients to flag non-standard plates for review. The
+    canonical format check now lives in the frontend (warning, not a hard block).
+    """
+    if v is None:
+        return False
+    cleaned = re.sub(r"\s+", "", v).upper()
+    return bool(_PLATE_REGEX.match(cleaned))
+
+
 def _normalize_plate(v: Optional[str]) -> Optional[str]:
-    """Uppercase + strip-all-whitespace; reject empty / malformed plates."""
+    """Uppercase + strip-all-whitespace; reject only empty plates.
+
+    Format is intentionally NOT enforced here. Migrated/legacy records carry
+    temporary-registration and other non-standard plates (e.g. "TR-SAF1080");
+    rejecting them would make reads (response serialization) and edits 500. The
+    Indian-plate-format check is surfaced as a non-blocking warning in the UI.
+    """
     if v is None:
         return None
     # Strip every internal whitespace too — humans love writing "AP 09 BC 1234".
     cleaned = re.sub(r"\s+", "", v).upper()
     if len(cleaned) < 2:
         raise ValueError("plate_number must be at least 2 characters")
-    if not _PLATE_REGEX.match(cleaned):
-        raise ValueError(
-            "plate_number is not a recognised Indian plate format "
-            "(expected e.g. AP09BC1234 or 22BH1234AB)"
-        )
     return cleaned
 
 
