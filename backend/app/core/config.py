@@ -146,6 +146,37 @@ class Settings(BaseSettings):
     NIGHTLY_JOB_LOCK_KEY: int = 0xF1E_C1C_E  # 253_656_270 — "fnce_cyc"
 
     # --------------------------------------------------
+    # WHATSAPP EMI REMINDERS (Meta Cloud API)
+    # --------------------------------------------------
+    # Reminders go out ahead of each EMI due date via the Meta WhatsApp
+    # Cloud API. Two layers of switch:
+    #   - WHATSAPP_ENABLED (this env flag) gates whether the reminder job is
+    #     REGISTERED with the scheduler at startup. Keep false in CI / local.
+    #   - whatsapp_settings.reminders_enabled (a DB row, editable from the
+    #     admin UI) is the runtime on/off the job checks on every fire — so
+    #     staff can pause reminders without a redeploy.
+    WHATSAPP_ENABLED: bool = False
+    # Dry-run renders + logs the intended messages and writes DRY_RUN rows to
+    # whatsapp_reminder_log, but never calls Meta. Lets the whole pipeline be
+    # validated before go-live. Flip to false only once a template is approved.
+    WHATSAPP_DRY_RUN: bool = True
+    # Meta Cloud API credentials. From WhatsApp → API Setup (phone_number_id)
+    # and a permanent System-User token (see WHATSAPP_SETUP.md). Required only
+    # when WHATSAPP_ENABLED and not WHATSAPP_DRY_RUN.
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_API_VERSION: str = "v21.0"
+    # Default calling code prepended to bare 10-digit numbers when
+    # normalising to E.164 (India = 91 → +91XXXXXXXXXX).
+    WHATSAPP_DEFAULT_COUNTRY_CODE: str = "91"
+    # When the reminder job fires, in REPORTS_TIMEZONE.
+    WHATSAPP_JOB_HOUR: int = Field(default=9, ge=0, le=23)    # 09:00 IST
+    WHATSAPP_JOB_MINUTE: int = Field(default=0, ge=0, le=59)
+    # Advisory-lock key — MUST differ from NIGHTLY_JOB_LOCK_KEY so the two
+    # scheduled jobs never block each other.
+    WHATSAPP_JOB_LOCK_KEY: int = 0xF1E_5A5A  # 253_647_450 — "fnce_sms"
+
+    # --------------------------------------------------
     # VALIDATORS
     # --------------------------------------------------
     @field_validator("SECRET_KEY")

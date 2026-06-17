@@ -87,11 +87,46 @@ def _run_nightly_with_lock() -> None:
         session.close()
 
 
+def _run_whatsapp_reminders_with_lock() -> None:
+    """Acquire a distinct advisory lock, run the reminder job, release on close."""
+    from app.jobs.whatsapp_reminders import run_once
+
+    session = SessionLocal()
+    try:
+        got_lock = session.execute(
+            text("SELECT pg_try_advisory_lock(:k)"),
+            {"k": settings.WHATSAPP_JOB_LOCK_KEY},
+        ).scalar()
+
+        if not got_lock:
+            logger.info(
+                "whatsapp reminder lock=%s already held — another worker is running; skipping",
+                settings.WHATSAPP_JOB_LOCK_KEY,
+            )
+            return
+
+        try:
+            summary = run_once(db=session)
+            logger.info("whatsapp reminders summary: %s", summary)
+        finally:
+            session.execute(
+                text("SELECT pg_advisory_unlock(:k)"),
+                {"k": settings.WHATSAPP_JOB_LOCK_KEY},
+            )
+            session.commit()
+    except Exception:
+        logger.exception("whatsapp reminder job execution failed")
+    finally:
+        session.close()
+
+
 def start_scheduler() -> None:
     """Start the background scheduler. Called once from FastAPI startup."""
     global _scheduler
-    if not settings.NIGHTLY_JOB_ENABLED:
-        logger.info("NIGHTLY_JOB_ENABLED=false — scheduler not started")
+    if not (settings.NIGHTLY_JOB_ENABLED or settings.WHATSAPP_ENABLED):
+        logger.info(
+            "NIGHTLY_JOB_ENABLED and WHATSAPP_ENABLED both false — scheduler not started"
+        )
         return
 
     if _scheduler is not None:
@@ -99,29 +134,53 @@ def start_scheduler() -> None:
         return
 
     _scheduler = BackgroundScheduler(timezone=settings.REPORTS_TIMEZONE)
-    _scheduler.add_job(
-        _run_nightly_with_lock,
-        trigger=CronTrigger(
-            hour=settings.NIGHTLY_JOB_HOUR,
-            minute=settings.NIGHTLY_JOB_MINUTE,
-        ),
-        id="nightly_cycle_check",
-        # `coalesce=True`: if the app was offline at fire time, run ONCE on
-        # next start (not N times for every missed window).
-        coalesce=True,
-        # `max_instances=1`: a misconfigured short cron would otherwise
-        # let two runs overlap inside one process.
-        max_instances=1,
-        # 15-minute grace so a slow startup doesn't drop the day's run.
-        misfire_grace_time=15 * 60,
-    )
+
+    if settings.NIGHTLY_JOB_ENABLED:
+        _scheduler.add_job(
+            _run_nightly_with_lock,
+            trigger=CronTrigger(
+                hour=settings.NIGHTLY_JOB_HOUR,
+                minute=settings.NIGHTLY_JOB_MINUTE,
+            ),
+            id="nightly_cycle_check",
+            # `coalesce=True`: if the app was offline at fire time, run ONCE on
+            # next start (not N times for every missed window).
+            coalesce=True,
+            # `max_instances=1`: a misconfigured short cron would otherwise
+            # let two runs overlap inside one process.
+            max_instances=1,
+            # 15-minute grace so a slow startup doesn't drop the day's run.
+            misfire_grace_time=15 * 60,
+        )
+        logger.info(
+            "scheduled nightly_cycle_check @ %02d:%02d %s",
+            settings.NIGHTLY_JOB_HOUR,
+            settings.NIGHTLY_JOB_MINUTE,
+            settings.REPORTS_TIMEZONE,
+        )
+
+    if settings.WHATSAPP_ENABLED:
+        _scheduler.add_job(
+            _run_whatsapp_reminders_with_lock,
+            trigger=CronTrigger(
+                hour=settings.WHATSAPP_JOB_HOUR,
+                minute=settings.WHATSAPP_JOB_MINUTE,
+            ),
+            id="whatsapp_reminders",
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=15 * 60,
+        )
+        logger.info(
+            "scheduled whatsapp_reminders @ %02d:%02d %s (dry_run=%s)",
+            settings.WHATSAPP_JOB_HOUR,
+            settings.WHATSAPP_JOB_MINUTE,
+            settings.REPORTS_TIMEZONE,
+            settings.WHATSAPP_DRY_RUN,
+        )
+
     _scheduler.start()
-    logger.info(
-        "scheduler started: nightly_cycle_check @ %02d:%02d %s",
-        settings.NIGHTLY_JOB_HOUR,
-        settings.NIGHTLY_JOB_MINUTE,
-        settings.REPORTS_TIMEZONE,
-    )
+    logger.info("scheduler started")
 
 
 def stop_scheduler() -> None:

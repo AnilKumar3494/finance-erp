@@ -194,6 +194,9 @@ class LoanResponse(LoanBase):
     approval_date: Optional[date] = None
     due_day_of_month: Optional[int] = None
 
+    # WhatsApp reminder toggle (flipped via /reminders/loans/{id}).
+    reminders_enabled: bool = True
+
     # Computed fields
     monthly_interest: Optional[Decimal] = None
     total_payable: Optional[Decimal] = None

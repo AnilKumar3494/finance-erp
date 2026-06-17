@@ -5,11 +5,20 @@ import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined'
 import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
 import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
+import NotificationsActiveOutlined from '@mui/icons-material/NotificationsActiveOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 export interface NavItem {
   label: string
-  path: '/' | '/customers' | '/finances' | '/transactions' | '/vehicles' | '/reports' | '/team'
+  path:
+    | '/'
+    | '/customers'
+    | '/finances'
+    | '/transactions'
+    | '/vehicles'
+    | '/reports'
+    | '/team'
+    | '/reminders'
   icon: SvgIconComponent
   showInBottomBar: boolean
   // When true, the item is only shown to ADMIN / SUPER_ADMIN (see
@@ -33,6 +42,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: 'Team',
     path: '/team',
     icon: ManageAccountsOutlined,
+    showInBottomBar: false,
+    adminOnly: true,
+  },
+  {
+    label: 'Reminders',
+    path: '/reminders',
+    icon: NotificationsActiveOutlined,
     showInBottomBar: false,
     adminOnly: true,
   },

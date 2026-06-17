@@ -2,7 +2,7 @@ import uuid
 from typing import Optional, TYPE_CHECKING
 
 import datetime
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
@@ -41,6 +41,16 @@ class Customer(AuditBase):
     pincode: Mapped[Optional[str]] = mapped_column(String(6), nullable=True)
 
     remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # --------------------------------------------------
+    # NOTIFICATIONS
+    # --------------------------------------------------
+    # Per-customer opt-out for WhatsApp EMI reminders. Defaults true; the
+    # reminder job also skips customers whose remarks carry a "[REVIEW…]"
+    # placeholder-phone flag (migrated, unverified numbers).
+    whatsapp_reminders_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
 
     # --------------------------------------------------
     # IDEMPOTENCY

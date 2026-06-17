@@ -23,6 +23,8 @@ import {
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime } from '@/lib/format'
+import { ReminderToggleCard } from '@/features/reminders/components/ReminderToggleCard'
+import { useToggleCustomerReminders } from '@/api/queries/reminders'
 
 interface CustomerDetailPageProps {
   customerId: string
@@ -140,8 +142,25 @@ function DetailBody({
       <PersonalCard customer={customer} />
       <AddressCard customer={customer} />
       <AssignmentCard customer={customer} />
+      {canDelete && <CustomerReminderToggle customer={customer} />}
       {canDelete && <DangerZoneCard customer={customer} />}
     </Stack>
+  )
+}
+
+// --------------------------------------------------
+// WhatsApp reminder opt-out (admin only)
+// --------------------------------------------------
+
+function CustomerReminderToggle({ customer }: { customer: CustomerResponse }) {
+  const toggle = useToggleCustomerReminders(customer.id)
+  return (
+    <ReminderToggleCard
+      enabled={customer.whatsapp_reminders_enabled}
+      pending={toggle.isPending}
+      onChange={(enabled) => toggle.mutate(enabled)}
+      description="When off, this customer is excluded from automated EMI due-date reminders."
+    />
   )
 }
 

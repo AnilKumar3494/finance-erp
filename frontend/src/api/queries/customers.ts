@@ -27,6 +27,8 @@ export interface CustomerResponse {
   mandal_village: string | null
   pincode: string | null
   remarks: string | null
+  // WhatsApp reminder opt-out state (toggled via /reminders/customers/{id}).
+  whatsapp_reminders_enabled: boolean
 }
 
 export interface CustomerListResponse {

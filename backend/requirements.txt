@@ -7,6 +7,7 @@ asyncpg==0.31.0
 bcrypt==4.0.1
 boto3==1.42.97
 botocore==1.42.97
+certifi==2024.8.30
 cffi==2.0.0
 click==8.3.3
 cryptography==47.0.0
@@ -18,6 +19,8 @@ fastapi==0.136.1
 fastapi-swagger-ui-theme==0.1.0
 greenlet==3.4.0
 h11==0.16.0
+httpcore==1.0.7
+httpx==0.28.1
 idna==3.13
 isort==8.0.1
 jmespath==1.1.0

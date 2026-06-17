@@ -68,6 +68,9 @@ export interface LoanResponse {
   approval_date: string | null
   due_day_of_month: number | null
 
+  // WhatsApp reminder toggle (flipped via /reminders/loans/{id}).
+  reminders_enabled: boolean
+
   // Computed by the backend on every response.
   monthly_interest: string | null
   total_payable: string | null

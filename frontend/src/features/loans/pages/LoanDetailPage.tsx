@@ -9,6 +9,8 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
 import PaymentsIcon from '@mui/icons-material/PaymentsOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
+import { useToggleLoanReminders } from '@/api/queries/reminders'
+import { ReminderToggleCard } from '@/features/reminders/components/ReminderToggleCard'
 import type { LoanStatus } from '@/schemas/enums'
 import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
@@ -155,8 +157,26 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 
       {perms.isAdmin && loan.status === 'DRAFT' && <DeleteDraftAction loan={loan} />}
 
+      {perms.isAdmin && !isDraft && <LoanReminderToggle loan={loan} />}
+
       <AuditCard loan={loan} />
     </Stack>
+  )
+}
+
+// --------------------------------------------------
+// WhatsApp reminder toggle for this finance (admin only)
+// --------------------------------------------------
+
+function LoanReminderToggle({ loan }: { loan: LoanResponse }) {
+  const toggle = useToggleLoanReminders(loan.id)
+  return (
+    <ReminderToggleCard
+      enabled={loan.reminders_enabled}
+      pending={toggle.isPending}
+      onChange={(enabled) => toggle.mutate(enabled)}
+      description="When off, no automated EMI reminders are sent for this finance."
+    />
   )
 }
 

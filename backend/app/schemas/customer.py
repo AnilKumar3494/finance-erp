@@ -110,6 +110,8 @@ class CustomerResponse(CustomerBase):
     assigned_employee_name: Optional[str] = None
     primary_loan_number: Optional[str] = None
     primary_vehicle_number: Optional[str] = None
+    # WhatsApp reminder opt-out state (toggled via /reminders/customers/{id}).
+    whatsapp_reminders_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 

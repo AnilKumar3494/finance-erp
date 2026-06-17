@@ -4,7 +4,17 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, Integer, SmallInteger, String
+from sqlalchemy import (
+    Boolean,
+    Date,
+    Enum,
+    ForeignKey,
+    Numeric,
+    Integer,
+    SmallInteger,
+    String,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditBase
@@ -99,6 +109,12 @@ class Loan(AuditBase):
         default=LoanStatus.DRAFT,
         server_default="DRAFT",
         nullable=False,
+    )
+
+    # Per-finance toggle for WhatsApp EMI reminders (mute one loan without
+    # touching the customer-level opt-out).
+    reminders_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
     )
 
     # --------------------------------------------------

@@ -15,6 +15,7 @@ import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedTransactionsRouteImport } from './routes/_authed/transactions'
 import { Route as AuthedTeamRouteImport } from './routes/_authed/team'
 import { Route as AuthedReportsRouteImport } from './routes/_authed/reports'
+import { Route as AuthedRemindersRouteImport } from './routes/_authed/reminders'
 import { Route as AuthedVehiclesIndexRouteImport } from './routes/_authed/vehicles/index'
 import { Route as AuthedFinancesIndexRouteImport } from './routes/_authed/finances/index'
 import { Route as AuthedCustomersIndexRouteImport } from './routes/_authed/customers/index'
@@ -55,6 +56,11 @@ const AuthedTeamRoute = AuthedTeamRouteImport.update({
 const AuthedReportsRoute = AuthedReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedRemindersRoute = AuthedRemindersRouteImport.update({
+  id: '/reminders',
+  path: '/reminders',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
 const AuthedVehiclesIndexRoute = AuthedVehiclesIndexRouteImport.update({
@@ -127,6 +133,7 @@ const AuthedCustomersCustomerIdEditRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/login': typeof LoginRoute
+  '/reminders': typeof AuthedRemindersRoute
   '/reports': typeof AuthedReportsRoute
   '/team': typeof AuthedTeamRoute
   '/transactions': typeof AuthedTransactionsRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/reminders': typeof AuthedRemindersRoute
   '/reports': typeof AuthedReportsRoute
   '/team': typeof AuthedTeamRoute
   '/transactions': typeof AuthedTransactionsRoute
@@ -166,6 +174,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteRouteWithChildren
   '/login': typeof LoginRoute
+  '/_authed/reminders': typeof AuthedRemindersRoute
   '/_authed/reports': typeof AuthedReportsRoute
   '/_authed/team': typeof AuthedTeamRoute
   '/_authed/transactions': typeof AuthedTransactionsRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/reminders'
     | '/reports'
     | '/team'
     | '/transactions'
@@ -206,6 +216,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
+    | '/reminders'
     | '/reports'
     | '/team'
     | '/transactions'
@@ -226,6 +237,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_authed'
     | '/login'
+    | '/_authed/reminders'
     | '/_authed/reports'
     | '/_authed/team'
     | '/_authed/transactions'
@@ -291,6 +303,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AuthedReportsRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/reminders': {
+      id: '/_authed/reminders'
+      path: '/reminders'
+      fullPath: '/reminders'
+      preLoaderRoute: typeof AuthedRemindersRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/vehicles/': {
@@ -381,6 +400,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthedRouteRouteChildren {
+  AuthedRemindersRoute: typeof AuthedRemindersRoute
   AuthedReportsRoute: typeof AuthedReportsRoute
   AuthedTeamRoute: typeof AuthedTeamRoute
   AuthedTransactionsRoute: typeof AuthedTransactionsRoute
@@ -400,6 +420,7 @@ interface AuthedRouteRouteChildren {
 }
 
 const AuthedRouteRouteChildren: AuthedRouteRouteChildren = {
+  AuthedRemindersRoute: AuthedRemindersRoute,
   AuthedReportsRoute: AuthedReportsRoute,
   AuthedTeamRoute: AuthedTeamRoute,
   AuthedTransactionsRoute: AuthedTransactionsRoute,

@@ -19,6 +19,7 @@ from app.api.v1.routes import (
     documents,
     reports,
     due_cycles,
+    reminders,
 )
 from app.api.v1.routes.personnel import personnel_router, loan_personnel_router
 from app.api.v1.routes.identity_proofs import router as identity_proofs_router
@@ -32,6 +33,10 @@ from app.models.due_cycle import DueCycle  # noqa: F401
 from app.models.penalty_event import PenaltyEvent  # noqa: F401
 from app.models.loan_closure import LoanClosure  # noqa: F401
 from app.models.bad_debt_proposal import BadDebtProposal  # noqa: F401
+
+# WhatsApp reminder tables (settings singleton + send log).
+from app.models.whatsapp_settings import WhatsAppSettings  # noqa: F401
+from app.models.whatsapp_reminder_log import WhatsAppReminderLog  # noqa: F401
 
 from app.api.v1.routes.bad_debt import (
     propose_router as bad_debt_propose_router,
@@ -108,6 +113,7 @@ app.include_router(bad_debt_propose_router, prefix="/api/v1")
 app.include_router(bad_debt_review_router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
+app.include_router(reminders.router, prefix="/api/v1")
 
 
 # --------------------------------------------------
