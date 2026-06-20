@@ -36,9 +36,12 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       tokenStorage.clear()
-      // Hard redirect so router state resets cleanly.
+      // Hard redirect so router state resets cleanly. Preserve where the user
+      // was (path + query) so login can send them back after re-auth — the
+      // login route sanitises this via sanitizeRedirect before honouring it.
       if (window.location.pathname !== '/login') {
-        window.location.assign('/login')
+        const here = window.location.pathname + window.location.search
+        window.location.assign(`/login?redirect=${encodeURIComponent(here)}`)
       }
     }
     return Promise.reject(error)

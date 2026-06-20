@@ -61,7 +61,9 @@ function InnerProviders({ children }: { children: ReactNode }) {
           <AuthProvider>{children}</AuthProvider>
         </LocalizationProvider>
       </ThemeProvider>
-      <ReactQueryDevtools initialIsOpen={false} />
+      {/* Dev-only: stripped from prod builds (import.meta.env.DEV is statically
+          false there, so the devtools and their import are tree-shaken out). */}
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   )
 }

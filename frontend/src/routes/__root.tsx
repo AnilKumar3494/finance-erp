@@ -9,7 +9,9 @@ function RootLayout() {
   return (
     <>
       <Outlet />
-      <TanStackRouterDevtools position="bottom-right" />
+      {/* Dev-only: `import.meta.env.DEV` is statically false in prod builds, so
+          the devtools (and their import) are tree-shaken out of the bundle. */}
+      {import.meta.env.DEV && <TanStackRouterDevtools position="bottom-right" />}
     </>
   )
 }

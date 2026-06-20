@@ -168,7 +168,11 @@ export function printLoanStatement({
 </body>
 </html>`
 
-  const win = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1000')
+  // No `noopener` here: it makes window.open() return null, which would make
+  // the in-tab print path below unreachable (every call would fall back to the
+  // download). We need the handle to write the document, so we null the opener
+  // ourselves instead — the printable doc can't reach back into the app.
+  const win = window.open('', '_blank', 'width=900,height=1000')
   if (!win) {
     // Popup blocked — fall back to a downloadable HTML file the user can open/print.
     const blob = new Blob([html], { type: 'text/html' })
@@ -180,9 +184,11 @@ export function printLoanStatement({
     URL.revokeObjectURL(url)
     return
   }
+  win.opener = null
   win.document.write(html)
   win.document.close()
   win.focus()
-  // Let the new document lay out before invoking print.
-  win.onload = () => win.print()
+  // The document is fully written and closed above, so print now. An onload
+  // handler can miss the already-fired load event for a document.write doc.
+  win.print()
 }

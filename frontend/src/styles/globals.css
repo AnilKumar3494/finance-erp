@@ -6,9 +6,10 @@
    ========================================================================= */
 
 /* Fonts -----------------------------------------------------------------
-   Currently using Inter. To swap later: change @import URL here AND the
-   --font-sans / --font-mono values in tokens.css. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+   Inter is loaded via the preconnected <link> in index.html — NOT an @import
+   here. A CSS @import is render-blocking and would double-fetch the font. To
+   swap later: change the <link> in index.html AND the --font-sans /
+   --font-mono values in tokens.css. */
 
 /* Base ------------------------------------------------------------------- */
 *,
