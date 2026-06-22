@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -17,7 +18,7 @@ const CONFIRM_WORD = 'delete'
 function mapError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 403) return detail ?? 'You do not have permission to remove this account.'
     if (status === 404) return 'Account not found — it may already be removed.'
     if (status === 429) return 'Too many requests. Please wait a moment.'

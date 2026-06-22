@@ -1,4 +1,5 @@
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -15,7 +16,7 @@ import { USER_ROLE_META } from '../userRoleMeta'
 function mapError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 403) return detail ?? 'You do not have permission to change this role.'
     if (status === 404) return 'Account not found.'
     if (status === 400) return detail ?? 'That role change is not allowed.'

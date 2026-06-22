@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -309,7 +310,7 @@ const CONFIRM_WORD = 'delete'
 function mapDeleteError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400 || status === 409) return detail ?? 'This vehicle cannot be deleted right now.'
     if (status === 403) return 'You do not have permission to delete this vehicle.'
     if (status === 404) return 'Vehicle not found — it may already be deleted.'
@@ -321,7 +322,7 @@ function mapDeleteError(error: unknown): string {
 
 function mapRestoreError(error: unknown): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 409) return detail ?? 'Could not restore this vehicle.'
   }
   return 'Something went wrong restoring this vehicle.'

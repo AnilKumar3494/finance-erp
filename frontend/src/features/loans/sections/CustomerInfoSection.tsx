@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
@@ -49,7 +50,7 @@ const IDENTITY_LABELS: Record<z.infer<typeof IdentityProofType>, string> = {
 
 function mapErr(error: unknown, fallback: string): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 403) return detail ?? 'You do not have permission to edit this customer.'
     if (error.response?.status === 409) return detail ?? 'Another customer already uses these details.'
     if (detail) return detail

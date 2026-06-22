@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
@@ -33,7 +34,7 @@ function parseAmount(s: string): number | null {
 
 function mapErr(error: unknown): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 403) return detail ?? 'You do not have permission to edit these terms.'
     if (error.response?.status === 409) return detail ?? 'These terms can no longer be edited.'
     if (detail) return detail

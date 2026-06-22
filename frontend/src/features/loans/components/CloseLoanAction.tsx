@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
@@ -34,7 +35,7 @@ const CLOSURE_TYPE_LABELS: Record<ClosureType, string> = {
 function mapCloseError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400) return detail ?? 'This loan cannot be closed with these values.'
     if (status === 403) return detail ?? 'You do not have permission to close this loan.'
     if (status === 404) return 'Loan not found.'

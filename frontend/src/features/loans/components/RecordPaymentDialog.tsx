@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 import Alert from '@mui/material/Alert'
@@ -24,7 +25,7 @@ import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 function mapErr(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400) return detail ?? 'This payment could not be recorded. Check the amount and try again.'
     if (status === 403) return detail ?? 'You do not have permission to record a payment for this loan.'
     if (status === 404) return detail ?? 'Loan not found.'

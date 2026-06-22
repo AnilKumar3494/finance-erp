@@ -3,6 +3,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
@@ -104,7 +105,7 @@ function defaultsFromCustomer(c: CustomerResponse): FormValues {
 function mapEditError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 403) {
       return detail ?? 'You do not have permission to edit this customer.'
     }
