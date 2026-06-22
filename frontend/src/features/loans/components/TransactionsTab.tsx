@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import type { ChipProps } from '@mui/material/Chip'
@@ -317,7 +318,7 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
 
 function mapActionError(error: unknown): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (detail) return detail
     if (error.response?.status === 403) return 'You do not have permission for this action.'
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'

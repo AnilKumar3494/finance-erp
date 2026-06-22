@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CloudUploadIcon from '@mui/icons-material/CloudUploadOutlined'
@@ -33,7 +34,7 @@ function validate(file: File): string | null {
 function mapUploadError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400) return detail ?? 'Invalid file. Please choose another.'
     if (status === 403) return detail ?? 'You do not have permission to upload here.'
     if (status === 413) return 'File is too large.'

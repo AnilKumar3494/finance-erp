@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
@@ -18,7 +19,7 @@ import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 
 function mapErr(error: unknown, fallback: string): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 409) return detail ?? 'A vehicle with these details already exists.'
     if (detail) return detail
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'

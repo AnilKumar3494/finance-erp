@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -16,7 +17,7 @@ import type { PersonnelRole } from '@/schemas/enums'
 
 function mapErr(error: unknown, fallback: string): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 409) return detail ?? 'This person is already linked to this finance.'
     if (detail) return detail
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'

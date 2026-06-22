@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -20,7 +21,7 @@ export type BadDebtDecision = 'APPROVE' | 'REJECT' | 'REOPEN'
 
 function mapReviewError(error: unknown): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (detail) return detail
     if (error.response?.status === 403) return 'You do not have permission to review this proposal.'
     if (error.response?.status === 409) return 'This proposal conflicts with the loan’s current state.'

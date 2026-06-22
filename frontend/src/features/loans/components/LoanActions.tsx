@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -29,7 +30,7 @@ import { CloseAction } from './CloseLoanAction'
 function mapActionError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400) return detail ?? 'This action cannot be completed right now.'
     if (status === 403) return detail ?? 'You do not have permission for this action.'
     if (status === 404) return detail ?? 'Loan not found.'

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -49,8 +50,7 @@ type FormValues = z.infer<typeof Schema>
 function mapChangeError(error: unknown): string | null {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const data = error.response?.data as { detail?: unknown } | undefined
-    const detail = typeof data?.detail === 'string' ? data.detail : undefined
+    const detail = serverMessage(error)
     if (status === 400) return null
     if (status === 422) return detail ?? 'Please check the highlighted fields.'
     if (status === 429) return 'Too many attempts. Please wait a moment.'
