@@ -111,6 +111,51 @@ app.include_router(reports.router, prefix="/api/v1")
 
 
 # --------------------------------------------------
+# STARTUP FAIL-FAST — schema must be in sync with migration files.
+#
+# A migration that ships in code but was never applied to this DB otherwise
+# surfaces as scattered 500s on every endpoint touching the changed table
+# (the "pulled code, forgot `migrate.py apply`" trap). Refuse to boot so
+# `systemctl status` shows the problem immediately instead of the app
+# coming up healthy and 500ing every list view.
+#
+# Set MIGRATION_FAIL_FAST=false to downgrade to a warning (e.g. while
+# iterating on a new migration locally). Registered BEFORE the scheduler so
+# a behind schema aborts startup before any background work begins.
+# --------------------------------------------------
+@app.on_event("startup")
+def _verify_migrations() -> None:
+    import logging
+    import os
+
+    log = logging.getLogger("startup")
+    try:
+        from app.core.migrations_status import migration_state
+
+        state = migration_state()
+    except Exception as exc:  # noqa: BLE001 — a probe bug must not block boot
+        log.warning("migration check skipped (could not read state): %s", exc)
+        return
+
+    if state["pending"]:
+        msg = (
+            "SCHEMA OUT OF DATE — %d pending migration(s): %s. "
+            "Run `python migrate.py apply`."
+            % (len(state["pending"]), ", ".join(state["pending"]))
+        )
+        if os.getenv("MIGRATION_FAIL_FAST", "true").lower() in ("1", "true", "yes"):
+            log.error(msg)
+            raise RuntimeError(msg)  # aborts ASGI lifespan startup
+        log.warning(msg)
+
+    if state["drift"]:
+        log.warning(
+            "migration drift — file changed after apply: %s",
+            ", ".join(state["drift"]),
+        )
+
+
+# --------------------------------------------------
 # LIFECYCLE — nightly cycle-check scheduler (N1)
 #
 # The scheduler is started on app startup and stopped on shutdown. It
@@ -188,6 +233,30 @@ def readiness_check():
         checks["s3"] = "fail"
         log.exception("readyz s3 check failed: %s", exc)
 
+    # --- migrations — schema must be in sync with the migration files.
+    # A behind schema means the app cannot correctly serve requests against
+    # the changed tables, so readiness must fail (503) until it's applied.
+    try:
+        from app.core.migrations_status import migration_state
+
+        checks["migrations"] = "behind" if migration_state()["pending"] else "ok"
+    except Exception as exc:  # noqa: BLE001 — probe must not crash
+        checks["migrations"] = "fail"
+        log.exception("readyz migration check failed: %s", exc)
+
     if any(v != "ok" for v in checks.values()):
         raise HTTPException(status_code=503, detail={"status": "degraded", "checks": checks})
     return {"status": "ok", "checks": checks}
+
+
+@app.get("/migrations", tags=["System"])
+def migrations_status_endpoint():
+    """Schema-migration state — hit after every deploy.
+
+    Returns applied vs expected counts, the latest version on disk, and any
+    `pending` (on disk, not applied) or `drift` (file changed post-apply)
+    migrations. A non-empty `pending` means the DB is behind the code.
+    """
+    from app.core.migrations_status import migration_state
+
+    return migration_state()
