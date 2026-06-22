@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -36,8 +37,7 @@ type FormValues = z.infer<typeof Schema>
 function mapResetError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const data = error.response?.data as { detail?: unknown } | undefined
-    const detail = typeof data?.detail === 'string' ? data.detail : undefined
+    const detail = serverMessage(error)
     if (status === 403) return detail ?? 'You do not have permission to reset this account.'
     if (status === 404) return 'Account not found — it may have been removed.'
     if (status === 422) return detail ?? 'Please check the highlighted fields.'

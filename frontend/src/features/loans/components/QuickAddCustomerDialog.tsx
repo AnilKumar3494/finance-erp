@@ -1,6 +1,7 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -35,7 +36,7 @@ type FormValues = z.infer<typeof Schema>
 function mapErr(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 409) return detail ?? 'A customer with this mobile already exists.'
     if (status === 422) return detail ?? 'Please check the details and try again.'
     if (status === 403) return detail ?? 'You do not have permission to create a customer.'

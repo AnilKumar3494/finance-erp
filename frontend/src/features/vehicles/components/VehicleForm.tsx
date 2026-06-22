@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import MenuItem from '@mui/material/MenuItem'
@@ -43,7 +44,7 @@ interface VehicleFormValues {
 
 function mapErr(error: unknown, fallback: string): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 409)
       return detail ?? 'A vehicle with these details already exists.'
     if (error.response?.status === 403)
@@ -66,13 +67,11 @@ function buildSchema(mode: 'create' | 'edit') {
       ? z.string().trim().min(1, `${label} is required`).max(max)
       : z.string().trim().max(max)
   return z.object({
-    plate_number: z
-      .string()
-      .trim()
-      .refine(
-        (v) => VEHICLE_PLATE_RE.test(v.toUpperCase()),
-        'Enter a valid plate (e.g. TN09AB1234)',
-      ),
+    // Plate is required but the Indian-format check is advisory only: legacy /
+    // migrated records carry temporary-registration and other non-standard
+    // plates that must still be editable. A non-blocking warning (below) flags
+    // the mismatch instead of preventing submit.
+    plate_number: z.string().trim().min(1, 'Registration number is required'),
     make: text(50, 'Make'),
     model: text(50, 'Model'),
     year: z.string().refine(
@@ -136,6 +135,13 @@ export function VehicleForm(props: VehicleFormProps) {
     },
   })
 
+  // Advisory plate-format check — warns but never blocks (see buildSchema).
+  const plateValue = useWatch({ control, name: 'plate_number' })
+  const plateWarning =
+    plateValue && plateValue.trim() !== '' && !VEHICLE_PLATE_RE.test(plateValue.trim().toUpperCase())
+      ? 'Non-standard plate format — it will be saved as entered. Verify it matches the RC book.'
+      : undefined
+
   const onSubmit = (v: VehicleFormValues) => {
     const trimOrNull = (s: string) => (s.trim() === '' ? null : s.trim())
     const moneyOrUndef = (s: string) => (s.trim() === '' ? undefined : s.trim())
@@ -192,6 +198,7 @@ export function VehicleForm(props: VehicleFormProps) {
           placeholder="e.g. TN09AB1234"
           {...register('plate_number')}
           error={errors.plate_number?.message}
+          warning={plateWarning}
         />
         <TwoCol>
           <Input

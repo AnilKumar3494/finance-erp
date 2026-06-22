@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -53,7 +54,7 @@ function mapUnmaskError(error: unknown): string {
 function mapDeleteError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     // 409 carries the active-loan reason verbatim from the backend.
     if (status === 409) return detail ?? 'This customer cannot be archived right now.'
     if (status === 403) return 'You do not have permission to archive this customer.'

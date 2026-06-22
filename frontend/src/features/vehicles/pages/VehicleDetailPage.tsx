@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -24,6 +25,7 @@ import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { fmtDateTime, fmtINR } from '@/lib/format'
+import { isValidVehiclePlate } from '@/schemas/primitives'
 import { EditableSection } from '@/features/loans/components/EditableSection'
 import { CollapsibleCard } from '@/features/loans/components/CollapsibleCard'
 import { DocumentLine } from '@/features/loans/components/DocumentLine'
@@ -118,6 +120,7 @@ function DetailBody({ vehicle }: { vehicle: VehicleResponse }) {
 
 function HeaderCard({ vehicle }: { vehicle: VehicleResponse }) {
   const makeModel = [vehicle.make, vehicle.model].filter(Boolean).join(' ') || '—'
+  const plateNeedsReview = !isValidVehiclePlate(vehicle.plate_number.trim().toUpperCase())
   return (
     <Card>
       <Stack spacing={1.5}>
@@ -133,6 +136,18 @@ function HeaderCard({ vehicle }: { vehicle: VehicleResponse }) {
             <Typography variant="h1" sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}>
               {vehicle.plate_number}
             </Typography>
+            {plateNeedsReview && (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{ mt: 0.5, alignItems: 'center', color: 'var(--warning)' }}
+              >
+                <WarningAmberRoundedIcon sx={{ fontSize: 14 }} />
+                <Typography sx={{ fontSize: 11, fontWeight: 500, color: 'var(--warning)' }}>
+                  Non-standard plate format — confirm or update
+                </Typography>
+              </Stack>
+            )}
           </Box>
           <Box sx={{ flexShrink: 0 }}>
             <VehicleStatusChip status={vehicle.status} size="medium" />
@@ -295,7 +310,7 @@ const CONFIRM_WORD = 'delete'
 function mapDeleteError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400 || status === 409) return detail ?? 'This vehicle cannot be deleted right now.'
     if (status === 403) return 'You do not have permission to delete this vehicle.'
     if (status === 404) return 'Vehicle not found — it may already be deleted.'
@@ -307,7 +322,7 @@ function mapDeleteError(error: unknown): string {
 
 function mapRestoreError(error: unknown): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (error.response?.status === 409) return detail ?? 'Could not restore this vehicle.'
   }
   return 'Something went wrong restoring this vehicle.'

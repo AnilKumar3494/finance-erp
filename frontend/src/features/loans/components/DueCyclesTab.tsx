@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import dayjs, { type Dayjs } from 'dayjs'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -533,7 +534,7 @@ const CLASSIFY_OPTIONS: { value: CycleStatus; label: string }[] = [
 
 function mapClassifyError(error: unknown): string {
   if (error instanceof AxiosError) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (detail) return detail
     if (error.response?.status === 403) return 'You do not have permission to classify this cycle.'
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'

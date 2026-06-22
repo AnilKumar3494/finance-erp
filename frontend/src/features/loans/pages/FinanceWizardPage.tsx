@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
@@ -49,7 +50,7 @@ const route = getRouteApi('/_authed/finances/new')
 function mapCreateError(error: unknown): string {
   if (error instanceof AxiosError) {
     const status = error.response?.status
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    const detail = serverMessage(error)
     if (status === 400)
       return detail ?? 'Could not start the finance. Check the customer and try again.'
     if (status === 403)

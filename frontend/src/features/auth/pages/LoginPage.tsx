@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { AxiosError } from 'axios'
+import { serverMessage } from '@/api/errors'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -25,7 +26,7 @@ function mapLoginError(error: unknown): string {
     const status = error.response?.status
     if (status === 401) return 'Invalid username or password.'
     if (status === 423) {
-      const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+      const detail = serverMessage(error)
       return detail ?? 'Account is temporarily locked. Try again later.'
     }
     if (status === 429) return 'Too many login attempts. Please wait a minute and try again.'
