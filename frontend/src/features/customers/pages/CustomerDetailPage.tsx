@@ -398,7 +398,7 @@ function AssignmentCard({ customer }: { customer: CustomerResponse }) {
           value={customer.assigned_employee_name ?? 'Unassigned'}
         />
         <Box />
-        <FieldRow label="Created" value={fmtDateTime(customer.created_at)} />
+        <FieldRow label="Customer since" value={fmtDate(customer.created_at)} />
         <FieldRow label="Last updated" value={fmtDateTime(customer.updated_at)} />
       </FieldGrid>
     </Card>
