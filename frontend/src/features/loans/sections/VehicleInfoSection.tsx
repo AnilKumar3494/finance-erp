@@ -80,6 +80,7 @@ export function VehicleInfoSection({
         sectionId="sec-vehicle"
         openSignal={openSignal}
         missing={missingLabels}
+        subtitle="No collateral attached"
         canEdit={perm.canEdit}
         editLabel="Add vehicle"
         warning={perm.warning}
@@ -128,7 +129,9 @@ export function VehicleInfoSection({
       sectionId="sec-vehicle"
       openSignal={openSignal}
       missing={missingLabels}
-      subtitle={vehicle.plate_number}
+      subtitle={[[vehicle.make, vehicle.model].filter(Boolean).join(' '), vehicle.plate_number]
+        .filter(Boolean)
+        .join(' · ')}
       canEdit={perm.canEdit}
       warning={perm.warning}
       view={<VehicleView vehicle={vehicle} />}

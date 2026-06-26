@@ -78,8 +78,18 @@ export function PersonnelInfoSection({
   const guarantors = links.filter((l) => l.role === 'GUARANTOR')
   const coHirers = links.filter((l) => l.role === 'CO_HIRER')
 
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  const subtitle = links.length
+    ? [
+        guarantors.length ? plural(guarantors.length, 'guarantor') : null,
+        coHirers.length ? plural(coHirers.length, 'co-hirer') : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : undefined
+
   return (
-    <CollapsibleCard title="Personnel">
+    <CollapsibleCard title="Personnel" subtitle={subtitle}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Guarantors and co-hirers attached to this finance.
       </Typography>
