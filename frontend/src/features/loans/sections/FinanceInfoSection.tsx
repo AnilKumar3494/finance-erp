@@ -71,6 +71,13 @@ export function FinanceInfoSection({
       sectionId="sec-finance"
       openSignal={openSignal}
       missing={missing?.map((m) => m.label)}
+      subtitle={[
+        money(loan.principal),
+        loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : null,
+        loan.tenure != null ? `${loan.tenure} months` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ') || undefined}
       canEdit={perm.canEdit}
       warning={warning}
       view={<FinanceView loan={loan} />}

@@ -6,6 +6,7 @@ import type { LoanResponse } from '@/api/queries/loans'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { useLoanTransactions, useLoanSummary } from '@/api/queries/transactions'
 import { Btn } from '@/components/primitives'
+import { fmtINR } from '@/lib/format'
 import { printLoanStatement } from '../loanStatement'
 import { useTransactionFocus } from '../txnFocus'
 import { CollapsibleCard } from './CollapsibleCard'
@@ -26,12 +27,29 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
     setTxnOpenSignal((n) => (n ?? 0) + 1)
   })
 
+  // Quick-info summaries shown on the collapsed headers.
+  const cycles = useDueCycles(loan.id)
+  const summary = useLoanSummary(loan.id)
+  const cycleCount = cycles.data?.total
+  const dueSubtitle =
+    cycleCount && cycleCount > 0
+      ? `${cycleCount} EMI cycles · ${fmtINR(Number(summary.data?.outstanding ?? 0))} outstanding`
+      : undefined
+  const txnSubtitle =
+    summary.data && summary.data.transaction_count > 0
+      ? `${summary.data.transaction_count} payments · ${fmtINR(Number(summary.data.total_paid))} collected`
+      : undefined
+
   return (
     <>
-      <CollapsibleCard title="Due cycles" action={<PrintStatementButton loan={loan} />}>
+      <CollapsibleCard
+        title="Due cycles"
+        subtitle={dueSubtitle}
+        action={<PrintStatementButton loan={loan} />}
+      >
         <DueCyclesTab loan={loan} />
       </CollapsibleCard>
-      <CollapsibleCard title="Transactions" openSignal={txnOpenSignal}>
+      <CollapsibleCard title="Transactions" subtitle={txnSubtitle} openSignal={txnOpenSignal}>
         <TransactionsTab loan={loan} />
       </CollapsibleCard>
     </>

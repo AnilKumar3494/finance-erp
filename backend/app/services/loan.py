@@ -177,6 +177,7 @@ def get_active_loans_by_customer(
 # column. Must match the frontend LOAN_SORT_FIELDS in api/queries/loans.ts.
 _SORTABLE_COLUMNS: dict[str, Any] = {
     "created_at": Loan.created_at,
+    "approval_date": Loan.approval_date,
     "full_name": Customer.full_name,
     "mandal_village": Customer.mandal_village,
     "status": Loan.status,
