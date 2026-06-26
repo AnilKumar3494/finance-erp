@@ -57,8 +57,8 @@ const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
   { label: 'Mobile', sortable: false },
   { label: 'Mandal/Village', sortable: true, field: 'mandal_village', defaultDir: 'asc' },
   { label: 'REG No', sortable: false },
-  { label: 'Status', sortable: true, field: 'status', defaultDir: 'asc' },
   { label: 'Approved', sortable: true, field: 'approval_date', defaultDir: 'desc' },
+  { label: 'Status', sortable: true, field: 'status', defaultDir: 'asc' },
 ]
 
 // Mobile sort dropdown options — one per state the headers can produce.
@@ -406,6 +406,9 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {l.vehicle?.plate_number ?? <Dash />}
                   </TableCell>
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                    {l.approval_date ? fmtDate(l.approval_date) : <Dash />}
+                  </TableCell>
                   <TableCell>
                     {/* Fixed min-width keeps every status/EMI chip the same
                         width, down the whole column and within each cell. */}
@@ -416,9 +419,6 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                       <LoanStatusChip status={l.status} />
                       <EmiDueChip status={l.emi_due_status} />
                     </Stack>
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {l.approval_date ? fmtDate(l.approval_date) : <Dash />}
                   </TableCell>
                 </TableRow>
               ))}
