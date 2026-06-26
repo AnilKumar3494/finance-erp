@@ -68,7 +68,10 @@ export function AllDocumentsSection({
   const docs = (docsQuery.data?.results ?? []).filter((d) => !d.is_deleted)
 
   return (
-    <CollapsibleCard title="Finance documents">
+    <CollapsibleCard
+      title="Finance documents"
+      subtitle={docs.length ? `${docs.length} on file` : undefined}
+    >
       <Stack
         direction="row"
         spacing={2}

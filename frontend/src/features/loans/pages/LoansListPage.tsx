@@ -29,6 +29,7 @@ import { EmiDueChip } from '../components/EmiDueChip'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { loanDisplayId } from '../loanIdentity'
+import { fmtDate } from '@/lib/format'
 
 const routeApi = getRouteApi('/_authed/finances/')
 
@@ -56,6 +57,7 @@ const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
   { label: 'Mobile', sortable: false },
   { label: 'Mandal/Village', sortable: true, field: 'mandal_village', defaultDir: 'asc' },
   { label: 'REG No', sortable: false },
+  { label: 'Approved', sortable: true, field: 'approval_date', defaultDir: 'desc' },
   { label: 'Status', sortable: true, field: 'status', defaultDir: 'asc' },
 ]
 
@@ -69,6 +71,8 @@ const SORT_OPTIONS: readonly SortOption<LoanSortField>[] = [
   { value: 'mandal_village:desc', label: 'Mandal/Village (Z → A)', sort_by: 'mandal_village', sort_order: 'desc' },
   { value: 'status:asc', label: 'Status (A → Z)', sort_by: 'status', sort_order: 'asc' },
   { value: 'status:desc', label: 'Status (Z → A)', sort_by: 'status', sort_order: 'desc' },
+  { value: 'approval_date:desc', label: 'Approved (newest)', sort_by: 'approval_date', sort_order: 'desc' },
+  { value: 'approval_date:asc', label: 'Approved (oldest)', sort_by: 'approval_date', sort_order: 'asc' },
 ]
 
 function mapListError(error: unknown): string {
@@ -401,6 +405,9 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                   <TableCell>{l.customer?.mandal_village ?? <Dash />}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {l.vehicle?.plate_number ?? <Dash />}
+                  </TableCell>
+                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                    {l.approval_date ? fmtDate(l.approval_date) : <Dash />}
                   </TableCell>
                   <TableCell>
                     {/* Fixed min-width keeps every status/EMI chip the same

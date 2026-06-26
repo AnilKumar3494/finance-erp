@@ -17,12 +17,16 @@ import { Card } from '@/components/primitives'
 // (otherwise collapsed) Transactions card.
 export function CollapsibleCard({
   title,
+  subtitle,
   action,
   children,
   defaultOpen = false,
   openSignal,
 }: {
   title: string
+  // Quick-info line shown under the title (visible while collapsed), matching
+  // EditableSection's subtitle so every section previews its contents.
+  subtitle?: ReactNode
   action?: ReactNode
   children: ReactNode
   defaultOpen?: boolean
@@ -39,7 +43,7 @@ export function CollapsibleCard({
       <Stack
         direction="row"
         spacing={2}
-        sx={{ alignItems: 'center', justifyContent: 'space-between', mb: open ? 2 : 0 }}
+        sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: open ? 2 : 0 }}
       >
         <Box
           role="button"
@@ -69,7 +73,14 @@ export function CollapsibleCard({
               transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
             }}
           />
-          <Typography variant="h3">{title}</Typography>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h3">{title}</Typography>
+            {subtitle && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                {subtitle}
+              </Typography>
+            )}
+          </Box>
         </Box>
         {action && <Box sx={{ flexShrink: 0 }}>{action}</Box>}
       </Stack>

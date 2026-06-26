@@ -130,6 +130,7 @@ export interface LoanUpdate {
 // in services/loan.py. "created_at" backs the SNO column.
 export const LOAN_SORT_FIELDS = [
   'created_at',
+  'approval_date',
   'full_name',
   'mandal_village',
   'status',
