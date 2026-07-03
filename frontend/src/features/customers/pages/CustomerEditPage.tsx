@@ -20,6 +20,7 @@ import {
 import { useEmployees, type EmployeeResponse } from '@/api/queries/employees'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
+import { BranchPointPicker } from '@/features/customers/components/BranchPointPicker'
 import { EmployeePicker } from '@/features/customers/components/EmployeePicker'
 import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
 
@@ -63,6 +64,7 @@ const Schema = z.object({
   mandal_village: z.string().max(100, 'Must be 100 characters or fewer'),
   pincode: optionalFormat(PIN_RE, 'PIN code must be 6 digits and cannot start with 0'),
   remarks: z.string(),
+  branch_point: z.string().max(100, 'Must be 100 characters or fewer'),
 })
 
 type FormValues = z.infer<typeof Schema>
@@ -79,6 +81,7 @@ const EMPTY_DEFAULTS: FormValues = {
   mandal_village: '',
   pincode: '',
   remarks: '',
+  branch_point: '',
 }
 
 function defaultsFromCustomer(c: CustomerResponse): FormValues {
@@ -95,6 +98,7 @@ function defaultsFromCustomer(c: CustomerResponse): FormValues {
     mandal_village: c.mandal_village ?? '',
     pincode: c.pincode ?? '',
     remarks: c.remarks ?? '',
+    branch_point: c.branch_point ?? '',
   }
 }
 
@@ -435,6 +439,19 @@ function EditForm({ customer, onCancel, onSaved }: EditFormProps) {
                 setAssignee(e)
               }}
             />
+            <Box sx={{ mt: 2.5 }}>
+              <Controller
+                control={control}
+                name="branch_point"
+                render={({ field }) => (
+                  <BranchPointPicker
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.branch_point?.message}
+                  />
+                )}
+              />
+            </Box>
           </Card>
         )}
 
@@ -512,7 +529,8 @@ function buildDiffPayload({
       | 'address_line_2'
       | 'mandal_village'
       | 'pincode'
-      | 'remarks',
+      | 'remarks'
+      | 'branch_point',
     formValue: string,
   ) => {
     const next = formValue.trim() === '' ? null : formValue.trim()
@@ -525,6 +543,7 @@ function buildDiffPayload({
   nullable('mandal_village', values.mandal_village)
   nullable('pincode', values.pincode)
   nullable('remarks', values.remarks)
+  nullable('branch_point', values.branch_point)
 
   // PII: empty input = "keep current" (cannot compare against the masked
   // wire value). Non-empty = send the new value.

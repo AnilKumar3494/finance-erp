@@ -11,6 +11,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 
 import { useLoan, useUpdateLoan, type LoanUpdate } from '@/api/queries/loans'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { WizardAssignmentCard } from '@/features/loans/wizard/AssignmentCard'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { flatRateProjection } from '@/features/loans/financeMath'
@@ -59,7 +60,12 @@ export function FinancialsSection({ financeId }: { financeId: string }) {
     return <ErrorBanner message="Could not load this finance." />
   }
 
-  return <FinancialsForm financeId={financeId} loan={loanQuery.data} />
+  return (
+    <Stack spacing={3}>
+      <FinancialsForm financeId={financeId} loan={loanQuery.data} />
+      <WizardAssignmentCard customerId={loanQuery.data.customer_id} />
+    </Stack>
+  )
 }
 
 function FinancialsForm({

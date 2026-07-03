@@ -164,11 +164,12 @@ export function CustomersListPage() {
             <>
               <DesktopTable
                 rows={rows}
+                page={page}
                 sort_by={sort_by}
                 sort_order={sort_order}
                 onSortChange={setSort}
               />
-              <MobileCards rows={rows} />
+              <MobileCards rows={rows} page={page} />
             </>
           )}
 
@@ -218,8 +219,13 @@ export function CustomersListPage() {
 // Desktop table — md and up
 // --------------------------------------------------
 
+function serialNumber(page: number, index: number) {
+  return (page - 1) * PAGE_SIZE + index + 1
+}
+
 interface DesktopTableProps {
   rows: CustomerResponse[]
+  page: number
   sort_by: CustomerSortField | undefined
   sort_order: SortOrder | undefined
   onSortChange: (next: { sort_by: CustomerSortField; sort_order: SortOrder }) => void
@@ -237,6 +243,9 @@ interface ColumnHeader {
 }
 
 const COLUMN_HEADERS: ReadonlyArray<ColumnHeader> = [
+  // Positional serial number (like the Finances/Vehicles lists). Sorting is
+  // driven by the "Created" column, so SNO stays a plain display cell.
+  { label: 'SNO', sortable: false },
   { label: 'Name', sortable: true, field: 'full_name', defaultDir: 'asc' },
   { label: 'Mobile', sortable: false },
   {
@@ -258,7 +267,7 @@ const SORT_OPTIONS: readonly SortOption<CustomerSortField>[] = [
   { value: 'assigned_employee_name:desc', label: 'Assigned (Z → A)', sort_by: 'assigned_employee_name', sort_order: 'desc' },
 ]
 
-function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableProps) {
+function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
   const goToDetail = (id: string) =>
     navigate({ to: '/customers/$customerId', params: { customerId: id } })
@@ -313,7 +322,7 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((c) => (
+              {rows.map((c, i) => (
                 <TableRow
                   key={c.id}
                   hover
@@ -336,6 +345,7 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
                     },
                   }}
                 >
+                  <TableCell>{serialNumber(page, i)}</TableCell>
                   <TableCell>{c.full_name}</TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
                     {c.mobile_number}
@@ -366,13 +376,13 @@ function DesktopTable({ rows, sort_by, sort_order, onSortChange }: DesktopTableP
 // Mobile cards — below md
 // --------------------------------------------------
 
-function MobileCards({ rows }: { rows: CustomerResponse[] }) {
+function MobileCards({ rows, page }: { rows: CustomerResponse[]; page: number }) {
   const navigate = routeApi.useNavigate()
   const goToDetail = (id: string) =>
     navigate({ to: '/customers/$customerId', params: { customerId: id } })
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((c) => (
+      {rows.map((c, i) => (
         <Card
           key={c.id}
           tabIndex={0}
@@ -410,9 +420,14 @@ function MobileCards({ rows }: { rows: CustomerResponse[] }) {
             <Typography variant="h3" sx={{ fontSize: 16, fontWeight: 600 }}>
               {c.full_name}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {fmtDate(c.created_at)}
-            </Typography>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">
+                {fmtDate(c.created_at)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                #{serialNumber(page, i)}
+              </Typography>
+            </Stack>
           </Stack>
           <Typography
             variant="body2"

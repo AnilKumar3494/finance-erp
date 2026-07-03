@@ -54,6 +54,11 @@ class Customer(AuditBase):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Branch point (branch sub-office) the customer belongs to. Sourced from the
+    # iFinance loan `b_point` during migration; free text so the office list can
+    # grow without a schema change.
+    branch_point: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     # --------------------------------------------------
     # RELATIONSHIPS
     # --------------------------------------------------

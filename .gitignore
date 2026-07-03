@@ -1,2 +1,4 @@
 .claude/
 backend/.env.uat
+
+.env
