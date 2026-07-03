@@ -35,6 +35,20 @@ export const isValidPan = (v: string) => PAN_RE.test(v)
 export const isValidPin = (v: string) => PIN_RE.test(v)
 export const isValidVehiclePlate = (v: string) => VEHICLE_PLATE_RE.test(v)
 
+// Advisory message for a registration number that doesn't match a recognised
+// Indian plate format. The value is still accepted (temporary "TR" plates,
+// legacy/hand-written formats, etc.) — this only prompts the user to re-check.
+export const PLATE_FORMAT_WARNING =
+  "This doesn't look like a standard Indian plate — please double-check it."
+
+// Returns the advisory warning when a non-empty plate is off-format, else
+// undefined. Pass the result straight to <Input warning={…} />.
+export const plateFormatWarning = (v: string | null | undefined): string | undefined => {
+  const t = (v ?? '').trim()
+  if (t === '') return undefined
+  return VEHICLE_PLATE_RE.test(t.toUpperCase()) ? undefined : PLATE_FORMAT_WARNING
+}
+
 // --------------------------------------------------
 // Zod schemas
 // --------------------------------------------------

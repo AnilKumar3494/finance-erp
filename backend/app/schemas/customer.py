@@ -65,6 +65,7 @@ class CustomerBase(_CustomerValidatorsMixin):
     aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
     pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
     assigned_employee_id: Optional[uuid.UUID] = None
+    branch_point: Optional[str] = Field(None, max_length=100)
     date_of_birth: Optional[date] = None
     alt_mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
     address_line_1: Optional[str] = Field(None, max_length=500)
@@ -90,6 +91,7 @@ class CustomerUpdate(_CustomerValidatorsMixin):
     aadhaar_number: Optional[str] = Field(None, min_length=12, max_length=12)
     pan_number: Optional[str] = Field(None, min_length=10, max_length=10)
     assigned_employee_id: Optional[uuid.UUID] = None
+    branch_point: Optional[str] = Field(None, max_length=100)
     date_of_birth: Optional[date] = None
     alt_mobile_number: Optional[str] = Field(None, min_length=10, max_length=15)
     address_line_1: Optional[str] = Field(None, max_length=500)

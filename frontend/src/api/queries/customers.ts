@@ -14,6 +14,7 @@ export interface CustomerResponse {
   created_by_id: string | null
   assigned_employee_id: string | null
   assigned_employee_name: string | null
+  branch_point: string | null
   created_at: string
   updated_at: string
   full_name: string
@@ -36,12 +37,23 @@ export interface CustomerListResponse {
   results: CustomerResponse[]
 }
 
+// Branch sub-offices carried over from iFinanceBooks. Free text at the DB
+// level, but the UI offers this fixed list (kept in sync with the migration's
+// BPOINT_ID_TO_NAME map). Extend here if the business opens a new branch point.
+export const BRANCH_POINTS = [
+  'NIDADAVOLE',
+  'TADEPALLIGUDEM',
+  'TANUKU',
+  'ELURU',
+] as const
+
 export interface CustomerCreate {
   full_name: string
   mobile_number: string
   aadhaar_number?: string | null
   pan_number?: string | null
   assigned_employee_id?: string | null
+  branch_point?: string | null
   date_of_birth?: string | null
   alt_mobile_number?: string | null
   address_line_1?: string | null
@@ -68,6 +80,7 @@ export interface CustomerUpdate {
   pincode?: string | null
   remarks?: string | null
   assigned_employee_id?: string | null
+  branch_point?: string | null
 }
 
 export interface CustomerUnmaskedPII {

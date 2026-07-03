@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
 import { serverMessage } from '@/api/errors'
@@ -25,7 +25,7 @@ import {
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { AssetStatus } from '@/schemas/enums'
-import { VEHICLE_PLATE_RE } from '@/schemas/primitives'
+import { plateFormatWarning } from '@/schemas/primitives'
 import { fmtINR } from '@/lib/format'
 import { EditableSection } from '../components/EditableSection'
 import { Collapsible } from '../components/Collapsible'
@@ -185,11 +185,10 @@ function VehicleCreateForm({
     const money0 = (s: string) =>
       s.trim() === '' || (Number.isFinite(Number(s)) && Number(s) >= 0)
     return z.object({
-      plate_number: z
-        .string()
-        .trim()
-        // Accept lowercase input; it's uppercased on save for consistency.
-        .refine((v) => VEHICLE_PLATE_RE.test(v.toUpperCase()), 'Enter a valid plate (e.g. TN09AB1234)'),
+      // Required, but the FORMAT is not enforced — any entry is accepted
+      // (temporary "TR" plates, legacy formats). Off-format values only raise a
+      // non-blocking warning (see plateFormatWarning on the input below).
+      plate_number: z.string().trim().min(1, 'Registration number is required'),
       make: z.string().trim().min(1, 'Make is required').max(50),
       model: z.string().trim().min(1, 'Model is required').max(50),
       year: z
@@ -227,6 +226,9 @@ function VehicleCreateForm({
       status: 'WITH_CUSTOMER',
     },
   })
+
+  // Advisory plate-format check — warns but never blocks (see schema).
+  const plateWarning = plateFormatWarning(useWatch({ control, name: 'plate_number' }))
 
   const onSubmit = (v: VehicleFormValues) => {
     const trimOrNull = (s: string) => (s.trim() === '' ? null : s.trim())
@@ -268,7 +270,7 @@ function VehicleCreateForm({
         </Box>
       )}
       <Stack spacing={2.5}>
-        <Input id="vehc_plate" label="Registration number" required placeholder="e.g. TN09AB1234" highlight={highlight?.has('plate_number')} {...register('plate_number')} error={errors.plate_number?.message} />
+        <Input id="vehc_plate" label="Registration number" required placeholder="e.g. TN09AB1234" highlight={highlight?.has('plate_number')} {...register('plate_number')} error={errors.plate_number?.message} warning={plateWarning} />
         <TwoCol>
           <Input id="vehc_make" label="Make" required highlight={highlight?.has('make')} {...register('make')} error={errors.make?.message} />
           <Input id="vehc_model" label="Model" required highlight={highlight?.has('model')} {...register('model')} error={errors.model?.message} />
@@ -352,11 +354,10 @@ function VehicleEditForm({
     const money0 = (s: string) =>
       s.trim() === '' || (Number.isFinite(Number(s)) && Number(s) >= 0)
     return z.object({
-      plate_number: z
-        .string()
-        .trim()
-        // Accept lowercase input; it's uppercased on save for consistency.
-        .refine((v) => VEHICLE_PLATE_RE.test(v.toUpperCase()), 'Enter a valid plate (e.g. TN09AB1234)'),
+      // Required, but the FORMAT is not enforced — any entry is accepted
+      // (temporary "TR" plates, legacy formats). Off-format values only raise a
+      // non-blocking warning (see plateFormatWarning on the input below).
+      plate_number: z.string().trim().min(1, 'Registration number is required'),
       make: z.string().trim().max(50),
       model: z.string().trim().max(50),
       year: z
@@ -397,6 +398,9 @@ function VehicleEditForm({
     },
   })
 
+  // Advisory plate-format check — warns but never blocks (see schema).
+  const plateWarning = plateFormatWarning(useWatch({ control, name: 'plate_number' }))
+
   const onSubmit = (v: VehicleFormValues) => {
     const payload = buildDiff(v, vehicle)
     if (Object.keys(payload).length === 0) {
@@ -423,6 +427,7 @@ function VehicleEditForm({
           highlight={highlight?.has('plate_number')}
           {...register('plate_number')}
           error={errors.plate_number?.message}
+          warning={plateWarning}
         />
         <TwoCol>
           <Input id="veh_make" label="Make" highlight={highlight?.has('make')} {...register('make')} error={errors.make?.message} />
