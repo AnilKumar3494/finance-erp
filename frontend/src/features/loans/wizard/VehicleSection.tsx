@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
 import { serverMessage } from '@/api/errors'
@@ -14,7 +14,7 @@ import { useCreateVehicle } from '@/api/queries/vehicles'
 import { useDocuments } from '@/api/queries/documents'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
-import { VEHICLE_PLATE_RE } from '@/schemas/primitives'
+import { plateFormatWarning } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 
 function mapErr(error: unknown, fallback: string): string {
@@ -88,11 +88,10 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
     const maxYear = new Date().getFullYear() + 1
     const money = (s: string) => s.trim() === '' || (Number.isFinite(Number(s)) && Number(s) >= 0)
     return z.object({
-      plate_number: z
-        .string()
-        .trim()
-        // Accept lowercase input; it's uppercased on save for consistency.
-        .refine((v) => VEHICLE_PLATE_RE.test(v.toUpperCase()), 'Enter a valid plate (e.g. TN09AB1234)'),
+      // Registration number is required but its FORMAT is not enforced — any
+      // entry is accepted (temporary "TR" plates, legacy formats). A non-standard
+      // format only raises a non-blocking warning (see plateFormatWarning below).
+      plate_number: z.string().trim().min(1, 'Registration number is required'),
       make: z.string().trim().min(1, 'Make is required').max(50),
       model: z.string().trim().min(1, 'Model is required').max(50),
       year: z
@@ -112,6 +111,7 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isDirty },
   } = useForm<VehicleFormValues>({
     resolver: zodResolver(schema),
@@ -131,6 +131,9 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
   // After a successful create the card is replaced by the attached-vehicle
   // summary (once the loan refetches), so stop reporting dirty immediately.
   useReportDirty(isDirty && !createVehicle.isSuccess)
+
+  // Advisory plate-format check — warns but never blocks (see schema).
+  const plateWarning = plateFormatWarning(useWatch({ control, name: 'plate_number' }))
 
   const onSubmit = (v: VehicleFormValues) => {
     const trimOrNull = (s: string) => (s.trim() === '' ? null : s.trim())
@@ -187,6 +190,7 @@ function VehicleCreateCard({ financeId }: { financeId: string }) {
             placeholder="e.g. TN09AB1234"
             {...register('plate_number')}
             error={errors.plate_number?.message}
+            warning={plateWarning}
           />
           <TwoCol>
             <Input id="veh_make" label="Make" required {...register('make')} error={errors.make?.message} />

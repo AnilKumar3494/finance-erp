@@ -18,6 +18,7 @@ import {
 import type { EmployeeResponse } from '@/api/queries/employees'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
+import { BranchPointPicker } from '@/features/customers/components/BranchPointPicker'
 import { EmployeePicker } from '@/features/customers/components/EmployeePicker'
 import {
   AADHAAR_RE,
@@ -69,6 +70,7 @@ const Schema = z.object({
   mandal_village: z.string().max(100, 'Must be 100 characters or fewer'),
   pincode: optionalFormat(PIN_RE, 'PIN code must be 6 digits and cannot start with 0'),
   remarks: z.string(),
+  branch_point: z.string().max(100, 'Must be 100 characters or fewer'),
 })
 
 type FormValues = z.infer<typeof Schema>
@@ -85,6 +87,7 @@ const DEFAULTS: FormValues = {
   mandal_village: '',
   pincode: '',
   remarks: '',
+  branch_point: '',
 }
 
 // --------------------------------------------------
@@ -154,6 +157,7 @@ export function CustomerCreatePage() {
       pincode: stripEmpty(values.pincode),
       remarks: stripEmpty(values.remarks),
       assigned_employee_id: canPickAssignee ? (assignee?.id ?? undefined) : undefined,
+      branch_point: stripEmpty(values.branch_point),
     }
 
     createMutation.mutate(payload, {
@@ -329,6 +333,19 @@ export function CustomerCreatePage() {
               Leave blank to create unassigned. Customers can be reassigned later.
             </Typography>
             <EmployeePicker value={assignee} onChange={setAssignee} />
+            <Box sx={{ mt: 2.5 }}>
+              <Controller
+                control={control}
+                name="branch_point"
+                render={({ field }) => (
+                  <BranchPointPicker
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.branch_point?.message}
+                  />
+                )}
+              />
+            </Box>
           </Card>
         )}
 
