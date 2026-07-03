@@ -58,6 +58,7 @@ export const transactionKeys = {
   all: ['transactions'] as const,
   summary: (loanId: string) => [...transactionKeys.all, 'summary', loanId] as const,
   byLoan: (loanId: string) => [...transactionKeys.all, 'byLoan', loanId] as const,
+  pendingConfirmations: () => [...transactionKeys.all, 'pendingConfirmations'] as const,
 }
 
 export function useLoanTransactions(loanId: string | undefined, enabled = true) {
@@ -118,8 +119,7 @@ export function usePendingConfirmations(
 ) {
   return useQuery({
     queryKey: [
-      ...transactionKeys.all,
-      'pendingConfirmations',
+      ...transactionKeys.pendingConfirmations(),
       page,
       pageSize,
       sort?.sort_by ?? null,
@@ -175,6 +175,8 @@ function invalidateLoanLedger(
 ) {
   qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
   qc.invalidateQueries({ queryKey: transactionKeys.summary(loanId) })
+  // The confirmations worklist (and its tab badge) lists PENDING rows.
+  qc.invalidateQueries({ queryKey: transactionKeys.pendingConfirmations() })
   // Covers both the per-loan schedule (byLoan) and the cross-loan worklist.
   qc.invalidateQueries({ queryKey: dueCycleKeys.all })
   qc.invalidateQueries({ queryKey: loanKeys.detail(loanId) })
@@ -214,6 +216,34 @@ export function useFailTransaction(loanId: string) {
       return data
     },
     onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+// Worklist variants of confirm/fail: the loan id arrives per row rather than
+// from a loan-scoped page, so it's part of the mutation variables.
+export function useConfirmPendingTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { transactionId: string; loanId: string }) => {
+      const { data } = await apiClient.post<TransactionResponse>(
+        `/transactions/${vars.transactionId}/confirm`,
+      )
+      return data
+    },
+    onSuccess: (_data, vars) => invalidateLoanLedger(qc, vars.loanId),
+  })
+}
+
+export function useFailPendingTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (vars: { transactionId: string; loanId: string }) => {
+      const { data } = await apiClient.post<TransactionResponse>(
+        `/transactions/${vars.transactionId}/fail`,
+      )
+      return data
+    },
+    onSuccess: (_data, vars) => invalidateLoanLedger(qc, vars.loanId),
   })
 }
 

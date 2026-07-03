@@ -100,6 +100,9 @@ export type WorklistSortField =
 
 export interface WorklistParams {
   status?: CycleStatus
+  // Filter by the customer's assigned employee (admin only — the backend
+  // always scopes EMPLOYEE callers to themselves).
+  assigned_employee_id?: string
   due_before?: string
   due_after?: string
   unpaid_only?: boolean

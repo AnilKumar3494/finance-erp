@@ -175,6 +175,13 @@ def approve_loan_route(
 def list_all(
     customer_id: Optional[uuid.UUID] = Query(None),
     vehicle_id: Optional[uuid.UUID] = Query(None),
+    assigned_employee_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Filter by the customer's assigned employee. "
+            "Ignored for EMPLOYEE callers, who are always scoped to themselves."
+        ),
+    ),
     status: Optional[LoanStatus] = Query(None),
     search: Optional[str] = Query(
         None, description="Search by loan number, customer name, mobile, or mandal/village"
@@ -198,9 +205,8 @@ def list_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    assigned_employee_id = (
-        current_user.id if current_user.role == UserRole.EMPLOYEE else None
-    )
+    if current_user.role == UserRole.EMPLOYEE:
+        assigned_employee_id = current_user.id
     includes = parse_includes(include)
     results, total = list_loans(
         db=db,

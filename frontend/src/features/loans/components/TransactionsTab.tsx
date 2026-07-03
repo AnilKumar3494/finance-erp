@@ -345,8 +345,9 @@ function TxnStatusChip({ status }: { status: TransactionStatus }) {
 }
 
 function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
-  // Confirm/Fail are admin-only. Caller doesn't render this component at all
-  // for non-admin users (see RowActionsCell), but we guard defensively.
+  // Received (confirm) / Cancel (fail) are admin-only. Caller doesn't render
+  // this component at all for non-admin users (see RowActionsCell), but we
+  // guard defensively.
   if (!actions.onConfirm || !actions.onFail) return null
   return (
     <Stack
@@ -355,10 +356,10 @@ function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
       sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
     >
       <Btn variant="success" size="sm" onClick={() => actions.onConfirm!(id)} disabled={actions.acting}>
-        Confirm
+        Received
       </Btn>
-      <Btn variant="ghost" size="sm" onClick={() => actions.onFail!(id)} disabled={actions.acting}>
-        Fail
+      <Btn variant="danger" size="sm" onClick={() => actions.onFail!(id)} disabled={actions.acting}>
+        Cancel
       </Btn>
     </Stack>
   )
@@ -422,7 +423,7 @@ function RowKebab({ txn, actions }: { txn: TransactionResponse; actions: RowActi
 
 // Per-row actions:
 //   - SUCCESS: Receipt download for everyone. Admin can edit via kebab.
-//   - PENDING: Admin sees Confirm/Fail inline; in-scope user (admin or
+//   - PENDING: Admin sees Received/Cancel (confirm/fail) inline; in-scope user (admin or
 //     assigned employee) sees the kebab with Edit.
 //   - FAILED: kebab with Edit (in-scope) and Void (admin).
 function RowActionsCell({

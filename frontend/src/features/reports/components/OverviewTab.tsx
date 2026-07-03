@@ -1,27 +1,17 @@
-import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
-import {
-  useDashboardSummary,
-  useLoanPortfolio,
-  useMonthlyTrends,
-} from '@/api/queries/reports'
+import { useDashboardSummary, useLoanPortfolio } from '@/api/queries/reports'
 import { Card } from '@/components/primitives'
 import { fmtINR } from '@/lib/format'
-import { fmtMonthShort, money } from '../reportUtils'
+import { money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
-import { MiniBarChart } from './MiniBarChart'
-import { RangeToggle } from './RangeToggle'
 
 export function OverviewTab() {
-  const [trendsMonths, setTrendsMonths] = useState(3)
-
   const summary = useDashboardSummary()
   const portfolio = useLoanPortfolio()
-  const trends = useMonthlyTrends(trendsMonths)
 
   return (
     <Stack spacing={4}>
@@ -106,77 +96,6 @@ export function OverviewTab() {
         </AsyncSection>
       </Box>
 
-      <Box>
-        <Stack
-          direction="row"
-          sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 2, flexWrap: 'wrap' }}
-        >
-          <Typography variant="h3">Trends</Typography>
-          <RangeToggle value={trendsMonths} onChange={setTrendsMonths} />
-        </Stack>
-        <AsyncSection
-          isLoading={trends.isLoading}
-          isError={trends.isError}
-          error={trends.error}
-        >
-          {trends.data && (
-            <Stack spacing={3}>
-              <Card>
-                <Typography variant="caption" color="text.secondary">
-                  Collections
-                </Typography>
-                <Box sx={{ mt: 1 }}>
-                  <MiniBarChart
-                    data={trends.data.collections.map((c) => ({
-                      label: fmtMonthShort(c.month),
-                      value: money(c.amount),
-                    }))}
-                    formatValue={(n) => fmtINR(n)}
-                    barColor="success.main"
-                  />
-                </Box>
-              </Card>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 3,
-                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                }}
-              >
-                <Card>
-                  <Typography variant="caption" color="text.secondary">
-                    New customers
-                  </Typography>
-                  <Box sx={{ mt: 1 }}>
-                    <MiniBarChart
-                      height={150}
-                      data={trends.data.new_customers.map((c) => ({
-                        label: fmtMonthShort(c.month),
-                        value: c.count,
-                      }))}
-                    />
-                  </Box>
-                </Card>
-                <Card>
-                  <Typography variant="caption" color="text.secondary">
-                    New loans
-                  </Typography>
-                  <Box sx={{ mt: 1 }}>
-                    <MiniBarChart
-                      height={150}
-                      data={trends.data.new_loans.map((c) => ({
-                        label: fmtMonthShort(c.month),
-                        value: c.count,
-                      }))}
-                      barColor="info.main"
-                    />
-                  </Box>
-                </Card>
-              </Box>
-            </Stack>
-          )}
-        </AsyncSection>
-      </Box>
     </Stack>
   )
 }

@@ -18,7 +18,6 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { fmtMonthShort, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
-import { MiniBarChart } from './MiniBarChart'
 
 type Period = 'daily' | 'monthly'
 
@@ -104,59 +103,40 @@ export function CollectionsTab() {
                 No collections in this window.
               </Typography>
             ) : (
-              <>
-                <Card>
-                  <Typography variant="caption" color="text.secondary">
-                    Collected per {period === 'daily' ? 'day' : 'month'}
-                  </Typography>
-                  <Box sx={{ mt: 1 }}>
-                    {/* Backend returns newest-first; chart reads left→right oldest-first. */}
-                    <MiniBarChart
-                      data={[...report.data.entries].reverse().map((e) => ({
-                        label: labelFor(e),
-                        value: money(e.total_amount),
-                      }))}
-                      formatValue={(n) => fmtINR(n)}
-                      barColor="success.main"
-                    />
-                  </Box>
-                </Card>
-
-                <Card sx={{ p: 0, overflow: 'hidden' }}>
-                  <TableContainer>
-                    <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
-                      <TableHead>
-                        <TableRow>
-                          <SortableTh field="date" label={period === 'daily' ? 'Date' : 'Month'} activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="txns" label="Txns" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="cash" label="Cash" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="gpay" label="GPay" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="phonepe" label="PhonePe" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="bank" label="Bank" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="other" label="Other" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                          <SortableTh field="total" label="Total" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+              <Card sx={{ p: 0, overflow: 'hidden' }}>
+                <TableContainer>
+                  <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+                    <TableHead>
+                      <TableRow>
+                        <SortableTh field="date" label={period === 'daily' ? 'Date' : 'Month'} activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="txns" label="Txns" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="cash" label="Cash" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="gpay" label="GPay" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="phonepe" label="PhonePe" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="bank" label="Bank" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="other" label="Other" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                        <SortableTh field="total" label="Total" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {rows.map((e) => (
+                        <TableRow key={e.date}>
+                          <TableCell>{labelFor(e)}</TableCell>
+                          <TableCell align="right">{e.transaction_count}</TableCell>
+                          <TableCell align="right">{fmtINR(money(e.cash))}</TableCell>
+                          <TableCell align="right">{fmtINR(money(e.gpay))}</TableCell>
+                          <TableCell align="right">{fmtINR(money(e.phonepe))}</TableCell>
+                          <TableCell align="right">{fmtINR(money(e.bank_transfer))}</TableCell>
+                          <TableCell align="right">{fmtINR(money(e.other))}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 600 }}>
+                            {fmtINR(money(e.total_amount))}
+                          </TableCell>
                         </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {rows.map((e) => (
-                          <TableRow key={e.date}>
-                            <TableCell>{labelFor(e)}</TableCell>
-                            <TableCell align="right">{e.transaction_count}</TableCell>
-                            <TableCell align="right">{fmtINR(money(e.cash))}</TableCell>
-                            <TableCell align="right">{fmtINR(money(e.gpay))}</TableCell>
-                            <TableCell align="right">{fmtINR(money(e.phonepe))}</TableCell>
-                            <TableCell align="right">{fmtINR(money(e.bank_transfer))}</TableCell>
-                            <TableCell align="right">{fmtINR(money(e.other))}</TableCell>
-                            <TableCell align="right" sx={{ fontWeight: 600 }}>
-                              {fmtINR(money(e.total_amount))}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Card>
-              </>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
             )}
           </>
         )}

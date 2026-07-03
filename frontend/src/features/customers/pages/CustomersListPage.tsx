@@ -104,7 +104,7 @@ export function CustomersListPage() {
   const goToCreate = () => navigate({ to: '/customers/new' })
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+    <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* AKK-LATER-TODO: metrics dashboard above the search row — totals,
           active loans count, overdue cycles, customers added this month, etc.
           Needs a backend aggregate endpoint and a small Stat-tile primitive. */}
