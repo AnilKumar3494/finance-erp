@@ -1091,3 +1091,190 @@ def get_received_interest(db: Session, date1: date, date2: date) -> dict:
         "total_received_interest": total_interest,
         "results": results,
     }
+
+
+# --------------------------------------------------
+# HP OUTSTANDING / HP RECEIVABLE (as-of-now open-loan ledger)
+# --------------------------------------------------
+def _open_loan_ledger_rows(db: Session):
+    """
+    One row per open loan with its due-cycle ledger totals:
+    (Loan, Customer, payable, collected, outstanding).
+
+    Same source of truth as the dashboard/portfolio numbers: due_cycles over
+    OPEN_LOAN_STATUSES, outstanding floored at 0 per cycle.
+    """
+    cycle_sub = (
+        db.query(
+            DueCycle.loan_id.label("loan_id"),
+            func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
+            func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            DueCycle.total_due > DueCycle.total_received,
+                            DueCycle.total_due - DueCycle.total_received,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("outstanding"),
+        )
+        .filter(DueCycle.is_deleted == False)
+        .group_by(DueCycle.loan_id)
+        .subquery()
+    )
+
+    return (
+        db.query(
+            Loan,
+            Customer,
+            func.coalesce(cycle_sub.c.payable, 0).label("payable"),
+            func.coalesce(cycle_sub.c.collected, 0).label("collected"),
+            func.coalesce(cycle_sub.c.outstanding, 0).label("outstanding"),
+        )
+        .join(Customer, Customer.id == Loan.customer_id)
+        .outerjoin(cycle_sub, cycle_sub.c.loan_id == Loan.id)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.status.in_(OPEN_LOAN_STATUSES),
+        )
+        .order_by(Customer.full_name.asc(), Loan.id.asc())
+        .all()
+    )
+
+
+def get_hp_outstanding(db: Session) -> dict:
+    """Per open loan: principal, payable, collected, outstanding — plus totals."""
+    results = []
+    totals = {"principal": _ZERO, "payable": _ZERO, "collected": _ZERO, "outstanding": _ZERO}
+    for loan, customer, payable, collected, outstanding in _open_loan_ledger_rows(db):
+        principal = _d(loan.principal)
+        payable_d, collected_d, outstanding_d = _d(payable), _d(collected), _d(outstanding)
+        totals["principal"] += principal
+        totals["payable"] += payable_d
+        totals["collected"] += collected_d
+        totals["outstanding"] += outstanding_d
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "status": loan.status,
+                "principal": principal,
+                "payable": payable_d,
+                "collected": collected_d,
+                "outstanding": outstanding_d,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_principal": totals["principal"],
+        "total_payable": totals["payable"],
+        "total_collected": totals["collected"],
+        "total_outstanding": totals["outstanding"],
+        "results": results,
+    }
+
+
+def get_hp_receivable(db: Session) -> dict:
+    """
+    Per open loan: interest still to be earned = outstanding × the loan's
+    flat-rate interest share (total_payable − principal) / total_payable —
+    the receivable-side mirror of get_received_interest.
+    """
+    two_places = Decimal("0.01")
+    results = []
+    total_outstanding = _ZERO
+    total_receivable = _ZERO
+    for loan, customer, _payable, _collected, outstanding in _open_loan_ledger_rows(db):
+        outstanding_d = _d(outstanding)
+        receivable = _ZERO
+        if loan.principal and loan.interest_rate is not None and loan.tenure:
+            tp = calc_total_payable(_d(loan.principal), _d(loan.interest_rate), loan.tenure)
+            if tp > 0:
+                receivable = (
+                    outstanding_d * (tp - _d(loan.principal)) / tp
+                ).quantize(two_places)
+        total_outstanding += outstanding_d
+        total_receivable += receivable
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "outstanding": outstanding_d,
+                "receivable_interest": receivable,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_outstanding": total_outstanding,
+        "total_receivable_interest": total_receivable,
+        "results": results,
+    }
+
+
+# --------------------------------------------------
+# HP REGISTER (all executed finances)
+# --------------------------------------------------
+def get_hp_register(db: Session) -> dict:
+    """
+    The register of executed finances: every non-deleted, non-DRAFT loan with
+    its terms, vehicle, and dates. DRAFTs are excluded — a register records
+    agreements, not applications in progress.
+    """
+    rows = (
+        db.query(Loan, Customer, Vehicle)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .outerjoin(Vehicle, Vehicle.id == Loan.vehicle_id)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.status != LoanStatus.DRAFT,
+        )
+        .order_by(Loan.approval_date.asc().nulls_last(), Loan.created_at.asc())
+        .all()
+    )
+
+    results = []
+    total_principal = _ZERO
+    total_payable_sum = _ZERO
+    for loan, customer, vehicle in rows:
+        principal = _d(loan.principal)
+        tp = _ZERO
+        if loan.principal and loan.interest_rate is not None and loan.tenure:
+            tp = calc_total_payable(_d(loan.principal), _d(loan.interest_rate), loan.tenure)
+        total_principal += principal
+        total_payable_sum += tp
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "customer_mobile": customer.mobile_number,
+                "vehicle_plate": vehicle.plate_number if vehicle is not None else None,
+                "approval_date": loan.approval_date,
+                "principal": principal,
+                "interest_rate": _d(loan.interest_rate) if loan.interest_rate is not None else None,
+                "tenure": loan.tenure,
+                "total_payable": tp,
+                "status": loan.status,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_principal": total_principal,
+        "total_payable": total_payable_sum,
+        "results": results,
+    }

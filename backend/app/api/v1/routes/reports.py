@@ -17,6 +17,9 @@ from app.schemas.report import (
     DashboardSummary,
     DayReport,
     EmployeeReport,
+    HpOutstandingReport,
+    HpReceivableReport,
+    HpRegisterReport,
     LoanPortfolioReport,
     MonthlyTrends,
     ReceivedInterestReport,
@@ -29,6 +32,9 @@ from app.services.report import (
     get_dashboard_summary,
     get_day_report,
     get_employee_report,
+    get_hp_outstanding,
+    get_hp_receivable,
+    get_hp_register,
     get_loan_portfolio,
     get_monthly_trends,
     get_received_interest,
@@ -141,6 +147,42 @@ def received_interest(
     # in the window, not one per transaction.
     d1, d2 = _validated_range(date1, date2, 366)
     return get_received_interest(db, d1, d2)
+
+
+# --------------------------------------------------
+# HP OUTSTANDING / HP RECEIVABLE / HP REGISTER
+# --------------------------------------------------
+@router.get(
+    "/hp-outstanding",
+    response_model=HpOutstandingReport,
+    summary="Per-loan payable / collected / outstanding for open finances",
+)
+def hp_outstanding(
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    return get_hp_outstanding(db)
+
+
+@router.get(
+    "/hp-receivable",
+    response_model=HpReceivableReport,
+    summary="Per-loan interest still to be earned on open finances",
+)
+def hp_receivable(
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    return get_hp_receivable(db)
+
+
+@router.get(
+    "/hp-register",
+    response_model=HpRegisterReport,
+    summary="Register of all executed finances (non-draft)",
+)
+def hp_register(
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    return get_hp_register(db)
 
 
 # --------------------------------------------------

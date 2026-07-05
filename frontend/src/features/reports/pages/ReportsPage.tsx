@@ -10,6 +10,9 @@ import PercentOutlined from '@mui/icons-material/PercentOutlined'
 import InsightsOutlined from '@mui/icons-material/InsightsOutlined'
 import PeopleOutlined from '@mui/icons-material/PeopleOutlined'
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
+import AccountBalanceOutlined from '@mui/icons-material/AccountBalanceOutlined'
+import HourglassBottomOutlined from '@mui/icons-material/HourglassBottomOutlined'
+import MenuBookOutlined from '@mui/icons-material/MenuBookOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 import { useAuth } from '@/app/auth-context'
@@ -22,6 +25,9 @@ import { EmployeesTab } from '../components/EmployeesTab'
 import { DayReportTab } from '../components/DayReportTab'
 import { MultiDayReportTab } from '../components/MultiDayReportTab'
 import { ReceivedInterestTab } from '../components/ReceivedInterestTab'
+import { HpOutstandingTab } from '../components/HpOutstandingTab'
+import { HpReceivableTab } from '../components/HpReceivableTab'
+import { HpRegisterTab } from '../components/HpRegisterTab'
 
 const routeApi = getRouteApi('/_authed/reports')
 
@@ -72,6 +78,29 @@ const REPORT_SECTIONS: ReportSection[] = [
         description: 'Interest earned on EMI collections in a period, per finance.',
         icon: PercentOutlined,
       },
+      {
+        tab: 'receivable',
+        label: 'Receivable Interest',
+        description: 'Interest still to be earned on each open finance.',
+        icon: HourglassBottomOutlined,
+      },
+    ],
+  },
+  {
+    title: 'Hire purchase',
+    tiles: [
+      {
+        tab: 'outstanding',
+        label: 'HP Outstanding',
+        description: 'Payable, collected, and outstanding per open finance.',
+        icon: AccountBalanceOutlined,
+      },
+      {
+        tab: 'register',
+        label: 'HP Register',
+        description: 'The full register of executed finances with terms and vehicles.',
+        icon: MenuBookOutlined,
+      },
     ],
   },
   {
@@ -107,6 +136,9 @@ const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.React
   day: { title: 'Day Report', render: () => <DayReportTab /> },
   multiday: { title: 'Multi-Day Report', render: () => <MultiDayReportTab /> },
   interest: { title: 'Received Interest', render: () => <ReceivedInterestTab /> },
+  outstanding: { title: 'HP Outstanding', render: () => <HpOutstandingTab /> },
+  receivable: { title: 'Receivable Interest', render: () => <HpReceivableTab /> },
+  register: { title: 'HP Register', render: () => <HpRegisterTab /> },
 }
 
 export function ReportsPage() {

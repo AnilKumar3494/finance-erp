@@ -9,5 +9,8 @@ export const REPORT_TABS = [
   'day',
   'multiday',
   'interest',
+  'outstanding',
+  'receivable',
+  'register',
 ] as const
 export type ReportTab = (typeof REPORT_TABS)[number]

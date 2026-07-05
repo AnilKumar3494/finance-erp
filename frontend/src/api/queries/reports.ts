@@ -187,6 +187,68 @@ export interface ReceivedInterestReport {
   results: ReceivedInterestRow[]
 }
 
+export interface HpOutstandingRow {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  status: string
+  principal: string
+  payable: string
+  collected: string
+  outstanding: string
+}
+
+export interface HpOutstandingReport {
+  total_loans: number
+  total_principal: string
+  total_payable: string
+  total_collected: string
+  total_outstanding: string
+  results: HpOutstandingRow[]
+}
+
+export interface HpReceivableRow {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  outstanding: string
+  receivable_interest: string
+}
+
+export interface HpReceivableReport {
+  total_loans: number
+  total_outstanding: string
+  total_receivable_interest: string
+  results: HpReceivableRow[]
+}
+
+export interface HpRegisterRow {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+  vehicle_plate: string | null
+  approval_date: string | null
+  principal: string
+  interest_rate: string | null
+  tenure: number | null
+  total_payable: string
+  status: string
+}
+
+export interface HpRegisterReport {
+  total_loans: number
+  total_principal: string
+  total_payable: string
+  results: HpRegisterRow[]
+}
+
 // --------------------------------------------------
 // Query keys
 // --------------------------------------------------
@@ -207,6 +269,9 @@ export const reportKeys = {
     [...reportKeys.all, 'dayReport', date1, date2] as const,
   receivedInterest: (date1: string, date2: string) =>
     [...reportKeys.all, 'receivedInterest', date1, date2] as const,
+  hpOutstanding: () => [...reportKeys.all, 'hpOutstanding'] as const,
+  hpReceivable: () => [...reportKeys.all, 'hpReceivable'] as const,
+  hpRegister: () => [...reportKeys.all, 'hpRegister'] as const,
 }
 
 // Reports change slowly relative to a session; a short stale window keeps the
@@ -346,6 +411,44 @@ export function useDayReport(date1: string, date2: string, enabled = true) {
     enabled: enabled && !!date1 && !!date2,
     staleTime: REPORT_STALE_MS,
     placeholderData: (prev) => prev,
+  })
+}
+
+// As-of-now HP portfolio reports (admin-only). Each returns every row in one
+// response — the register views client-sort/filter/export them.
+export function useHpOutstanding(enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.hpOutstanding(),
+    queryFn: async () => {
+      const { data } = await apiClient.get<HpOutstandingReport>('/reports/hp-outstanding')
+      return data
+    },
+    enabled,
+    staleTime: REPORT_STALE_MS,
+  })
+}
+
+export function useHpReceivable(enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.hpReceivable(),
+    queryFn: async () => {
+      const { data } = await apiClient.get<HpReceivableReport>('/reports/hp-receivable')
+      return data
+    },
+    enabled,
+    staleTime: REPORT_STALE_MS,
+  })
+}
+
+export function useHpRegister(enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.hpRegister(),
+    queryFn: async () => {
+      const { data } = await apiClient.get<HpRegisterReport>('/reports/hp-register')
+      return data
+    },
+    enabled,
+    staleTime: REPORT_STALE_MS,
   })
 }
 

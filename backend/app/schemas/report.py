@@ -227,3 +227,71 @@ class ReceivedInterestReport(BaseModel):
     total_amount_paid: Decimal
     total_received_interest: Decimal
     results: list[ReceivedInterestRow]
+
+
+# --------------------------------------------------
+# HP OUTSTANDING / HP RECEIVABLE (as-of-now, open loans)
+# --------------------------------------------------
+class HpOutstandingRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    status: str
+    principal: Decimal
+    payable: Decimal
+    collected: Decimal
+    outstanding: Decimal
+
+
+class HpOutstandingReport(BaseModel):
+    total_loans: int
+    total_principal: Decimal
+    total_payable: Decimal
+    total_collected: Decimal
+    total_outstanding: Decimal
+    results: list[HpOutstandingRow]
+
+
+class HpReceivableRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    outstanding: Decimal
+    receivable_interest: Decimal
+
+
+class HpReceivableReport(BaseModel):
+    total_loans: int
+    total_outstanding: Decimal
+    total_receivable_interest: Decimal
+    results: list[HpReceivableRow]
+
+
+# --------------------------------------------------
+# HP REGISTER (all executed finances)
+# --------------------------------------------------
+class HpRegisterRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+    vehicle_plate: str | None
+    approval_date: date_type | None
+    principal: Decimal
+    interest_rate: Decimal | None
+    tenure: int | None
+    total_payable: Decimal
+    status: str
+
+
+class HpRegisterReport(BaseModel):
+    total_loans: int
+    total_principal: Decimal
+    total_payable: Decimal
+    results: list[HpRegisterRow]
