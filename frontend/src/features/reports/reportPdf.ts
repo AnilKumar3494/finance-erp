@@ -1,19 +1,11 @@
 import { jsPDF } from 'jspdf'
 
 import { ORG_NAME } from '@/features/loans/branding'
-import { fmtDateTime } from '@/lib/format'
+import { fmtDateTime, fmtINRPdf } from '@/lib/format'
 
-// jsPDF's built-in Helvetica is WinAnsi-encoded and has no ₹ glyph (U+20B9),
-// so PDF money is written with an ASCII prefix instead of reusing fmtINR.
-const inrNumber = new Intl.NumberFormat('en-IN', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
-export const pdfINR = (v: string | number) => {
-  const n = Number(v)
-  // Negated zero fields would otherwise print as "Rs -0.00".
-  return `Rs ${inrNumber.format(n === 0 ? 0 : n)}`
-}
+// Re-exported so report tabs get their table/statement builders and the
+// PDF-safe money format from one import.
+export const pdfINR = fmtINRPdf
 
 const MARGIN = 40
 const HEADER_GAP = 26
