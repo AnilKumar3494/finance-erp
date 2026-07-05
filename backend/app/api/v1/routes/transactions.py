@@ -140,6 +140,13 @@ def list_all(
 def pending_confirmations(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    assigned_employee_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Filter by the customer's assigned employee. Ignored for EMPLOYEE "
+            "callers, who are always scoped to themselves."
+        ),
+    ),
     sort_by: Optional[str] = Query(
         None,
         description="Sort column: amount | effective_payment_date | created_at | customer_name | loan",
@@ -148,7 +155,11 @@ def pending_confirmations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    scope = current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    scope = (
+        current_user.id
+        if current_user.role == UserRole.EMPLOYEE
+        else assigned_employee_id
+    )
     rows, total, total_amount = list_pending_confirmations(
         db,
         assigned_employee_id=scope,

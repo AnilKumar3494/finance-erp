@@ -116,6 +116,8 @@ export function usePendingConfirmations(
   page: number,
   pageSize = 20,
   sort?: { sort_by?: PendingSortField; sort_order?: 'asc' | 'desc' },
+  // Admin-only server param; the backend ignores it for EMPLOYEE callers.
+  assignedEmployeeId?: string,
 ) {
   return useQuery({
     queryKey: [
@@ -124,11 +126,19 @@ export function usePendingConfirmations(
       pageSize,
       sort?.sort_by ?? null,
       sort?.sort_order ?? null,
+      assignedEmployeeId ?? null,
     ] as const,
     queryFn: async () => {
       const { data } = await apiClient.get<PendingConfirmationListResponse>(
         '/transactions/pending-confirmations',
-        { params: { page, page_size: pageSize, ...sort } },
+        {
+          params: {
+            page,
+            page_size: pageSize,
+            assigned_employee_id: assignedEmployeeId,
+            ...sort,
+          },
+        },
       )
       return data
     },
