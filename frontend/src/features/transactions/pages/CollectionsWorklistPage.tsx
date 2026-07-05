@@ -21,10 +21,13 @@ import {
   type WorklistSortField,
 } from '@/api/queries/dueCycles'
 import {
+  useConfirmPendingTransaction,
+  useFailPendingTransaction,
   usePendingConfirmations,
   type PendingConfirmationItem,
   type PendingSortField,
 } from '@/api/queries/transactions'
+import { serverMessage } from '@/api/errors'
 import {
   useBadDebtProposals,
   type BadDebtProposalListItem,
@@ -33,6 +36,7 @@ import {
 import type { BadDebtProposalStatus } from '@/schemas/enums'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
@@ -95,8 +99,26 @@ function mapListError(error: unknown): string {
   return 'Something went wrong loading the worklist.'
 }
 
+function mapActionError(error: unknown): string {
+  if (error instanceof AxiosError) {
+    const detail = serverMessage(error)
+    if (detail) return detail
+    if (error.response?.status === 403) return 'You do not have permission for this action.'
+    if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
+  }
+  return 'Could not update this payment. Please try again.'
+}
+
+// Inline Received/Cancel (confirm/fail) on confirmation rows — admin only, so
+// the parent passes null for everyone else.
+interface PendingQuickActions {
+  onReceived: (row: PendingConfirmationItem) => void
+  onCancel: (row: PendingConfirmationItem) => void
+  acting: boolean
+}
+
 export function CollectionsWorklistPage() {
-  const { view, search: searchTerm, page } = routeApi.useSearch()
+  const { view, search: searchTerm, assigned_to, page } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
@@ -161,6 +183,7 @@ export function CollectionsWorklistPage() {
   const cycleParams: WorklistParams = {
     ...viewToParams(view),
     search: searchTerm,
+    assigned_employee_id: assigned_to,
     page,
     page_size: PAGE_SIZE,
     sort_by: cycleSort.sort_by,
@@ -188,6 +211,23 @@ export function CollectionsWorklistPage() {
     badDebtSort,
   )
 
+  // Quick confirm/fail on confirmation rows (admin-only, mirrors the loan
+  // page's Received/Cancel buttons).
+  const confirmTxn = useConfirmPendingTransaction()
+  const failTxn = useFailPendingTransaction()
+  const quick: PendingQuickActions | null = isAdmin
+    ? {
+        onReceived: (r) => confirmTxn.mutate({ transactionId: r.id, loanId: r.loan_id }),
+        onCancel: (r) => failTxn.mutate({ transactionId: r.id, loanId: r.loan_id }),
+        acting: confirmTxn.isPending || failTxn.isPending,
+      }
+    : null
+  const quickError = confirmTxn.isError
+    ? confirmTxn.error
+    : failTxn.isError
+      ? failTxn.error
+      : null
+
   const [record, setRecord] = useState<DueCycleWorklistItem | null>(null)
   const [review, setReview] = useState<{
     proposal: BadDebtProposalListItem
@@ -201,6 +241,9 @@ export function CollectionsWorklistPage() {
   const setView = (next: WorklistView) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, view: next }), replace: true })
 
+  const setAssignedTo = (next: string | undefined) =>
+    navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }), replace: true })
+
   // Switch the Bad debt sub-tab (review queue vs approved) and reset paging.
   const setBadDebtTab = (next: BadDebtProposalStatus) => {
     setBadDebtStatus(next)
@@ -208,7 +251,7 @@ export function CollectionsWorklistPage() {
   }
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+    <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
       <Box
         sx={{
           mb: 3,
@@ -272,6 +315,12 @@ export function CollectionsWorklistPage() {
               })}
           </Stack>
         </Box>
+
+        {isCycleView(view) && isAdmin && (
+          <Box sx={{ order: 3, width: { xs: '100%', sm: 'auto' } }}>
+            <AssignedToSelect value={assigned_to} onChange={setAssignedTo} />
+          </Box>
+        )}
       </Box>
 
       <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
@@ -346,16 +395,23 @@ export function CollectionsWorklistPage() {
           )}
         </>
       ) : isConfirmations ? (
-        (pendingQuery.data?.results.length ?? 0) === 0 ? (
-          <ConfirmationsEmpty />
-        ) : (
-          <>
-            <ConfirmationsDesktop rows={pendingQuery.data!.results} sort={pendingSort} onSort={onPendingSort} />
-            <ConfirmationsMobile rows={pendingQuery.data!.results} />
-          </>
-        )
+        <>
+          {quickError && (
+            <Box sx={{ mb: 2 }}>
+              <ErrorBanner message={mapActionError(quickError)} />
+            </Box>
+          )}
+          {(pendingQuery.data?.results.length ?? 0) === 0 ? (
+            <ConfirmationsEmpty />
+          ) : (
+            <>
+              <ConfirmationsDesktop rows={pendingQuery.data!.results} sort={pendingSort} onSort={onPendingSort} quick={quick} />
+              <ConfirmationsMobile rows={pendingQuery.data!.results} quick={quick} />
+            </>
+          )}
+        </>
       ) : (cycleQuery.data?.results.length ?? 0) === 0 ? (
-        <CyclesEmpty filtered={!!searchTerm} />
+        <CyclesEmpty filtered={!!searchTerm || !!assigned_to} />
       ) : (
         <>
           <DesktopTable rows={cycleQuery.data!.results} onRecord={setRecord} sort={cycleSort} onSort={onCycleSort} />
@@ -486,7 +542,7 @@ function DesktopTable({
                   }
                 >
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {r.customer_name}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
@@ -604,7 +660,7 @@ function CyclesEmpty({ filtered }: { filtered: boolean }) {
         <Typography variant="h3">Nothing to collect</Typography>
         <Typography variant="body2" color="text.secondary">
           {filtered
-            ? 'No cycles match your search in this view.'
+            ? 'No cycles match your filters in this view.'
             : 'No due or overdue cycles in this view right now.'}
         </Typography>
       </Stack>
@@ -620,10 +676,12 @@ function ConfirmationsDesktop({
   rows,
   sort,
   onSort,
+  quick,
 }: {
   rows: PendingConfirmationItem[]
   sort: SortState<PendingSortField>
   onSort: (field: PendingSortField, defaultDir: SortOrder) => void
+  quick: PendingQuickActions | null
 }) {
   const navigate = routeApi.useNavigate()
   const open = (r: PendingConfirmationItem) =>
@@ -652,7 +710,7 @@ function ConfirmationsDesktop({
               {rows.map((r) => (
                 <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => open(r)}>
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {r.customer_name}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
@@ -665,17 +723,49 @@ function ConfirmationsDesktop({
                   <TableCell>{fmtDate(r.effective_payment_date)}</TableCell>
                   <TableCell>{fmtDate(r.created_at)}</TableCell>
                   <TableCell align="right">
-                    <Btn
-                      variant="primary"
-                      size="sm"
-                      endIcon={<ArrowForwardIcon />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        open(r)
-                      }}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
                     >
-                      Review
-                    </Btn>
+                      {quick && (
+                        <>
+                          <Btn
+                            variant="success"
+                            size="sm"
+                            disabled={quick.acting}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              quick.onReceived(r)
+                            }}
+                          >
+                            Received
+                          </Btn>
+                          <Btn
+                            variant="danger"
+                            size="sm"
+                            disabled={quick.acting}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              quick.onCancel(r)
+                            }}
+                          >
+                            Cancel
+                          </Btn>
+                        </>
+                      )}
+                      <Btn
+                        variant={quick ? 'ghost' : 'primary'}
+                        size="sm"
+                        endIcon={<ArrowForwardIcon />}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          open(r)
+                        }}
+                      >
+                        Review
+                      </Btn>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -687,7 +777,13 @@ function ConfirmationsDesktop({
   )
 }
 
-function ConfirmationsMobile({ rows }: { rows: PendingConfirmationItem[] }) {
+function ConfirmationsMobile({
+  rows,
+  quick,
+}: {
+  rows: PendingConfirmationItem[]
+  quick: PendingQuickActions | null
+}) {
   const navigate = routeApi.useNavigate()
   const open = (r: PendingConfirmationItem) =>
     navigate({
@@ -718,9 +814,43 @@ function ConfirmationsMobile({ rows }: { rows: PendingConfirmationItem[] }) {
             {r.cycle_number != null ? `Cycle #${r.cycle_number} · ` : ''}paid {fmtDate(r.effective_payment_date)} · recorded {fmtDate(r.created_at)}
           </Typography>
           <Box sx={{ mt: 1.5 }}>
-            <Btn variant="primary" size="sm" fullWidth endIcon={<ArrowForwardIcon />} onClick={(e) => { e.stopPropagation(); open(r) }}>
-              Review
-            </Btn>
+            {quick ? (
+              <Stack spacing={1}>
+                <Stack direction="row" spacing={1}>
+                  <Btn
+                    variant="success"
+                    size="sm"
+                    fullWidth
+                    disabled={quick.acting}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      quick.onReceived(r)
+                    }}
+                  >
+                    Received
+                  </Btn>
+                  <Btn
+                    variant="danger"
+                    size="sm"
+                    fullWidth
+                    disabled={quick.acting}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      quick.onCancel(r)
+                    }}
+                  >
+                    Cancel
+                  </Btn>
+                </Stack>
+                <Btn variant="ghost" size="sm" fullWidth endIcon={<ArrowForwardIcon />} onClick={(e) => { e.stopPropagation(); open(r) }}>
+                  Review
+                </Btn>
+              </Stack>
+            ) : (
+              <Btn variant="primary" size="sm" fullWidth endIcon={<ArrowForwardIcon />} onClick={(e) => { e.stopPropagation(); open(r) }}>
+                Review
+              </Btn>
+            )}
           </Box>
         </Card>
       ))}
@@ -872,7 +1002,7 @@ function BadDebtDesktop({
               {rows.map((r) => (
                 <TableRow key={r.id} hover>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {r.customer_name}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>

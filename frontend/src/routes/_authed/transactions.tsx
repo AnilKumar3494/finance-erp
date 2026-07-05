@@ -6,6 +6,7 @@ import { WORKLIST_VIEWS, type WorklistView } from '@/features/transactions/workl
 interface WorklistSearch {
   view: WorklistView
   search?: string
+  assigned_to?: string
   page: number
 }
 
@@ -17,10 +18,15 @@ export const Route = createFileRoute('/_authed/transactions')({
         ? (raw.view as WorklistView)
         : 'due'
     const search = typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
+    const assigned_to =
+      typeof raw.assigned_to === 'string' && raw.assigned_to.length > 0
+        ? raw.assigned_to
+        : undefined
     const page = Number(raw.page)
     return {
       view,
       search,
+      assigned_to,
       page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1,
     }
   },

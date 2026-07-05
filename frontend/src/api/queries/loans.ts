@@ -145,6 +145,9 @@ export interface LoanListParams {
   page_size?: number
   customer_id?: string
   vehicle_id?: string
+  // Filter by the customer's assigned employee (admin only — the backend
+  // always scopes EMPLOYEE callers to themselves).
+  assigned_employee_id?: string
   status?: LoanStatus
   include?: string
   search?: string

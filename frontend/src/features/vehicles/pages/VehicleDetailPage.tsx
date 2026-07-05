@@ -302,7 +302,7 @@ function DocumentsCard({ vehicleId }: { vehicleId: string }) {
 }
 
 // --------------------------------------------------
-// Danger zone — admin-only delete / restore
+// Admin-only delete / restore (red-outlined card)
 // --------------------------------------------------
 
 const CONFIRM_WORD = 'delete'
@@ -395,12 +395,6 @@ function DangerZone({ vehicle, loans }: { vehicle: VehicleResponse; loans: LoanR
 
   return (
     <Card sx={{ borderColor: 'error.main' }}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-        <WarningAmberRoundedIcon sx={{ color: 'error.main' }} fontSize="small" />
-        <Typography variant="h3" sx={{ color: 'error.main' }}>
-          Danger zone
-        </Typography>
-      </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Deleting removes this vehicle from lists and searches. It can be restored
         afterwards.

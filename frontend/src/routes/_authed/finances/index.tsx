@@ -8,6 +8,7 @@ export interface LoansListSearch {
   page: number
   status?: LoanStatus
   customer_id?: string
+  assigned_to?: string
   search?: string
   sort_by?: LoanSortField
   sort_order?: SortOrder
@@ -21,6 +22,10 @@ export const Route = createFileRoute('/_authed/finances/')({
     const customer_id =
       typeof raw.customer_id === 'string' && raw.customer_id.length > 0
         ? raw.customer_id
+        : undefined
+    const assigned_to =
+      typeof raw.assigned_to === 'string' && raw.assigned_to.length > 0
+        ? raw.assigned_to
         : undefined
     const search =
       typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
@@ -37,6 +42,7 @@ export const Route = createFileRoute('/_authed/finances/')({
       page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1,
       status: status.success ? status.data : undefined,
       customer_id,
+      assigned_to,
       search,
       sort_by,
       sort_order,

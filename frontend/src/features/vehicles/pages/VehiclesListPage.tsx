@@ -142,7 +142,7 @@ export function VehiclesListPage() {
     navigate({ search: (prev) => ({ ...prev, page: 1, type: next }) })
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+    <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
       <Box
         sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 2, rowGap: 2 }}
       >
