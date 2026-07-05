@@ -113,6 +113,80 @@ export interface MonthlyTrends {
   collections: MonthlyAmount[]
 }
 
+export interface DayReportReceipt {
+  transaction_id: string
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  transaction_type: 'REGULAR' | 'DOWN_PAYMENT'
+  payment_mode: string
+  cycle_number: number | null
+  collected_by: string | null
+  amount: string
+}
+
+export interface DayReportPayment {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  description: string
+  amount: string
+}
+
+export interface DayReportDay {
+  date: string
+  opening_balance: string
+  closing_balance: string
+  total_receipts: string
+  total_payments: string
+  emi_collection: string
+  down_payments: string
+  receipts: DayReportReceipt[]
+  payments: DayReportPayment[]
+}
+
+export interface DayReport {
+  date1: string
+  date2: string
+  // Net collections-minus-disbursements position, not a bank balance — the
+  // system doesn't track expenses or capital.
+  opening_balance: string
+  closing_balance: string
+  total_receipts: string
+  total_payments: string
+  total_emi_collection: string
+  total_down_payments: string
+  cash: string
+  gpay: string
+  phonepe: string
+  bank_transfer: string
+  other: string
+  days: DayReportDay[]
+}
+
+export interface ReceivedInterestRow {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  amount_paid: string
+  received_interest: string
+  transaction_count: number
+}
+
+export interface ReceivedInterestReport {
+  date1: string
+  date2: string
+  total_amount_paid: string
+  total_received_interest: string
+  results: ReceivedInterestRow[]
+}
+
 // --------------------------------------------------
 // Query keys
 // --------------------------------------------------
@@ -129,6 +203,10 @@ export const reportKeys = {
   customers: (page: number, pageSize: number) =>
     [...reportKeys.all, 'customers', page, pageSize] as const,
   employees: () => [...reportKeys.all, 'employees'] as const,
+  dayReport: (date1: string, date2: string) =>
+    [...reportKeys.all, 'dayReport', date1, date2] as const,
+  receivedInterest: (date1: string, date2: string) =>
+    [...reportKeys.all, 'receivedInterest', date1, date2] as const,
 }
 
 // Reports change slowly relative to a session; a short stale window keeps the
@@ -251,6 +329,39 @@ export function useEmployeeReport(enabled = true) {
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+  })
+}
+
+// Daily cash book. Single day = date1 === date2; the backend caps ranges at
+// 92 days, and both endpoints below are admin-only.
+export function useDayReport(date1: string, date2: string, enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.dayReport(date1, date2),
+    queryFn: async () => {
+      const { data } = await apiClient.get<DayReport>('/reports/day-report', {
+        params: { date1, date2 },
+      })
+      return data
+    },
+    enabled: enabled && !!date1 && !!date2,
+    staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useReceivedInterest(date1: string, date2: string, enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.receivedInterest(date1, date2),
+    queryFn: async () => {
+      const { data } = await apiClient.get<ReceivedInterestReport>(
+        '/reports/received-interest',
+        { params: { date1, date2 } },
+      )
+      return data
+    },
+    enabled: enabled && !!date1 && !!date2,
+    staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 

@@ -1,8 +1,9 @@
 import csv
 import io
+from datetime import date, timedelta
 from typing import Iterator, Literal, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,9 +15,11 @@ from app.schemas.report import (
     CollectionReport,
     CustomerReport,
     DashboardSummary,
+    DayReport,
     EmployeeReport,
     LoanPortfolioReport,
     MonthlyTrends,
+    ReceivedInterestReport,
 )
 from app.services.report import (
     count_customers,
@@ -24,9 +27,11 @@ from app.services.report import (
     get_collection_report,
     get_customer_report,
     get_dashboard_summary,
+    get_day_report,
     get_employee_report,
     get_loan_portfolio,
     get_monthly_trends,
+    get_received_interest,
     iter_customer_report_rows,
 )
 from app.utils.audit import write_audit
@@ -75,6 +80,67 @@ def collections(
     current_user: User = Depends(require_admin),
 ):
     return get_collection_report(db, period=period, days=days)
+
+
+# --------------------------------------------------
+# DAY REPORT (daily cash book — single day or range)
+# --------------------------------------------------
+# Longest range the day report will expand; keeps the row payload bounded.
+_DAY_REPORT_MAX_DAYS = 92
+
+
+def _validated_range(
+    date1: Optional[date], date2: Optional[date], max_days: int
+) -> tuple[date, date]:
+    """Default both ends to IST-today, then bounds-check the window."""
+    from app.core.config import settings
+    from app.utils.time import today_in_tz
+
+    today = today_in_tz(settings.REPORTS_TIMEZONE)
+    d1 = date1 or today
+    d2 = date2 or d1
+    if d2 < d1:
+        raise HTTPException(status_code=400, detail="date2 must be on or after date1.")
+    if (d2 - d1) > timedelta(days=max_days):
+        raise HTTPException(
+            status_code=400, detail=f"Date range is limited to {max_days} days."
+        )
+    return d1, d2
+
+
+@router.get(
+    "/day-report",
+    response_model=DayReport,
+    summary="Daily cash book: receipts, disbursements, and rolling balance",
+)
+def day_report(
+    date1: Optional[date] = Query(None, description="Start date (default: today, IST)"),
+    date2: Optional[date] = Query(None, description="End date (default: date1)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    d1, d2 = _validated_range(date1, date2, _DAY_REPORT_MAX_DAYS)
+    return get_day_report(db, d1, d2)
+
+
+# --------------------------------------------------
+# RECEIVED INTEREST
+# --------------------------------------------------
+@router.get(
+    "/received-interest",
+    response_model=ReceivedInterestReport,
+    summary="Per-loan interest earned on collections in a date window",
+)
+def received_interest(
+    date1: Optional[date] = Query(None, description="Start date (default: today, IST)"),
+    date2: Optional[date] = Query(None, description="End date (default: date1)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    # A year-long window is fine here — the result is one row per loan paid
+    # in the window, not one per transaction.
+    d1, d2 = _validated_range(date1, date2, 366)
+    return get_received_interest(db, d1, d2)
 
 
 # --------------------------------------------------

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date as date_type
 from decimal import Decimal
 from typing import Literal
 
@@ -144,3 +145,85 @@ class MonthlyTrends(BaseModel):
     new_customers: list[MonthlyCount]
     new_loans: list[MonthlyCount]
     collections: list[MonthlyAmount]
+
+
+# --------------------------------------------------
+# DAY REPORT (daily cash book)
+# --------------------------------------------------
+class DayReportReceipt(BaseModel):
+    transaction_id: uuid.UUID
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    transaction_type: str   # REGULAR | DOWN_PAYMENT
+    payment_mode: str
+    cycle_number: int | None
+    collected_by: str | None
+    amount: Decimal
+
+
+class DayReportPayment(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    description: str
+    amount: Decimal
+
+
+class DayReportDay(BaseModel):
+    date: date_type
+    opening_balance: Decimal
+    closing_balance: Decimal
+    total_receipts: Decimal
+    total_payments: Decimal
+    emi_collection: Decimal
+    down_payments: Decimal
+    receipts: list[DayReportReceipt]
+    payments: list[DayReportPayment]
+
+
+class DayReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    # Net collections-minus-disbursements position — the system doesn't track
+    # expenses/capital, so this is a cash-movement rollup, not a bank balance.
+    opening_balance: Decimal
+    closing_balance: Decimal
+    total_receipts: Decimal
+    total_payments: Decimal
+    total_emi_collection: Decimal
+    total_down_payments: Decimal
+    cash: Decimal
+    gpay: Decimal
+    phonepe: Decimal
+    bank_transfer: Decimal
+    other: Decimal
+    # One section per day WITH activity; quiet days are omitted (balances
+    # still roll straight through them).
+    days: list[DayReportDay]
+
+
+# --------------------------------------------------
+# RECEIVED INTEREST
+# --------------------------------------------------
+class ReceivedInterestRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    amount_paid: Decimal
+    received_interest: Decimal
+    transaction_count: int
+
+
+class ReceivedInterestReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    total_amount_paid: Decimal
+    total_received_interest: Decimal
+    results: list[ReceivedInterestRow]

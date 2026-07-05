@@ -34,6 +34,7 @@ from app.models.transaction import (
 )
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.services.finance import total_payable as calc_total_payable
 from app.utils.time import today_in_tz
 
 
@@ -829,4 +830,264 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
         "collections": [
             {"month": mo, "amount": collections_map.get(mo, _ZERO)} for mo in axis
         ],
+    }
+
+
+# --------------------------------------------------
+# DAY REPORT (daily cash book)
+# --------------------------------------------------
+def _cash_position_before(db: Session, day: date) -> Decimal:
+    """
+    Net cash position from system-tracked money movements strictly before `day`:
+    all SUCCESS receipts (REGULAR EMIs + DOWN_PAYMENTs) minus all loan
+    disbursements (principal of loans approved before `day`).
+
+    This is a collections-vs-disbursements position, not a full accounting
+    balance — the system does not track expenses, capital, or bank ledgers.
+    """
+    receipts = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date < day,
+        )
+        .scalar()
+    )
+    disbursed = (
+        db.query(func.coalesce(func.sum(Loan.principal), 0))
+        .filter(
+            Loan.is_deleted == False,
+            Loan.approval_date.isnot(None),
+            Loan.approval_date < day,
+        )
+        .scalar()
+    )
+    return _d(receipts) - _d(disbursed)
+
+
+def get_day_report(db: Session, date1: date, date2: date) -> dict:
+    """
+    Daily cash book over [date1, date2] (inclusive), one section per day that
+    had activity.
+
+    Receipts   = SUCCESS transactions bucketed on effective_payment_date
+                 (REGULAR EMIs and DOWN_PAYMENTs both count — a cash book
+                 tracks money in, not just EMI collection).
+    Payments   = loan disbursements (principal) bucketed on approval_date.
+    Balances   roll forward day to day: closing(d) = opening(d) + receipts(d)
+                 − payments(d); opening(date1) is the all-time net position
+                 before date1 (see _cash_position_before).
+    """
+    receipt_rows = (
+        db.query(Transaction, Loan, Customer, DueCycle, User)
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .outerjoin(DueCycle, DueCycle.id == Transaction.due_cycle_id)
+        .outerjoin(User, User.id == Transaction.collected_by_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .order_by(Transaction.effective_payment_date, Transaction.created_at)
+        .all()
+    )
+
+    disbursement_rows = (
+        db.query(Loan, Customer)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.approval_date.isnot(None),
+            Loan.approval_date >= date1,
+            Loan.approval_date <= date2,
+            Loan.principal.isnot(None),
+        )
+        .order_by(Loan.approval_date, Loan.created_at)
+        .all()
+    )
+
+    # Group both movement kinds by day, then roll balances forward.
+    receipts_by_day: dict[date, list] = {}
+    for txn, loan, customer, cycle, collector in receipt_rows:
+        receipts_by_day.setdefault(txn.effective_payment_date, []).append(
+            {
+                "transaction_id": txn.id,
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "transaction_type": txn.transaction_type,
+                "payment_mode": txn.payment_mode,
+                "cycle_number": cycle.cycle_number if cycle is not None else None,
+                "collected_by": collector.username if collector is not None else None,
+                "amount": _d(txn.amount),
+            }
+        )
+
+    payments_by_day: dict[date, list] = {}
+    for loan, customer in disbursement_rows:
+        payments_by_day.setdefault(loan.approval_date, []).append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "description": "Finance disbursement",
+                "amount": _d(loan.principal),
+            }
+        )
+
+    opening = _cash_position_before(db, date1)
+
+    days = []
+    balance = opening
+    mode_totals = {m.value.lower(): _ZERO for m in _BREAKDOWN_MODES}
+    mode_totals["other"] = _ZERO
+    grand = {
+        "receipts": _ZERO,
+        "payments": _ZERO,
+        "emi": _ZERO,
+        "down_payments": _ZERO,
+    }
+
+    for day in sorted(set(receipts_by_day) | set(payments_by_day)):
+        receipts = receipts_by_day.get(day, [])
+        payments = payments_by_day.get(day, [])
+        day_receipts = sum((r["amount"] for r in receipts), _ZERO)
+        day_payments = sum((p["amount"] for p in payments), _ZERO)
+        day_emi = sum(
+            (
+                r["amount"]
+                for r in receipts
+                if r["transaction_type"] == TransactionType.REGULAR
+            ),
+            _ZERO,
+        )
+        for r in receipts:
+            mode = r["payment_mode"]
+            key = mode.value.lower() if mode in _BREAKDOWN_MODES else "other"
+            mode_totals[key] += r["amount"]
+
+        day_opening = balance
+        balance = day_opening + day_receipts - day_payments
+        grand["receipts"] += day_receipts
+        grand["payments"] += day_payments
+        grand["emi"] += day_emi
+        grand["down_payments"] += day_receipts - day_emi
+
+        days.append(
+            {
+                "date": day,
+                "opening_balance": day_opening,
+                "closing_balance": balance,
+                "total_receipts": day_receipts,
+                "total_payments": day_payments,
+                "emi_collection": day_emi,
+                "down_payments": day_receipts - day_emi,
+                "receipts": receipts,
+                "payments": payments,
+            }
+        )
+
+    return {
+        "date1": date1,
+        "date2": date2,
+        "opening_balance": opening,
+        "closing_balance": balance,
+        "total_receipts": grand["receipts"],
+        "total_payments": grand["payments"],
+        "total_emi_collection": grand["emi"],
+        "total_down_payments": grand["down_payments"],
+        "cash": mode_totals["cash"],
+        "gpay": mode_totals["gpay"],
+        "phonepe": mode_totals["phonepe"],
+        "bank_transfer": mode_totals["bank_transfer"],
+        "other": mode_totals["other"],
+        "days": days,
+    }
+
+
+# --------------------------------------------------
+# RECEIVED INTEREST (interest earned on collections in a window)
+# --------------------------------------------------
+def get_received_interest(db: Session, date1: date, date2: date) -> dict:
+    """
+    Per-loan interest earned on EMI collections inside [date1, date2].
+
+    Loans are flat-rate here, so every collected rupee carries the same
+    interest share: (total_payable − principal) / total_payable, with
+    total_payable from the canonical schedule formula (finance.total_payable).
+    received_interest = paid_in_window × that share, per loan.
+
+    DOWN_PAYMENT transactions are excluded (origination cash, no interest
+    component). Loans missing terms (unapproved drafts) report zero interest.
+    """
+    rows = (
+        db.query(
+            Loan.id,
+            Loan.loan_number,
+            Loan.hp_number,
+            Loan.principal,
+            Loan.interest_rate,
+            Loan.tenure,
+            Customer.id.label("customer_id"),
+            Customer.full_name,
+            func.coalesce(func.sum(Transaction.amount), 0).label("paid"),
+            func.count(Transaction.id).label("txn_count"),
+        )
+        .join(Transaction, Transaction.loan_id == Loan.id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .group_by(Loan.id, Customer.id)
+        .order_by(Customer.full_name.asc(), Loan.id.asc())
+        .all()
+    )
+
+    two_places = Decimal("0.01")
+    results = []
+    total_paid = _ZERO
+    total_interest = _ZERO
+    for r in rows:
+        paid = _d(r.paid)
+        interest = _ZERO
+        if r.principal and r.interest_rate is not None and r.tenure:
+            tp = calc_total_payable(_d(r.principal), _d(r.interest_rate), r.tenure)
+            if tp > 0:
+                interest = (paid * (tp - _d(r.principal)) / tp).quantize(two_places)
+        total_paid += paid
+        total_interest += interest
+        results.append(
+            {
+                "loan_id": r.id,
+                "loan_number": r.loan_number,
+                "hp_number": r.hp_number,
+                "customer_id": r.customer_id,
+                "customer_name": r.full_name,
+                "amount_paid": paid,
+                "received_interest": interest,
+                "transaction_count": r.txn_count,
+            }
+        )
+
+    return {
+        "date1": date1,
+        "date2": date2,
+        "total_amount_paid": total_paid,
+        "total_received_interest": total_interest,
+        "results": results,
     }
