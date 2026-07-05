@@ -157,3 +157,42 @@ def cash_entries_in_range(db: Session, date1: date, date2: date) -> list[CashEnt
         .order_by(CashEntry.entry_date.asc(), CashEntry.created_at.asc())
         .all()
     )
+
+
+def cash_entry_type_sums(
+    db: Session,
+    date1: Optional[date] = None,
+    date2: Optional[date] = None,
+) -> dict[CashEntryType, Decimal]:
+    """Per-type amount sums, optionally windowed — feeds the P&L and the
+    balance sheet's capital account. Types with no entries are simply absent."""
+    q = db.query(
+        CashEntry.entry_type,
+        func.coalesce(func.sum(CashEntry.amount), 0),
+    ).filter(CashEntry.is_deleted == False)
+    if date1 is not None:
+        q = q.filter(CashEntry.entry_date >= date1)
+    if date2 is not None:
+        q = q.filter(CashEntry.entry_date <= date2)
+    return {t: _d(total) for t, total in q.group_by(CashEntry.entry_type).all()}
+
+
+def expense_category_sums(db: Session, date1: date, date2: date) -> list[tuple[Optional[str], Decimal]]:
+    """EXPENSE entries in [date1, date2] grouped by category, biggest first —
+    the expense side of the P&L statement."""
+    rows = (
+        db.query(
+            CashEntry.category,
+            func.coalesce(func.sum(CashEntry.amount), 0).label("amount"),
+        )
+        .filter(
+            CashEntry.is_deleted == False,
+            CashEntry.entry_type == CashEntryType.EXPENSE,
+            CashEntry.entry_date >= date1,
+            CashEntry.entry_date <= date2,
+        )
+        .group_by(CashEntry.category)
+        .order_by(func.sum(CashEntry.amount).desc())
+        .all()
+    )
+    return [(category, _d(amount)) for category, amount in rows]

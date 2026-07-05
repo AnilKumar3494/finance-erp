@@ -255,6 +255,7 @@ class HpOutstandingRow(BaseModel):
     hp_number: str | None
     customer_id: uuid.UUID
     customer_name: str
+    branch_point: str | None
     status: str
     principal: Decimal
     payable: Decimal
@@ -312,3 +313,46 @@ class HpRegisterReport(BaseModel):
     total_principal: Decimal
     total_payable: Decimal
     results: list[HpRegisterRow]
+
+
+# --------------------------------------------------
+# PROFIT & LOSS / BALANCE SHEET
+# --------------------------------------------------
+class PnlExpenseCategory(BaseModel):
+    category: str | None
+    amount: Decimal
+
+
+class PnlReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    collections: Decimal
+    interest_received: Decimal
+    other_income: Decimal
+    total_income: Decimal
+    total_expenses: Decimal
+    expenses_by_category: list[PnlExpenseCategory]
+    net_profit: Decimal
+
+
+class BalanceSheetReport(BaseModel):
+    as_of: date_type
+    # Assets
+    cash_in_hand: Decimal
+    receivable_principal: Decimal
+    unearned_interest: Decimal
+    receivable_total: Decimal
+    total_assets: Decimal
+    open_loans: int
+    # Funded by
+    capital_in: Decimal
+    capital_out: Decimal
+    capital_net: Decimal
+    interest_earned: Decimal
+    other_income: Decimal
+    expenses: Decimal
+    bad_debt_written_off: Decimal
+    retained_earnings: Decimal
+    down_payments_received: Decimal
+    total_funded: Decimal
+    difference: Decimal

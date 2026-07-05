@@ -208,6 +208,7 @@ export interface HpOutstandingRow {
   hp_number: string | null
   customer_id: string
   customer_name: string
+  branch_point: string | null
   status: string
   principal: string
   payable: string
@@ -264,6 +265,44 @@ export interface HpRegisterReport {
   results: HpRegisterRow[]
 }
 
+export interface PnlExpenseCategory {
+  category: string | null
+  amount: string
+}
+
+export interface PnlReport {
+  date1: string
+  date2: string
+  collections: string
+  interest_received: string
+  other_income: string
+  total_income: string
+  total_expenses: string
+  expenses_by_category: PnlExpenseCategory[]
+  net_profit: string
+}
+
+export interface BalanceSheetReport {
+  as_of: string
+  cash_in_hand: string
+  receivable_principal: string
+  unearned_interest: string
+  receivable_total: string
+  total_assets: string
+  open_loans: number
+  capital_in: string
+  capital_out: string
+  capital_net: string
+  interest_earned: string
+  other_income: string
+  expenses: string
+  bad_debt_written_off: string
+  retained_earnings: string
+  down_payments_received: string
+  total_funded: string
+  difference: string
+}
+
 // --------------------------------------------------
 // Query keys
 // --------------------------------------------------
@@ -287,6 +326,8 @@ export const reportKeys = {
   hpOutstanding: () => [...reportKeys.all, 'hpOutstanding'] as const,
   hpReceivable: () => [...reportKeys.all, 'hpReceivable'] as const,
   hpRegister: () => [...reportKeys.all, 'hpRegister'] as const,
+  pnl: (date1: string, date2: string) => [...reportKeys.all, 'pnl', date1, date2] as const,
+  balanceSheet: () => [...reportKeys.all, 'balanceSheet'] as const,
 }
 
 // Reports change slowly relative to a session; a short stale window keeps the
@@ -480,6 +521,33 @@ export function useReceivedInterest(date1: string, date2: string, enabled = true
     enabled: enabled && !!date1 && !!date2,
     staleTime: REPORT_STALE_MS,
     placeholderData: (prev) => prev,
+  })
+}
+
+export function usePnl(date1: string, date2: string, enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.pnl(date1, date2),
+    queryFn: async () => {
+      const { data } = await apiClient.get<PnlReport>('/reports/pnl', {
+        params: { date1, date2 },
+      })
+      return data
+    },
+    enabled: enabled && !!date1 && !!date2,
+    staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useBalanceSheet(enabled = true) {
+  return useQuery({
+    queryKey: reportKeys.balanceSheet(),
+    queryFn: async () => {
+      const { data } = await apiClient.get<BalanceSheetReport>('/reports/balance-sheet')
+      return data
+    },
+    enabled,
+    staleTime: REPORT_STALE_MS,
   })
 }
 

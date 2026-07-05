@@ -11,6 +11,7 @@ from app.core.db import get_db
 from app.dependencies.auth import require_admin, require_report_access
 from app.models.user import User, UserRole
 from app.schemas.report import (
+    BalanceSheetReport,
     ChartEntry,
     CollectionReport,
     CustomerReport,
@@ -22,10 +23,12 @@ from app.schemas.report import (
     HpRegisterReport,
     LoanPortfolioReport,
     MonthlyTrends,
+    PnlReport,
     ReceivedInterestReport,
 )
 from app.services.report import (
     count_customers,
+    get_balance_sheet,
     get_collection_chart,
     get_collection_report,
     get_customer_report,
@@ -37,6 +40,7 @@ from app.services.report import (
     get_hp_register,
     get_loan_portfolio,
     get_monthly_trends,
+    get_pnl,
     get_received_interest,
     iter_customer_report_rows,
 )
@@ -183,6 +187,35 @@ def hp_register(
     db: Session = Depends(get_db), current_user: User = Depends(require_admin)
 ):
     return get_hp_register(db)
+
+
+# --------------------------------------------------
+# PROFIT & LOSS / BALANCE SHEET
+# --------------------------------------------------
+@router.get(
+    "/pnl",
+    response_model=PnlReport,
+    summary="Profit & Loss: interest earned + other income − expenses",
+)
+def pnl_report(
+    date1: Optional[date] = Query(None, description="Start date (default: today, IST)"),
+    date2: Optional[date] = Query(None, description="End date (default: date1)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    d1, d2 = _validated_range(date1, date2, 366)
+    return get_pnl(db, d1, d2)
+
+
+@router.get(
+    "/balance-sheet",
+    response_model=BalanceSheetReport,
+    summary="Balance sheet as of today: assets vs capital + earnings",
+)
+def balance_sheet(
+    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    return get_balance_sheet(db)
 
 
 # --------------------------------------------------

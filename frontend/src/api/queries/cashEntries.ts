@@ -75,6 +75,8 @@ export function useCashEntries(
 function invalidateCashBook(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: cashEntryKeys.all })
   qc.invalidateQueries({ queryKey: [...reportKeys.all, 'dayReport'] })
+  qc.invalidateQueries({ queryKey: [...reportKeys.all, 'pnl'] })
+  qc.invalidateQueries({ queryKey: reportKeys.balanceSheet() })
 }
 
 export function useCreateCashEntry() {

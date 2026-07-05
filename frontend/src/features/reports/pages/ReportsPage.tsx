@@ -14,6 +14,8 @@ import AccountBalanceOutlined from '@mui/icons-material/AccountBalanceOutlined'
 import HourglassBottomOutlined from '@mui/icons-material/HourglassBottomOutlined'
 import MenuBookOutlined from '@mui/icons-material/MenuBookOutlined'
 import SavingsOutlined from '@mui/icons-material/SavingsOutlined'
+import TrendingUpOutlined from '@mui/icons-material/TrendingUpOutlined'
+import BalanceOutlined from '@mui/icons-material/BalanceOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 import { useAuth } from '@/app/auth-context'
@@ -30,6 +32,8 @@ import { HpOutstandingTab } from '../components/HpOutstandingTab'
 import { HpReceivableTab } from '../components/HpReceivableTab'
 import { HpRegisterTab } from '../components/HpRegisterTab'
 import { CapitalExpensesTab } from '../components/CapitalExpensesTab'
+import { PnlTab } from '../components/PnlTab'
+import { BalanceSheetTab } from '../components/BalanceSheetTab'
 
 const routeApi = getRouteApi('/_authed/reports')
 
@@ -98,6 +102,18 @@ const REPORT_SECTIONS: ReportSection[] = [
         description: 'Interest still to be earned on each open finance.',
         icon: HourglassBottomOutlined,
       },
+      {
+        tab: 'pnl',
+        label: 'Profit & Loss',
+        description: 'Interest and other income against expenses for a period.',
+        icon: TrendingUpOutlined,
+      },
+      {
+        tab: 'balancesheet',
+        label: 'Balance Sheet',
+        description: 'Cash and receivables against capital and earnings, as of today.',
+        icon: BalanceOutlined,
+      },
     ],
   },
   {
@@ -154,6 +170,8 @@ const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.React
   receivable: { title: 'Receivable Interest', render: () => <HpReceivableTab /> },
   register: { title: 'HP Register', render: () => <HpRegisterTab /> },
   cashbook: { title: 'Capital & Expenses', render: () => <CapitalExpensesTab /> },
+  pnl: { title: 'Profit & Loss', render: () => <PnlTab /> },
+  balancesheet: { title: 'Balance Sheet', render: () => <BalanceSheetTab /> },
 }
 
 export function ReportsPage() {

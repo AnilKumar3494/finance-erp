@@ -8,6 +8,7 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
+import MenuItem from '@mui/material/MenuItem'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -22,11 +23,20 @@ import { downloadCsv } from '../csvExport'
 
 const inr = (s: string) => fmtINR(Number(s))
 
-type Field = 'hp' | 'customer' | 'status' | 'principal' | 'payable' | 'collected' | 'outstanding'
+type Field =
+  | 'hp'
+  | 'customer'
+  | 'branch'
+  | 'status'
+  | 'principal'
+  | 'payable'
+  | 'collected'
+  | 'outstanding'
 
 const ACCESSORS: Partial<Record<Field, (r: HpOutstandingRow) => string | number | null>> = {
   hp: (r) => r.hp_number ?? r.loan_number,
   customer: (r) => r.customer_name,
+  branch: (r) => r.branch_point,
   status: (r) => r.status,
   principal: (r) => Number(r.principal),
   payable: (r) => Number(r.payable),
@@ -50,6 +60,7 @@ export function HpOutstandingTab() {
   const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
+  const [branch, setBranch] = useState('')
   const [sort, setSort] = useState<SortState<Field>>({
     sort_by: 'outstanding',
     sort_order: 'desc',
@@ -57,8 +68,16 @@ export function HpOutstandingTab() {
   const onSort = (field: Field, defaultDir: 'asc' | 'desc') =>
     setSort((s) => toggleSort(s, field, defaultDir))
 
+  // Branch points (customer line/place) present in the current data set.
+  const branchOptions = useMemo(
+    () =>
+      [...new Set((report?.results ?? []).map((r) => r.branch_point).filter(Boolean))].sort() as string[],
+    [report],
+  )
+
   const filtered = useMemo(() => {
-    const rows = report?.results ?? []
+    let rows = report?.results ?? []
+    if (branch) rows = rows.filter((r) => r.branch_point === branch)
     const q = search.trim().toLowerCase()
     if (!q) return rows
     return rows.filter(
@@ -66,7 +85,7 @@ export function HpOutstandingTab() {
         r.customer_name.toLowerCase().includes(q) ||
         (r.hp_number ?? r.loan_number).toLowerCase().includes(q),
     )
-  }, [report, search])
+  }, [report, search, branch])
 
   const rows = useClientSort(filtered, sort.sort_by, sort.sort_order, ACCESSORS)
 
@@ -89,10 +108,11 @@ export function HpOutstandingTab() {
   const exportCsv = () =>
     downloadCsv(
       'hp_outstanding.csv',
-      ['HP No', 'Customer', 'Status', 'Principal', 'Payable', 'Collected', 'Outstanding'],
+      ['HP No', 'Customer', 'Branch point', 'Status', 'Principal', 'Payable', 'Collected', 'Outstanding'],
       rows.map((r) => [
         r.hp_number ?? r.loan_number,
         r.customer_name,
+        r.branch_point ?? '',
         STATUS_LABELS[r.status] ?? r.status,
         r.principal,
         r.payable,
@@ -131,6 +151,29 @@ export function HpOutstandingTab() {
                   autoComplete="off"
                 />
               </Box>
+              {branchOptions.length > 0 && (
+                <Box sx={{ minWidth: 180 }}>
+                  <Input
+                    select
+                    id="hpo-branch"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    slotProps={{
+                      select: {
+                        displayEmpty: true,
+                        renderValue: (v) => (v ? String(v) : 'All branch points'),
+                      },
+                    }}
+                  >
+                    <MenuItem value="">All branch points</MenuItem>
+                    {branchOptions.map((b) => (
+                      <MenuItem key={b} value={b}>
+                        {b}
+                      </MenuItem>
+                    ))}
+                  </Input>
+                </Box>
+              )}
               <Typography variant="body2" color="text.secondary">
                 {rows.length} of {report.results.length} finances
               </Typography>
@@ -148,12 +191,13 @@ export function HpOutstandingTab() {
                 <TableContainer sx={{ overflowX: 'auto' }}>
                   <Table
                     size="small"
-                    sx={{ minWidth: 860, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+                    sx={{ minWidth: 980, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
                   >
                     <TableHead>
                       <TableRow>
                         <SortableTh field="hp" label="HP No" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
                         <SortableTh field="customer" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
+                        <SortableTh field="branch" label="Branch point" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
                         <SortableTh field="status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
                         <SortableTh field="principal" label="Principal" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
                         <SortableTh field="payable" label="Payable" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
@@ -179,6 +223,7 @@ export function HpOutstandingTab() {
                               {r.customer_name}
                             </Typography>
                           </TableCell>
+                          <TableCell>{r.branch_point ?? '—'}</TableCell>
                           <TableCell>{STATUS_LABELS[r.status] ?? r.status}</TableCell>
                           <TableCell align="right">{inr(r.principal)}</TableCell>
                           <TableCell align="right">{inr(r.payable)}</TableCell>
@@ -192,6 +237,7 @@ export function HpOutstandingTab() {
                       ))}
                       <TableRow sx={{ bgcolor: 'action.hover' }}>
                         <TableCell sx={{ fontWeight: 700 }}>TOTAL</TableCell>
+                        <TableCell />
                         <TableCell />
                         <TableCell />
                         <TableCell align="right" sx={{ fontWeight: 700 }}>
