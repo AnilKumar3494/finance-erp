@@ -9,6 +9,7 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableRow from '@mui/material/TableRow'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 
 import { usePnl } from '@/api/queries/reports'
@@ -17,6 +18,7 @@ import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { downloadCsv } from '../csvExport'
 import { downloadStatementPdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
@@ -43,6 +45,23 @@ export function PnlTab() {
 
   const query = usePnl(iso(from), iso(to), !rangeError)
   const report = query.data
+
+  const exportCsv = () =>
+    report &&
+    downloadCsv(
+      `profit_and_loss_${report.date1}_${report.date2}.csv`,
+      ['Section', 'Item', 'Amount'],
+      [
+        ['Income', 'Interest earned on collections', report.interest_received],
+        ['Income', 'Other income', report.other_income],
+        ['Income', 'Total income', report.total_income],
+        ...report.expenses_by_category.map(
+          (e) => ['Expenses', e.category ?? 'Uncategorised', e.amount] as const,
+        ),
+        ['Expenses', 'Total expenses', report.total_expenses],
+        ['Net profit', 'Net profit for the period', report.net_profit],
+      ],
+    )
 
   const exportPdf = () =>
     report &&
@@ -106,6 +125,14 @@ export function PnlTab() {
             slotProps={{ textField: { id: 'pnl-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        <Btn
+          variant="ghost"
+          startIcon={<FileDownloadOutlinedIcon />}
+          disabled={!report}
+          onClick={exportCsv}
+        >
+          Export CSV
+        </Btn>
         <Btn
           variant="ghost"
           startIcon={<PictureAsPdfOutlinedIcon />}

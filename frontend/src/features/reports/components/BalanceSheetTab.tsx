@@ -6,12 +6,14 @@ import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableRow from '@mui/material/TableRow'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 
 import { useBalanceSheet, type BalanceSheetReport } from '@/api/queries/reports'
 import { Btn, Card } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
+import { downloadCsv } from '../csvExport'
 import { downloadStatementPdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
@@ -38,6 +40,32 @@ function Line({
         {inr(value)}
       </TableCell>
     </TableRow>
+  )
+}
+
+function exportCsv(report: BalanceSheetReport) {
+  downloadCsv(
+    `balance_sheet_${report.as_of}.csv`,
+    ['Section', 'Item', 'Amount'],
+    [
+      ['Assets', 'Cash in hand', report.cash_in_hand],
+      ['Assets', 'HP receivable - principal', report.receivable_principal],
+      ['Assets', 'HP receivable - unearned interest', report.unearned_interest],
+      ['Assets', 'HP receivable (total outstanding)', report.receivable_total],
+      ['Assets', 'Total assets', report.total_assets],
+      ['Funded by', 'Capital introduced', report.capital_in],
+      ['Funded by', 'Capital withdrawn', report.capital_out],
+      ['Funded by', 'Capital (net)', report.capital_net],
+      ['Funded by', 'Interest earned to date', report.interest_earned],
+      ['Funded by', 'Other income to date', report.other_income],
+      ['Funded by', 'Expenses to date', report.expenses],
+      ['Funded by', 'Bad debt written off', report.bad_debt_written_off],
+      ['Funded by', 'Retained earnings', report.retained_earnings],
+      ['Funded by', 'Down payments received', report.down_payments_received],
+      ['Funded by', 'Unearned interest (in receivables)', report.unearned_interest],
+      ['Funded by', 'Total funded', report.total_funded],
+      ['Funded by', 'Unreconciled difference', report.difference],
+    ],
   )
 }
 
@@ -106,6 +134,14 @@ export function BalanceSheetTab() {
             <Typography variant="body2" color="text.secondary">
               As of {fmtDate(report.as_of)} · {report.open_loans} open finances
             </Typography>
+            <Btn
+              variant="ghost"
+              size="sm"
+              startIcon={<FileDownloadOutlinedIcon />}
+              onClick={() => exportCsv(report)}
+            >
+              Export CSV
+            </Btn>
             <Btn
               variant="ghost"
               size="sm"

@@ -10,6 +10,7 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -21,6 +22,7 @@ import { toggleSort, useClientSort, type SortState } from '@/components/sort/use
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
@@ -67,6 +69,19 @@ export function ReceivedInterestTab() {
     sort.sort_order,
     RI_ACCESSORS,
   )
+
+  const exportCsv = () =>
+    downloadCsv(
+      `received_interest_${iso(from)}_${iso(to)}.csv`,
+      ['HP No', 'Customer', 'Payments', 'Amount paid', 'Received interest'],
+      rows.map((r) => [
+        r.hp_number ?? r.loan_number,
+        r.customer_name,
+        r.transaction_count,
+        r.amount_paid,
+        r.received_interest,
+      ]),
+    )
 
   const exportPdf = () =>
     report &&
@@ -125,6 +140,14 @@ export function ReceivedInterestTab() {
             slotProps={{ textField: { id: 'ri-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        <Btn
+          variant="ghost"
+          startIcon={<FileDownloadOutlinedIcon />}
+          disabled={!report || report.results.length === 0}
+          onClick={exportCsv}
+        >
+          Export CSV
+        </Btn>
         <Btn
           variant="ghost"
           startIcon={<PictureAsPdfOutlinedIcon />}
