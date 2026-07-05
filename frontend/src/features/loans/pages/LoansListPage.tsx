@@ -21,7 +21,9 @@ import {
   type SortOrder,
 } from '@/api/queries/loans'
 import { useCustomer } from '@/api/queries/customers'
+import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
@@ -94,11 +96,14 @@ export function LoansListPage() {
     page,
     status,
     customer_id,
+    assigned_to,
     search: searchTerm,
     sort_by,
     sort_order,
   } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const setSort = (next: { sort_by: LoanSortField; sort_order: SortOrder }) =>
     navigate({
@@ -146,6 +151,7 @@ export function LoansListPage() {
     page_size: PAGE_SIZE,
     status,
     customer_id,
+    assigned_employee_id: assigned_to,
     search: searchTerm,
     include: 'customer,vehicle',
     sort_by,
@@ -167,8 +173,11 @@ export function LoansListPage() {
   const clearCustomer = () =>
     navigate({ search: (prev) => ({ ...prev, page: 1, customer_id: undefined }) })
 
+  const setAssignedTo = (next: string | undefined) =>
+    navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }) })
+
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+    <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* Responsive toolbar. On mobile the controls reorder to:
           search → New finance → filter chips → sort. On sm+ it's a single row
           (title · search · sort · new finance) with the chips below. */}
@@ -203,7 +212,7 @@ export function LoansListPage() {
           />
         </Box>
 
-        <Box sx={{ order: { xs: 2, sm: 3 }, width: { xs: '100%', sm: 'auto' } }}>
+        <Box sx={{ order: { xs: 2, sm: 4 }, width: { xs: '100%', sm: 'auto' } }}>
           <Btn
             variant="primary"
             startIcon={<AddIcon />}
@@ -218,7 +227,13 @@ export function LoansListPage() {
           <SortSelect options={SORT_OPTIONS} sort_by={sort_by} sort_order={sort_order} onChange={setSort} />
         </Box>
 
-        <Box sx={{ order: { xs: 3, sm: 4 }, width: '100%' }}>
+        {isAdmin && (
+          <Box sx={{ order: { xs: 5, sm: 3 }, width: { xs: '100%', sm: 'auto' } }}>
+            <AssignedToSelect value={assigned_to} onChange={setAssignedTo} />
+          </Box>
+        )}
+
+        <Box sx={{ order: { xs: 3, sm: 5 }, width: '100%' }}>
           {customer_id && (
             <Box sx={{ mb: 2 }}>
               <Chip
@@ -270,7 +285,7 @@ export function LoansListPage() {
         <>
           {rows.length === 0 ? (
             <EmptyState
-              filtered={!!status || !!customer_id || !!searchTerm}
+              filtered={!!status || !!customer_id || !!assigned_to || !!searchTerm}
               onCreate={goToCreate}
             />
           ) : (

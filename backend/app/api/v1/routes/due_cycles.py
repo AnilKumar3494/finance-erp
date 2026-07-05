@@ -87,6 +87,13 @@ def _propagate_punctuality_to_transactions(
 )
 def worklist(
     cycle_status: Optional[CycleStatus] = Query(None, alias="status"),
+    assigned_employee_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Filter by the customer's assigned employee. "
+            "Ignored for EMPLOYEE callers, who are always scoped to themselves."
+        ),
+    ),
     due_before: Optional[date] = Query(None),
     due_after: Optional[date] = Query(None),
     unpaid_only: bool = Query(False),
@@ -101,9 +108,12 @@ def worklist(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # EMPLOYEE sees only their assigned customers' cycles; admins see all.
+    # EMPLOYEE sees only their assigned customers' cycles; admins see all and
+    # may narrow to one employee via assigned_employee_id.
     scope = (
-        current_user.id if current_user.role == UserRole.EMPLOYEE else None
+        current_user.id
+        if current_user.role == UserRole.EMPLOYEE
+        else assigned_employee_id
     )
     rows, total = list_cycles_worklist(
         db,

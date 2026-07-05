@@ -424,7 +424,7 @@ function FieldGrid({ children }: { children: ReactNode }) {
 }
 
 // --------------------------------------------------
-// Danger zone — admin-only delete
+// Admin-only delete (red-outlined card)
 // --------------------------------------------------
 
 function DangerZoneCard({ customer }: { customer: CustomerResponse }) {
@@ -463,15 +463,10 @@ function DangerZoneCard({ customer }: { customer: CustomerResponse }) {
   return (
     <Card sx={{ borderColor: 'error.main' }}>
       <Stack spacing={2} sx={{ alignItems: 'flex-start' }}>
-        <Box>
-          <Typography variant="h3" sx={{ color: 'error.main' }}>
-            Danger zone
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Archiving removes this customer from lists and searches. Any active
-            loan must be settled first.
-          </Typography>
-        </Box>
+        <Typography variant="body2" color="text.secondary">
+          Archiving removes this customer from lists and searches. Any active
+          loan must be settled first.
+        </Typography>
         <Btn variant="danger" onClick={openDialog}>
           Archive customer
         </Btn>
