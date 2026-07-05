@@ -10,6 +10,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import MenuItem from '@mui/material/MenuItem'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpOutstanding, type HpOutstandingRow } from '@/api/queries/reports'
@@ -20,6 +21,7 @@ import { fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
+import { downloadTablePdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -121,6 +123,51 @@ export function HpOutstandingTab() {
       ]),
     )
 
+  const exportPdf = () =>
+    downloadTablePdf({
+      filename: 'HP_Outstanding.pdf',
+      title: 'HP Outstanding',
+      subtitle: [
+        `${rows.length} of ${report?.total_loans ?? rows.length} open finances`,
+        branch && `Branch point: ${branch}`,
+        search.trim() && `Search: "${search.trim()}"`,
+      ]
+        .filter(Boolean)
+        .join('  ·  '),
+      orientation: 'landscape',
+      columns: [
+        { header: 'HP No', width: 0.12 },
+        { header: 'Customer', width: 0.24 },
+        { header: 'Branch point', width: 0.12 },
+        { header: 'Status', width: 0.1 },
+        { header: 'Principal', width: 0.105, align: 'right' },
+        { header: 'Payable', width: 0.105, align: 'right' },
+        { header: 'Collected', width: 0.105, align: 'right' },
+        { header: 'Outstanding', width: 0.105, align: 'right' },
+      ],
+      rows: rows.map((r) => [
+        r.hp_number ?? r.loan_number,
+        r.customer_name,
+        r.branch_point ?? '—',
+        STATUS_LABELS[r.status] ?? r.status,
+        pdfINR(r.principal),
+        pdfINR(r.payable),
+        pdfINR(r.collected),
+        pdfINR(r.outstanding),
+      ]),
+      totals: [
+        'TOTAL',
+        '',
+        '',
+        '',
+        pdfINR(sums.principal),
+        pdfINR(sums.payable),
+        pdfINR(sums.collected),
+        pdfINR(sums.outstanding),
+      ],
+      note: 'Totals cover the rows in this document (the filters above), not the whole portfolio.',
+    })
+
   return (
     <Stack spacing={3}>
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
@@ -179,6 +226,9 @@ export function HpOutstandingTab() {
               </Typography>
               <Btn variant="ghost" startIcon={<FileDownloadOutlinedIcon />} onClick={exportCsv}>
                 Export CSV
+              </Btn>
+              <Btn variant="ghost" startIcon={<PictureAsPdfOutlinedIcon />} onClick={exportPdf}>
+                Download PDF
               </Btn>
             </Stack>
 

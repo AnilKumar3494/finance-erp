@@ -6,11 +6,13 @@ import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableRow from '@mui/material/TableRow'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 
-import { useBalanceSheet } from '@/api/queries/reports'
-import { Card } from '@/components/primitives'
+import { useBalanceSheet, type BalanceSheetReport } from '@/api/queries/reports'
+import { Btn, Card } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
+import { downloadStatementPdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
 // Render a stored-positive figure as the deduction it is in the statement.
@@ -39,6 +41,50 @@ function Line({
   )
 }
 
+function exportPdf(report: BalanceSheetReport) {
+  downloadStatementPdf({
+    filename: `Balance_Sheet_${report.as_of}.pdf`,
+    title: 'Balance Sheet',
+    subtitle: `As of ${fmtDate(report.as_of)}  ·  ${report.open_loans} open finances`,
+    sections: [
+      {
+        heading: 'ASSETS',
+        lines: [
+          { label: 'Cash in hand', value: pdfINR(report.cash_in_hand) },
+          { label: 'HP receivable — principal', value: pdfINR(report.receivable_principal), indent: true },
+          { label: 'HP receivable — unearned interest', value: pdfINR(report.unearned_interest), indent: true },
+          { label: 'HP receivable (total outstanding)', value: pdfINR(report.receivable_total) },
+          { label: 'TOTAL ASSETS', value: pdfINR(report.total_assets), bold: true },
+        ],
+      },
+      {
+        heading: 'FUNDED BY',
+        lines: [
+          { label: 'Capital introduced', value: pdfINR(report.capital_in), indent: true },
+          { label: 'Less: capital withdrawn', value: pdfINR(-Number(report.capital_out)), indent: true },
+          { label: 'Capital (net)', value: pdfINR(report.capital_net) },
+          { label: 'Interest earned to date', value: pdfINR(report.interest_earned), indent: true },
+          { label: 'Other income to date', value: pdfINR(report.other_income), indent: true },
+          { label: 'Less: expenses to date', value: pdfINR(-Number(report.expenses)), indent: true },
+          { label: 'Less: bad debt written off', value: pdfINR(-Number(report.bad_debt_written_off)), indent: true },
+          { label: 'Retained earnings', value: pdfINR(report.retained_earnings) },
+          { label: 'Down payments received', value: pdfINR(report.down_payments_received) },
+          { label: 'Unearned interest (in receivables)', value: pdfINR(report.unearned_interest) },
+          { label: 'TOTAL', value: pdfINR(report.total_funded), bold: true },
+          ...(Number(report.difference) !== 0
+            ? [{ label: 'Unreconciled difference', value: pdfINR(report.difference) }]
+            : []),
+        ],
+      },
+    ],
+    note:
+      'Cash in hand is the running cash-book position: collections, capital, and other income minus ' +
+      'finance disbursed, expenses, and withdrawals — since the first record. Receivables split each ' +
+      'open finance’s outstanding into principal and unearned interest by its flat-rate share. The ' +
+      'unreconciled difference is per-payment rounding and waived cycles, kept visible on purpose.',
+  })
+}
+
 /**
  * Balance Sheet — the as-of-today position. Assets (cash + HP receivables)
  * against how they are funded (capital, retained earnings, down payments,
@@ -56,9 +102,19 @@ export function BalanceSheetTab() {
     <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
       {report && (
         <Stack spacing={3}>
-          <Typography variant="body2" color="text.secondary">
-            As of {fmtDate(report.as_of)} · {report.open_loans} open finances
-          </Typography>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              As of {fmtDate(report.as_of)} · {report.open_loans} open finances
+            </Typography>
+            <Btn
+              variant="ghost"
+              size="sm"
+              startIcon={<PictureAsPdfOutlinedIcon />}
+              onClick={() => exportPdf(report)}
+            >
+              Download PDF
+            </Btn>
+          </Stack>
 
           <Box
             sx={{

@@ -9,6 +9,7 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpRegister, type HpRegisterRow } from '@/api/queries/reports'
@@ -19,6 +20,7 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
+import { downloadTablePdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -106,6 +108,45 @@ export function HpRegisterTab() {
       ]),
     )
 
+  const exportPdf = () =>
+    downloadTablePdf({
+      filename: 'HP_Register.pdf',
+      title: 'HP Register',
+      subtitle: [
+        `${rows.length} of ${report?.total_loans ?? rows.length} finances`,
+        search.trim() && `Search: "${search.trim()}"`,
+      ]
+        .filter(Boolean)
+        .join('  ·  '),
+      orientation: 'landscape',
+      columns: [
+        { header: 'HP No', width: 0.1 },
+        { header: 'Customer', width: 0.2 },
+        { header: 'Mobile', width: 0.09 },
+        { header: 'Vehicle', width: 0.09 },
+        { header: 'Approved', width: 0.09 },
+        { header: 'Principal', width: 0.1, align: 'right' },
+        { header: 'Rate %', width: 0.06, align: 'right' },
+        { header: 'Tenure', width: 0.06, align: 'right' },
+        { header: 'Total payable', width: 0.11, align: 'right' },
+        { header: 'Status', width: 0.1 },
+      ],
+      rows: rows.map((r) => [
+        r.hp_number ?? r.loan_number,
+        r.customer_name,
+        r.customer_mobile,
+        r.vehicle_plate ?? '—',
+        r.approval_date ? fmtDate(r.approval_date) : '—',
+        pdfINR(r.principal),
+        r.interest_rate ?? '—',
+        r.tenure != null ? `${r.tenure} mo` : '—',
+        pdfINR(r.total_payable),
+        STATUS_LABELS[r.status] ?? r.status,
+      ]),
+      totals: ['TOTAL', '', '', '', '', pdfINR(sums.principal), '', '', pdfINR(sums.payable), ''],
+      note: 'Totals cover the rows in this document (the filters above), not the whole register.',
+    })
+
   return (
     <Stack spacing={3}>
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
@@ -132,6 +173,9 @@ export function HpRegisterTab() {
               </Typography>
               <Btn variant="ghost" startIcon={<FileDownloadOutlinedIcon />} onClick={exportCsv}>
                 Export CSV
+              </Btn>
+              <Btn variant="ghost" startIcon={<PictureAsPdfOutlinedIcon />} onClick={exportPdf}>
+                Download PDF
               </Btn>
             </Stack>
 

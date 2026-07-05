@@ -10,16 +10,18 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useReceivedInterest, type ReceivedInterestRow } from '@/api/queries/reports'
-import { Card, ErrorBanner } from '@/components/primitives'
+import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
-import { fmtINR } from '@/lib/format'
+import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { downloadTablePdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
 const iso = (d: Dayjs) => d.format('YYYY-MM-DD')
@@ -66,6 +68,36 @@ export function ReceivedInterestTab() {
     RI_ACCESSORS,
   )
 
+  const exportPdf = () =>
+    report &&
+    downloadTablePdf({
+      filename: `Received_Interest_${iso(from)}_${iso(to)}.pdf`,
+      title: 'Received Interest',
+      subtitle: `${fmtDate(report.date1)} — ${fmtDate(report.date2)}  ·  ${report.results.length} finances paid`,
+      columns: [
+        { header: 'HP No', width: 0.16 },
+        { header: 'Customer', width: 0.38 },
+        { header: 'Payments', width: 0.1, align: 'right' },
+        { header: 'Amount paid', width: 0.18, align: 'right' },
+        { header: 'Received interest', width: 0.18, align: 'right' },
+      ],
+      rows: rows.map((r) => [
+        r.hp_number ?? r.loan_number,
+        r.customer_name,
+        String(r.transaction_count),
+        pdfINR(r.amount_paid),
+        pdfINR(r.received_interest),
+      ]),
+      totals: [
+        'TOTAL',
+        '',
+        '',
+        pdfINR(report.total_amount_paid),
+        pdfINR(report.total_received_interest),
+      ],
+      note: 'Received interest is the flat-rate interest share of each finance’s EMI collections dated in this period.',
+    })
+
   return (
     <Stack spacing={3}>
       <Stack
@@ -93,6 +125,14 @@ export function ReceivedInterestTab() {
             slotProps={{ textField: { id: 'ri-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        <Btn
+          variant="ghost"
+          startIcon={<PictureAsPdfOutlinedIcon />}
+          disabled={!report || report.results.length === 0}
+          onClick={exportPdf}
+        >
+          Download PDF
+        </Btn>
       </Stack>
 
       {rangeError && <ErrorBanner message={rangeError} />}

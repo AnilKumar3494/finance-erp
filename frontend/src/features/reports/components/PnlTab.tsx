@@ -9,13 +9,15 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableRow from '@mui/material/TableRow'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 
 import { usePnl } from '@/api/queries/reports'
-import { Card, ErrorBanner } from '@/components/primitives'
+import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
-import { fmtINR } from '@/lib/format'
+import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { downloadStatementPdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
 const iso = (d: Dayjs) => d.format('YYYY-MM-DD')
@@ -42,6 +44,45 @@ export function PnlTab() {
   const query = usePnl(iso(from), iso(to), !rangeError)
   const report = query.data
 
+  const exportPdf = () =>
+    report &&
+    downloadStatementPdf({
+      filename: `Profit_and_Loss_${report.date1}_${report.date2}.pdf`,
+      title: 'Profit & Loss',
+      subtitle: `${fmtDate(report.date1)} — ${fmtDate(report.date2)}`,
+      sections: [
+        {
+          heading: 'INCOME',
+          lines: [
+            { label: 'Interest earned on collections', value: pdfINR(report.interest_received), indent: true },
+            { label: 'Other income', value: pdfINR(report.other_income), indent: true },
+            { label: 'Total income', value: pdfINR(report.total_income), bold: true },
+          ],
+        },
+        {
+          heading: 'EXPENSES',
+          lines: [
+            ...(report.expenses_by_category.length === 0
+              ? [{ label: 'No expenses recorded in this period.', value: '', indent: true }]
+              : report.expenses_by_category.map((e) => ({
+                  label: e.category ?? 'Uncategorised',
+                  value: pdfINR(e.amount),
+                  indent: true,
+                }))),
+            { label: 'Total expenses', value: pdfINR(report.total_expenses), bold: true },
+          ],
+        },
+        {
+          heading: 'NET PROFIT',
+          lines: [{ label: 'Net profit for the period', value: pdfINR(report.net_profit), bold: true }],
+        },
+      ],
+      note:
+        'Interest earned is the flat-rate interest share of EMI collections dated in this period. ' +
+        'Other income and expenses come from the Capital & Expenses ledger. Capital in/out and down ' +
+        'payments are balance-sheet items, not earnings.',
+    })
+
   return (
     <Stack spacing={3}>
       <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', gap: 2, alignItems: 'flex-end' }}>
@@ -65,6 +106,14 @@ export function PnlTab() {
             slotProps={{ textField: { id: 'pnl-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        <Btn
+          variant="ghost"
+          startIcon={<PictureAsPdfOutlinedIcon />}
+          disabled={!report}
+          onClick={exportPdf}
+        >
+          Download PDF
+        </Btn>
       </Stack>
 
       {rangeError && <ErrorBanner message={rangeError} />}

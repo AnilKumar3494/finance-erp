@@ -9,6 +9,7 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpReceivable, type HpReceivableRow } from '@/api/queries/reports'
@@ -19,6 +20,7 @@ import { fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
+import { downloadTablePdf, pdfINR } from '../reportPdf'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -85,6 +87,32 @@ export function HpReceivableTab() {
       ]),
     )
 
+  const exportPdf = () =>
+    downloadTablePdf({
+      filename: 'Receivable_Interest.pdf',
+      title: 'Receivable Interest',
+      subtitle: [
+        `${rows.length} of ${report?.total_loans ?? rows.length} open finances`,
+        search.trim() && `Search: "${search.trim()}"`,
+      ]
+        .filter(Boolean)
+        .join('  ·  '),
+      columns: [
+        { header: 'HP No', width: 0.18 },
+        { header: 'Customer', width: 0.42 },
+        { header: 'Outstanding', width: 0.2, align: 'right' },
+        { header: 'Receivable interest', width: 0.2, align: 'right' },
+      ],
+      rows: rows.map((r) => [
+        r.hp_number ?? r.loan_number,
+        r.customer_name,
+        pdfINR(r.outstanding),
+        pdfINR(r.receivable_interest),
+      ]),
+      totals: ['TOTAL', '', pdfINR(sums.outstanding), pdfINR(sums.receivable)],
+      note: 'Receivable interest is each finance’s outstanding balance times its flat-rate interest share. Totals cover the rows in this document.',
+    })
+
   return (
     <Stack spacing={3}>
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
@@ -120,6 +148,9 @@ export function HpReceivableTab() {
               </Typography>
               <Btn variant="ghost" startIcon={<FileDownloadOutlinedIcon />} onClick={exportCsv}>
                 Export CSV
+              </Btn>
+              <Btn variant="ghost" startIcon={<PictureAsPdfOutlinedIcon />} onClick={exportPdf}>
+                Download PDF
               </Btn>
             </Stack>
 
