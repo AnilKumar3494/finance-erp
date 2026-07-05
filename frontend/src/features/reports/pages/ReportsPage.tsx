@@ -13,6 +13,7 @@ import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
 import AccountBalanceOutlined from '@mui/icons-material/AccountBalanceOutlined'
 import HourglassBottomOutlined from '@mui/icons-material/HourglassBottomOutlined'
 import MenuBookOutlined from '@mui/icons-material/MenuBookOutlined'
+import SavingsOutlined from '@mui/icons-material/SavingsOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 import { useAuth } from '@/app/auth-context'
@@ -28,6 +29,7 @@ import { ReceivedInterestTab } from '../components/ReceivedInterestTab'
 import { HpOutstandingTab } from '../components/HpOutstandingTab'
 import { HpReceivableTab } from '../components/HpReceivableTab'
 import { HpRegisterTab } from '../components/HpRegisterTab'
+import { CapitalExpensesTab } from '../components/CapitalExpensesTab'
 
 const routeApi = getRouteApi('/_authed/reports')
 
@@ -66,6 +68,18 @@ const REPORT_SECTIONS: ReportSection[] = [
         label: 'Collections',
         description: 'Daily or monthly collection totals split by payment mode.',
         icon: PaymentsOutlined,
+      },
+    ],
+  },
+  {
+    title: 'Capital & expenses',
+    tiles: [
+      {
+        tab: 'cashbook',
+        label: 'Capital & Expenses',
+        description:
+          'Record capital in/out, income, and expenses — feeds the Day Report position.',
+        icon: SavingsOutlined,
       },
     ],
   },
@@ -139,6 +153,7 @@ const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.React
   outstanding: { title: 'HP Outstanding', render: () => <HpOutstandingTab /> },
   receivable: { title: 'Receivable Interest', render: () => <HpReceivableTab /> },
   register: { title: 'HP Register', render: () => <HpRegisterTab /> },
+  cashbook: { title: 'Capital & Expenses', render: () => <CapitalExpensesTab /> },
 }
 
 export function ReportsPage() {

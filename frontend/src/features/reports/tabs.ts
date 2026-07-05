@@ -12,5 +12,6 @@ export const REPORT_TABS = [
   'outstanding',
   'receivable',
   'register',
+  'cashbook',
 ] as const
 export type ReportTab = (typeof REPORT_TABS)[number]

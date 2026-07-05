@@ -174,29 +174,46 @@ class DayReportPayment(BaseModel):
     amount: Decimal
 
 
+class DayReportEntry(BaseModel):
+    """A capital/expense cash entry appearing in the day book."""
+
+    entry_id: uuid.UUID
+    entry_type: str   # CAPITAL_IN | OTHER_INCOME | EXPENSE | CAPITAL_OUT
+    category: str | None
+    notes: str | None
+    amount: Decimal
+
+
 class DayReportDay(BaseModel):
     date: date_type
     opening_balance: Decimal
     closing_balance: Decimal
+    # Include the cash entries (entries_in / entries_out), not just loan money.
     total_receipts: Decimal
     total_payments: Decimal
     emi_collection: Decimal
     down_payments: Decimal
     receipts: list[DayReportReceipt]
     payments: list[DayReportPayment]
+    entries_in: list[DayReportEntry]
+    entries_out: list[DayReportEntry]
 
 
 class DayReport(BaseModel):
     date1: date_type
     date2: date_type
-    # Net collections-minus-disbursements position — the system doesn't track
-    # expenses/capital, so this is a cash-movement rollup, not a bank balance.
+    # Rolling cash-book position: collections + capital/other income −
+    # disbursements − expenses/withdrawals, cumulative since first record.
     opening_balance: Decimal
     closing_balance: Decimal
     total_receipts: Decimal
     total_payments: Decimal
     total_emi_collection: Decimal
     total_down_payments: Decimal
+    total_capital_in: Decimal
+    total_other_income: Decimal
+    total_expenses: Decimal
+    total_capital_out: Decimal
     cash: Decimal
     gpay: Decimal
     phonepe: Decimal

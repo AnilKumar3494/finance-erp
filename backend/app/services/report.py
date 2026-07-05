@@ -32,8 +32,10 @@ from app.models.transaction import (
     TransactionStatus,
     TransactionType,
 )
+from app.models.cash_entry import CASH_IN_TYPES, CashEntryType
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.services.cash_entry import cash_entries_in_range, cash_entry_net_before
 from app.services.finance import total_payable as calc_total_payable
 from app.utils.time import today_in_tz
 
@@ -839,11 +841,9 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
 def _cash_position_before(db: Session, day: date) -> Decimal:
     """
     Net cash position from system-tracked money movements strictly before `day`:
-    all SUCCESS receipts (REGULAR EMIs + DOWN_PAYMENTs) minus all loan
-    disbursements (principal of loans approved before `day`).
-
-    This is a collections-vs-disbursements position, not a full accounting
-    balance — the system does not track expenses, capital, or bank ledgers.
+    all SUCCESS receipts (REGULAR EMIs + DOWN_PAYMENTs) plus net capital &
+    expense entries (cash_entries), minus all loan disbursements (principal of
+    loans approved before `day`).
     """
     receipts = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
@@ -865,7 +865,7 @@ def _cash_position_before(db: Session, day: date) -> Decimal:
         )
         .scalar()
     )
-    return _d(receipts) - _d(disbursed)
+    return _d(receipts) - _d(disbursed) + cash_entry_net_before(db, day)
 
 
 def get_day_report(db: Session, date1: date, date2: date) -> dict:
@@ -875,8 +875,10 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
 
     Receipts   = SUCCESS transactions bucketed on effective_payment_date
                  (REGULAR EMIs and DOWN_PAYMENTs both count — a cash book
-                 tracks money in, not just EMI collection).
-    Payments   = loan disbursements (principal) bucketed on approval_date.
+                 tracks money in, not just EMI collection), plus CAPITAL_IN /
+                 OTHER_INCOME cash entries on entry_date.
+    Payments   = loan disbursements (principal) bucketed on approval_date,
+                 plus EXPENSE / CAPITAL_OUT cash entries on entry_date.
     Balances   roll forward day to day: closing(d) = opening(d) + receipts(d)
                  − payments(d); opening(date1) is the all-time net position
                  before date1 (see _cash_position_before).
@@ -945,6 +947,21 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
             }
         )
 
+    # Capital & expense entries — the non-loan side of the cash book.
+    entries_in_by_day: dict[date, list] = {}
+    entries_out_by_day: dict[date, list] = {}
+    for e in cash_entries_in_range(db, date1, date2):
+        bucket = entries_in_by_day if e.entry_type in CASH_IN_TYPES else entries_out_by_day
+        bucket.setdefault(e.entry_date, []).append(
+            {
+                "entry_id": e.id,
+                "entry_type": e.entry_type,
+                "category": e.category,
+                "notes": e.notes,
+                "amount": _d(e.amount),
+            }
+        )
+
     opening = _cash_position_before(db, date1)
 
     days = []
@@ -956,13 +973,27 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         "payments": _ZERO,
         "emi": _ZERO,
         "down_payments": _ZERO,
+        "capital_in": _ZERO,
+        "other_income": _ZERO,
+        "expenses": _ZERO,
+        "capital_out": _ZERO,
     }
 
-    for day in sorted(set(receipts_by_day) | set(payments_by_day)):
+    active_days = (
+        set(receipts_by_day)
+        | set(payments_by_day)
+        | set(entries_in_by_day)
+        | set(entries_out_by_day)
+    )
+    for day in sorted(active_days):
         receipts = receipts_by_day.get(day, [])
         payments = payments_by_day.get(day, [])
-        day_receipts = sum((r["amount"] for r in receipts), _ZERO)
-        day_payments = sum((p["amount"] for p in payments), _ZERO)
+        entries_in = entries_in_by_day.get(day, [])
+        entries_out = entries_out_by_day.get(day, [])
+        day_entries_in = sum((e["amount"] for e in entries_in), _ZERO)
+        day_entries_out = sum((e["amount"] for e in entries_out), _ZERO)
+        day_receipts = sum((r["amount"] for r in receipts), _ZERO) + day_entries_in
+        day_payments = sum((p["amount"] for p in payments), _ZERO) + day_entries_out
         day_emi = sum(
             (
                 r["amount"]
@@ -975,13 +1006,19 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
             mode = r["payment_mode"]
             key = mode.value.lower() if mode in _BREAKDOWN_MODES else "other"
             mode_totals[key] += r["amount"]
+        for e in entries_in:
+            key = "capital_in" if e["entry_type"] == CashEntryType.CAPITAL_IN else "other_income"
+            grand[key] += e["amount"]
+        for e in entries_out:
+            key = "expenses" if e["entry_type"] == CashEntryType.EXPENSE else "capital_out"
+            grand[key] += e["amount"]
 
         day_opening = balance
         balance = day_opening + day_receipts - day_payments
         grand["receipts"] += day_receipts
         grand["payments"] += day_payments
         grand["emi"] += day_emi
-        grand["down_payments"] += day_receipts - day_emi
+        grand["down_payments"] += day_receipts - day_entries_in - day_emi
 
         days.append(
             {
@@ -991,9 +1028,11 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
                 "total_receipts": day_receipts,
                 "total_payments": day_payments,
                 "emi_collection": day_emi,
-                "down_payments": day_receipts - day_emi,
+                "down_payments": day_receipts - day_entries_in - day_emi,
                 "receipts": receipts,
                 "payments": payments,
+                "entries_in": entries_in,
+                "entries_out": entries_out,
             }
         )
 
@@ -1006,6 +1045,10 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         "total_payments": grand["payments"],
         "total_emi_collection": grand["emi"],
         "total_down_payments": grand["down_payments"],
+        "total_capital_in": grand["capital_in"],
+        "total_other_income": grand["other_income"],
+        "total_expenses": grand["expenses"],
+        "total_capital_out": grand["capital_out"],
         "cash": mode_totals["cash"],
         "gpay": mode_totals["gpay"],
         "phonepe": mode_totals["phonepe"],

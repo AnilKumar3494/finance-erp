@@ -137,29 +137,44 @@ export interface DayReportPayment {
   amount: string
 }
 
+export interface DayReportEntry {
+  entry_id: string
+  entry_type: 'CAPITAL_IN' | 'OTHER_INCOME' | 'EXPENSE' | 'CAPITAL_OUT'
+  category: string | null
+  notes: string | null
+  amount: string
+}
+
 export interface DayReportDay {
   date: string
   opening_balance: string
   closing_balance: string
+  // Totals include the capital/expense entries, not just loan money.
   total_receipts: string
   total_payments: string
   emi_collection: string
   down_payments: string
   receipts: DayReportReceipt[]
   payments: DayReportPayment[]
+  entries_in: DayReportEntry[]
+  entries_out: DayReportEntry[]
 }
 
 export interface DayReport {
   date1: string
   date2: string
-  // Net collections-minus-disbursements position, not a bank balance — the
-  // system doesn't track expenses or capital.
+  // Rolling cash-book position: collections + capital/other income −
+  // disbursements − expenses/withdrawals, cumulative since first record.
   opening_balance: string
   closing_balance: string
   total_receipts: string
   total_payments: string
   total_emi_collection: string
   total_down_payments: string
+  total_capital_in: string
+  total_other_income: string
+  total_expenses: string
+  total_capital_out: string
   cash: string
   gpay: string
   phonepe: string

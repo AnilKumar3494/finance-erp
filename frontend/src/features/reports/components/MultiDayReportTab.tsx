@@ -87,12 +87,13 @@ export function MultiDayReportTab() {
                   <KpiCard
                     label="Receipts"
                     value={inr(report.total_receipts)}
-                    hint={`EMI ${inr(report.total_emi_collection)} · Down ${inr(report.total_down_payments)}`}
+                    hint={`EMI ${inr(report.total_emi_collection)} · Down ${inr(report.total_down_payments)} · Capital+income ${fmtINR(Number(report.total_capital_in) + Number(report.total_other_income))}`}
                     accent="success.main"
                   />
                   <KpiCard
-                    label="Disbursed"
+                    label="Payments out"
                     value={inr(report.total_payments)}
+                    hint={`Financed ${fmtINR(Number(report.total_payments) - Number(report.total_expenses) - Number(report.total_capital_out))} · Expenses+withdrawals ${fmtINR(Number(report.total_expenses) + Number(report.total_capital_out))}`}
                     accent="error.main"
                   />
                   <KpiCard label="Opening position" value={inr(report.opening_balance)} />

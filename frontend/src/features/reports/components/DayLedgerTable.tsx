@@ -8,7 +8,8 @@ import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { useNavigate } from '@tanstack/react-router'
 
-import type { DayReportDay, DayReportReceipt } from '@/api/queries/reports'
+import type { DayReportDay, DayReportEntry, DayReportReceipt } from '@/api/queries/reports'
+import { CASH_ENTRY_TYPE_LABELS } from '@/api/queries/cashEntries'
 import { Card } from '@/components/primitives'
 import { fmtINR } from '@/lib/format'
 
@@ -32,6 +33,35 @@ function receiptDesc(r: DayReportReceipt): string {
         ? `EMI · cycle #${r.cycle_number}`
         : 'EMI'
   return `${kind} · ${MODE_LABELS[r.payment_mode] ?? r.payment_mode}`
+}
+
+// A capital/expense ledger row — no loan to click through to, so it renders
+// as a plain (non-clickable) row.
+function EntryRow({ entry, sno, direction }: { entry: DayReportEntry; sno: number; direction: 'in' | 'out' }) {
+  const label = CASH_ENTRY_TYPE_LABELS[entry.entry_type] ?? entry.entry_type
+  const amount = fmtINR(Number(entry.amount))
+  return (
+    <TableRow>
+      <TableCell>{sno}</TableCell>
+      <TableCell>
+        <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {entry.category ?? label}
+        </Typography>
+      </TableCell>
+      <TableCell>—</TableCell>
+      <TableCell>
+        {label}
+        {entry.notes ? ` · ${entry.notes}` : ''}
+      </TableCell>
+      <TableCell>—</TableCell>
+      <TableCell align="right" sx={direction === 'in' ? { fontWeight: 600, color: 'success.main' } : undefined}>
+        {direction === 'in' ? amount : '—'}
+      </TableCell>
+      <TableCell align="right" sx={direction === 'out' ? { fontWeight: 600, color: 'error.main' } : undefined}>
+        {direction === 'out' ? amount : '—'}
+      </TableCell>
+    </TableRow>
+  )
 }
 
 /**
@@ -99,6 +129,10 @@ export function DayLedgerTable({ day }: { day: DayReportDay }) {
               </TableRow>
             ))}
 
+            {day.entries_in.map((e) => (
+              <EntryRow key={e.entry_id} entry={e} sno={++sno} direction="in" />
+            ))}
+
             {day.payments.map((p) => (
               <TableRow
                 key={p.loan_id}
@@ -122,6 +156,10 @@ export function DayLedgerTable({ day }: { day: DayReportDay }) {
                   {inr(p.amount)}
                 </TableCell>
               </TableRow>
+            ))}
+
+            {day.entries_out.map((e) => (
+              <EntryRow key={e.entry_id} entry={e} sno={++sno} direction="out" />
             ))}
 
             <TableRow sx={{ bgcolor: 'action.hover' }}>
@@ -159,9 +197,9 @@ export function PositionNote() {
   return (
     <Box sx={{ mt: 1 }}>
       <Typography variant="caption" color="text.secondary">
-        Position = collections received − finance disbursed, cumulative since the first
-        record. Expenses and capital are not tracked here, so this is a cash-movement
-        rollup, not a bank balance.
+        Position = collections + capital &amp; other income − finance disbursed −
+        expenses &amp; withdrawals, cumulative since the first record. Record non-loan
+        movements under Reports → Capital &amp; Expenses.
       </Typography>
     </Box>
   )

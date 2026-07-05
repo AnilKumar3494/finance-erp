@@ -1,4 +1,5 @@
-import type { DayReport, DayReportDay } from '@/api/queries/reports'
+import type { DayReport, DayReportDay, DayReportEntry } from '@/api/queries/reports'
+import { CASH_ENTRY_TYPE_LABELS } from '@/api/queries/cashEntries'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { ORG_NAME } from '@/features/loans/branding'
 
@@ -41,6 +42,20 @@ function daySection(day: DayReportDay): string {
       </tr>`,
     )
     .join('')
+  const entryRow = (e: DayReportEntry, direction: 'in' | 'out') => {
+    const label = CASH_ENTRY_TYPE_LABELS[e.entry_type] ?? e.entry_type
+    return `<tr>
+        <td>${++sno}</td>
+        <td>${esc(e.category ?? label)}</td>
+        <td>—</td>
+        <td>${esc(label)}${e.notes ? ` · ${esc(e.notes)}` : ''}</td>
+        <td>—</td>
+        <td class="num pos">${direction === 'in' ? inr(e.amount) : '—'}</td>
+        <td class="num neg">${direction === 'out' ? inr(e.amount) : '—'}</td>
+      </tr>`
+  }
+  const entryInRows = day.entries_in.map((e) => entryRow(e, 'in')).join('')
+  const entryOutRows = day.entries_out.map((e) => entryRow(e, 'out')).join('')
 
   return `<section class="day">
     <h2>${fmtDate(day.date)}</h2>
@@ -51,7 +66,9 @@ function daySection(day: DayReportDay): string {
       <tbody>
         <tr class="hl"><td></td><td><b>OPENING POSITION</b></td><td>—</td><td>—</td><td>—</td><td class="num"><b>${inr(day.opening_balance)}</b></td><td class="num">—</td></tr>
         ${receiptRows}
+        ${entryInRows}
         ${paymentRows}
+        ${entryOutRows}
         <tr class="hl"><td></td><td><b>TOTAL</b></td><td colspan="3">EMI ${inr(day.emi_collection)} · Down payments ${inr(day.down_payments)}</td><td class="num pos"><b>${inr(day.total_receipts)}</b></td><td class="num neg"><b>${inr(day.total_payments)}</b></td></tr>
         <tr class="hl"><td></td><td><b>CLOSING POSITION</b></td><td colspan="3"></td><td class="num" colspan="2"><b>${inr(day.closing_balance)}</b></td></tr>
       </tbody>
@@ -98,9 +115,10 @@ export function printDayReport(report: DayReport): void {
   <div class="org">${esc(ORG_NAME)}</div>
   <h1>${esc(title)}</h1>
   <p class="sub">Opening ${inr(report.opening_balance)} · Receipts ${inr(report.total_receipts)} · Payments ${inr(report.total_payments)} · Closing ${inr(report.closing_balance)}<br/>
+  EMI ${inr(report.total_emi_collection)} · Down payments ${inr(report.total_down_payments)} · Capital in ${inr(report.total_capital_in)} · Other income ${inr(report.total_other_income)} · Expenses ${inr(report.total_expenses)} · Withdrawals ${inr(report.total_capital_out)}<br/>
   Modes: Cash ${inr(report.cash)} · GPay ${inr(report.gpay)} · PhonePe ${inr(report.phonepe)} · Bank ${inr(report.bank_transfer)} · Other ${inr(report.other)}</p>
   ${report.days.length === 0 ? '<p>No activity in this period.</p>' : report.days.map(daySection).join('')}
-  <p class="sub">Position = collections − disbursements (expenses/capital not tracked). Generated ${new Date().toLocaleString()}.</p>
+  <p class="sub">Position = collections + capital &amp; other income − disbursements − expenses &amp; withdrawals. Generated ${new Date().toLocaleString()}.</p>
 </body>
 </html>`
 
