@@ -1,4 +1,19 @@
-// Report tab keys, shared by the route's search schema and the page. Kept out
+// Report view keys, shared by the route's search schema and the page. Kept out
 // of the route module so the page doesn't import back from routes (cycle).
-export const REPORT_TABS = ['overview', 'collections', 'customers', 'employees'] as const
+// No `tab` in the URL renders the report-gallery landing grid.
+export const REPORT_TABS = [
+  'overview',
+  'collections',
+  'customers',
+  'employees',
+  'day',
+  'multiday',
+  'interest',
+  'outstanding',
+  'receivable',
+  'register',
+  'cashbook',
+  'pnl',
+  'balancesheet',
+] as const
 export type ReportTab = (typeof REPORT_TABS)[number]

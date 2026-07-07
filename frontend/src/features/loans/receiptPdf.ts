@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf'
 
 import type { LoanResponse } from '@/api/queries/loans'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
-import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
+import { fmtDate, fmtDateTime, fmtINRPdf } from '@/lib/format'
 import { ORG_NAME } from './branding'
 import { loanDisplayId } from './loanIdentity'
 import { PAYMENT_METHOD_LABELS } from './paymentMethodLabels'
@@ -78,7 +78,7 @@ export function downloadReceiptPdf({
   doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(110)
   doc.text('Amount received', left + 16, y + 22)
   doc.setFont('helvetica', 'bold').setFontSize(20).setTextColor(0)
-  doc.text(fmtINR(Number(txn.amount)), right - 16, y + 34, { align: 'right' })
+  doc.text(fmtINRPdf(txn.amount), right - 16, y + 34, { align: 'right' })
   y += 56 + 28
 
   // Details table (label / value rows)
@@ -88,7 +88,7 @@ export function downloadReceiptPdf({
     ['Status', txn.status === 'SUCCESS' ? 'Confirmed' : txn.status],
   ]
   if (txn.notes) rows.push(['Notes', txn.notes])
-  if (summary) rows.push(['Outstanding balance', fmtINR(Number(summary.outstanding))])
+  if (summary) rows.push(['Outstanding balance', fmtINRPdf(summary.outstanding)])
 
   doc.setFontSize(10)
   for (const [label, value] of rows) {

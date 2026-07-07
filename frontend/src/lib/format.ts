@@ -17,6 +17,19 @@ export function fmtINR(n: number): string {
   return inrFormatter.format(n)
 }
 
+const inrNumberFormatter = new Intl.NumberFormat('en-IN', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+// ASCII money for jsPDF documents — the built-in Helvetica is WinAnsi-encoded
+// and has no ₹ (U+20B9) glyph, so PDFs write "Rs." instead.
+export function fmtINRPdf(v: string | number): string {
+  const n = Number(v)
+  // Negated zero fields would otherwise print as "Rs. -0.00".
+  return `Rs. ${inrNumberFormatter.format(n === 0 ? 0 : n)}`
+}
+
 // --------------------------------------------------
 // Dates
 // --------------------------------------------------

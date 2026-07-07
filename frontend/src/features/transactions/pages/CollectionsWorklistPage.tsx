@@ -192,7 +192,12 @@ export function CollectionsWorklistPage() {
   const cycleQuery = useDueCycleWorklist(cycleParams)
   // Pending confirmations: fetch the active page when on that view, else page 1
   // — `total` is page-independent so the tab badge is correct either way.
-  const pendingQuery = usePendingConfirmations(isConfirmations ? page : 1, PAGE_SIZE, pendingSort)
+  const pendingQuery = usePendingConfirmations(
+    isConfirmations ? page : 1,
+    PAGE_SIZE,
+    pendingSort,
+    assigned_to,
+  )
   const confirmationsCount = pendingQuery.data?.total ?? 0
   // Bad-debt proposals (admin-only). The chip badge always reflects the
   // pending (PROPOSED) count, regardless of which sub-tab is shown — so a
@@ -316,7 +321,7 @@ export function CollectionsWorklistPage() {
           </Stack>
         </Box>
 
-        {isCycleView(view) && isAdmin && (
+        {(isCycleView(view) || isConfirmations) && isAdmin && (
           <Box sx={{ order: 3, width: { xs: '100%', sm: 'auto' } }}>
             <AssignedToSelect value={assigned_to} onChange={setAssignedTo} />
           </Box>
@@ -402,7 +407,7 @@ export function CollectionsWorklistPage() {
             </Box>
           )}
           {(pendingQuery.data?.results.length ?? 0) === 0 ? (
-            <ConfirmationsEmpty />
+            <ConfirmationsEmpty filtered={!!assigned_to} />
           ) : (
             <>
               <ConfirmationsDesktop rows={pendingQuery.data!.results} sort={pendingSort} onSort={onPendingSort} quick={quick} />
@@ -858,13 +863,15 @@ function ConfirmationsMobile({
   )
 }
 
-function ConfirmationsEmpty() {
+function ConfirmationsEmpty({ filtered }: { filtered: boolean }) {
   return (
     <Card>
       <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
         <Typography variant="h3">All caught up</Typography>
         <Typography variant="body2" color="text.secondary">
-          No payments are waiting for confirmation right now.
+          {filtered
+            ? 'No pending payments match your filters.'
+            : 'No payments are waiting for confirmation right now.'}
         </Typography>
       </Stack>
     </Card>

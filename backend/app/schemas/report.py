@@ -1,4 +1,5 @@
 import uuid
+from datetime import date as date_type
 from decimal import Decimal
 from typing import Literal
 
@@ -144,3 +145,214 @@ class MonthlyTrends(BaseModel):
     new_customers: list[MonthlyCount]
     new_loans: list[MonthlyCount]
     collections: list[MonthlyAmount]
+
+
+# --------------------------------------------------
+# DAY REPORT (daily cash book)
+# --------------------------------------------------
+class DayReportReceipt(BaseModel):
+    transaction_id: uuid.UUID
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    transaction_type: str   # REGULAR | DOWN_PAYMENT
+    payment_mode: str
+    cycle_number: int | None
+    collected_by: str | None
+    amount: Decimal
+
+
+class DayReportPayment(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    description: str
+    amount: Decimal
+
+
+class DayReportEntry(BaseModel):
+    """A capital/expense cash entry appearing in the day book."""
+
+    entry_id: uuid.UUID
+    entry_type: str   # CAPITAL_IN | OTHER_INCOME | EXPENSE | CAPITAL_OUT
+    category: str | None
+    notes: str | None
+    amount: Decimal
+
+
+class DayReportDay(BaseModel):
+    date: date_type
+    opening_balance: Decimal
+    closing_balance: Decimal
+    # Include the cash entries (entries_in / entries_out), not just loan money.
+    total_receipts: Decimal
+    total_payments: Decimal
+    emi_collection: Decimal
+    down_payments: Decimal
+    receipts: list[DayReportReceipt]
+    payments: list[DayReportPayment]
+    entries_in: list[DayReportEntry]
+    entries_out: list[DayReportEntry]
+
+
+class DayReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    # Rolling cash-book position: collections + capital/other income −
+    # disbursements − expenses/withdrawals, cumulative since first record.
+    opening_balance: Decimal
+    closing_balance: Decimal
+    total_receipts: Decimal
+    total_payments: Decimal
+    total_emi_collection: Decimal
+    total_down_payments: Decimal
+    total_capital_in: Decimal
+    total_other_income: Decimal
+    total_expenses: Decimal
+    total_capital_out: Decimal
+    cash: Decimal
+    gpay: Decimal
+    phonepe: Decimal
+    bank_transfer: Decimal
+    other: Decimal
+    # One section per day WITH activity; quiet days are omitted (balances
+    # still roll straight through them).
+    days: list[DayReportDay]
+
+
+# --------------------------------------------------
+# RECEIVED INTEREST
+# --------------------------------------------------
+class ReceivedInterestRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    amount_paid: Decimal
+    received_interest: Decimal
+    transaction_count: int
+
+
+class ReceivedInterestReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    total_amount_paid: Decimal
+    total_received_interest: Decimal
+    results: list[ReceivedInterestRow]
+
+
+# --------------------------------------------------
+# HP OUTSTANDING / HP RECEIVABLE (as-of-now, open loans)
+# --------------------------------------------------
+class HpOutstandingRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    branch_point: str | None
+    status: str
+    principal: Decimal
+    payable: Decimal
+    collected: Decimal
+    outstanding: Decimal
+
+
+class HpOutstandingReport(BaseModel):
+    total_loans: int
+    total_principal: Decimal
+    total_payable: Decimal
+    total_collected: Decimal
+    total_outstanding: Decimal
+    results: list[HpOutstandingRow]
+
+
+class HpReceivableRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    outstanding: Decimal
+    receivable_interest: Decimal
+
+
+class HpReceivableReport(BaseModel):
+    total_loans: int
+    total_outstanding: Decimal
+    total_receivable_interest: Decimal
+    results: list[HpReceivableRow]
+
+
+# --------------------------------------------------
+# HP REGISTER (all executed finances)
+# --------------------------------------------------
+class HpRegisterRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+    vehicle_plate: str | None
+    approval_date: date_type | None
+    principal: Decimal
+    interest_rate: Decimal | None
+    tenure: int | None
+    total_payable: Decimal
+    status: str
+
+
+class HpRegisterReport(BaseModel):
+    total_loans: int
+    total_principal: Decimal
+    total_payable: Decimal
+    results: list[HpRegisterRow]
+
+
+# --------------------------------------------------
+# PROFIT & LOSS / BALANCE SHEET
+# --------------------------------------------------
+class PnlExpenseCategory(BaseModel):
+    category: str | None
+    amount: Decimal
+
+
+class PnlReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    collections: Decimal
+    interest_received: Decimal
+    other_income: Decimal
+    total_income: Decimal
+    total_expenses: Decimal
+    expenses_by_category: list[PnlExpenseCategory]
+    net_profit: Decimal
+
+
+class BalanceSheetReport(BaseModel):
+    as_of: date_type
+    # Assets
+    cash_in_hand: Decimal
+    receivable_principal: Decimal
+    unearned_interest: Decimal
+    receivable_total: Decimal
+    total_assets: Decimal
+    open_loans: int
+    # Funded by
+    capital_in: Decimal
+    capital_out: Decimal
+    capital_net: Decimal
+    interest_earned: Decimal
+    other_income: Decimal
+    expenses: Decimal
+    bad_debt_written_off: Decimal
+    retained_earnings: Decimal
+    down_payments_received: Decimal
+    total_funded: Decimal
+    difference: Decimal
