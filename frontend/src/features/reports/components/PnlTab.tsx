@@ -56,7 +56,7 @@ export function PnlTab() {
         ['Income', 'Other income', report.other_income],
         ['Income', 'Total income', report.total_income],
         ...report.expenses_by_category.map(
-          (e) => ['Expenses', e.category ?? 'Uncategorised', e.amount] as const,
+          (e) => ['Expenses', e.category ?? 'Uncategorised', e.amount],
         ),
         ['Expenses', 'Total expenses', report.total_expenses],
         ['Net profit', 'Net profit for the period', report.net_profit],
