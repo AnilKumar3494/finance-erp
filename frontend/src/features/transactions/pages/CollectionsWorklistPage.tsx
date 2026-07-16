@@ -37,6 +37,7 @@ import type { BadDebtProposalStatus } from '@/schemas/enums'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
+import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
@@ -242,6 +243,25 @@ export function CollectionsWorklistPage() {
   const activeQuery = isBadDebt ? badDebtQuery : isConfirmations ? pendingQuery : cycleQuery
   const total = activeQuery.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
+  const pagerLabel = `${total} ${
+    isBadDebt
+      ? badDebtStatus === 'APPROVED'
+        ? `approved proposal${total === 1 ? '' : 's'}`
+        : `proposal${total === 1 ? '' : 's'} to review`
+      : isConfirmations
+        ? `payment${total === 1 ? '' : 's'} to confirm`
+        : `cycle${total === 1 ? '' : 's'} due`
+  }`
+  const pager = (edge: 'top' | 'bottom') =>
+    total > 0 ? (
+      <PagerBar
+        edge={edge}
+        page={page}
+        totalPages={totalPages}
+        label={pagerLabel}
+        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
+      />
+    ) : null
 
   const setView = (next: WorklistView) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, view: next }), replace: true })
@@ -386,6 +406,7 @@ export function CollectionsWorklistPage() {
             <BadDebtEmpty status={badDebtStatus} />
           ) : (
             <>
+              {pager('top')}
               <BadDebtDesktop
                 rows={badDebtQuery.data!.results}
                 onReview={(proposal, decision) => setReview({ proposal, decision })}
@@ -396,6 +417,7 @@ export function CollectionsWorklistPage() {
                 rows={badDebtQuery.data!.results}
                 onReview={(proposal, decision) => setReview({ proposal, decision })}
               />
+              {pager('bottom')}
             </>
           )}
         </>
@@ -410,8 +432,10 @@ export function CollectionsWorklistPage() {
             <ConfirmationsEmpty filtered={!!assigned_to} />
           ) : (
             <>
+              {pager('top')}
               <ConfirmationsDesktop rows={pendingQuery.data!.results} sort={pendingSort} onSort={onPendingSort} quick={quick} />
               <ConfirmationsMobile rows={pendingQuery.data!.results} quick={quick} />
+              {pager('bottom')}
             </>
           )}
         </>
@@ -419,44 +443,11 @@ export function CollectionsWorklistPage() {
         <CyclesEmpty filtered={!!searchTerm || !!assigned_to} />
       ) : (
         <>
+          {pager('top')}
           <DesktopTable rows={cycleQuery.data!.results} onRecord={setRecord} sort={cycleSort} onSort={onCycleSort} />
           <MobileCards rows={cycleQuery.data!.results} onRecord={setRecord} />
+          {pager('bottom')}
         </>
-      )}
-
-      {total > 0 && (activeQuery.data?.results.length ?? 0) > 0 && (
-        <Stack
-          direction="row"
-          spacing={2}
-          sx={{ mt: 3, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}
-        >
-          <Btn
-            variant="ghost"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => navigate({ search: (prev) => ({ ...prev, page: page - 1 }) })}
-          >
-            ‹ Prev
-          </Btn>
-          <Typography variant="body2" color="text.secondary">
-            Page {page} of {totalPages} · {total}{' '}
-            {isBadDebt
-              ? badDebtStatus === 'APPROVED'
-                ? `approved proposal${total === 1 ? '' : 's'}`
-                : `proposal${total === 1 ? '' : 's'} to review`
-              : isConfirmations
-                ? `payment${total === 1 ? '' : 's'} to confirm`
-                : `cycle${total === 1 ? '' : 's'} due`}
-          </Typography>
-          <Btn
-            variant="ghost"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => navigate({ search: (prev) => ({ ...prev, page: page + 1 }) })}
-          >
-            Next ›
-          </Btn>
-        </Stack>
       )}
 
       {record && (
