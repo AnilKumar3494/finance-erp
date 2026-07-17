@@ -40,15 +40,25 @@ export function IrrSheetView({ input }: { input: IrrSheetInput }) {
         <Tab label="Disbursement" />
       </Tabs>
 
+      {/* The sheets are always light "paper" — the cells carry dark spreadsheet
+          text, so they must sit on a light surface in dark theme too, not the
+          app's dark background (where the text would vanish). The Input tab keeps
+          the workbook's grey canvas; the others are white. */}
       {tab === 0 && (
         <Box sx={{ background: '#d9d9d9', p: 1.5, borderRadius: 1, overflowX: 'auto' }}>
           <ExcelSheet rows={inputSheetRows(model)} colWidths={INPUT_COLS} minWidth={452} />
         </Box>
       )}
       {tab === 1 && (
-        <ExcelSheet rows={amortSheetRows(model)} colWidths={AMORT_COLS} minWidth={620} />
+        <Box sx={{ background: '#fff', p: 1.5, borderRadius: 1, overflowX: 'auto' }}>
+          <ExcelSheet rows={amortSheetRows(model)} colWidths={AMORT_COLS} minWidth={620} />
+        </Box>
       )}
-      {tab === 2 && <ExcelSheet rows={dvSheetRows(model)} colWidths={DV_COLS} minWidth={560} />}
+      {tab === 2 && (
+        <Box sx={{ background: '#fff', p: 1.5, borderRadius: 1, overflowX: 'auto' }}>
+          <ExcelSheet rows={dvSheetRows(model)} colWidths={DV_COLS} minWidth={560} />
+        </Box>
+      )}
 
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
         Reproduces the IRR CAL SHEET with this loan's figures. Flat {model.flatRatePct}% ={' '}
