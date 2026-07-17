@@ -17,22 +17,6 @@ export function fmtINR(n: number): string {
   return inrFormatter.format(n)
 }
 
-const inrApproxFormatter = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
-  maximumFractionDigits: 0,
-})
-
-// Whole rupees — the deliberate exception to fmtINR's always-two-decimals rule,
-// and ONLY for figures already presented as approximations: chart axis labels,
-// and prose like "on average they owe about ₹29,293". Never use this for an
-// amount anyone acts on (a due, a receipt, a statement line) — that is what
-// fmtINR is for, and rounding one silently would be exactly the bug its comment
-// above warns about.
-export function fmtINRApprox(n: number): string {
-  return inrApproxFormatter.format(n)
-}
-
 const inrNumberFormatter = new Intl.NumberFormat('en-IN', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,

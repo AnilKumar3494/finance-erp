@@ -15,7 +15,7 @@ import { WizardAssignmentCard } from '@/features/loans/wizard/AssignmentCard'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { flatRateProjection } from '@/features/loans/financeMath'
-import { IrrExplainer } from '@/features/loans/components/IrrExplainer'
+import { IrrSheetView } from '@/features/loans/irrSheet/IrrSheetView'
 import { fmtINR } from '@/lib/format'
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`
@@ -388,12 +388,14 @@ function ProjectionPreview({
         <Stat label="Financed amount" value={fmtINR(projection.netPrincipal)} />
       </Box>
       <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-        <IrrExplainer
-          principal={principal}
-          emi={projection.emi}
-          tenureMonths={tenureMonths}
-          finalEmi={finalEmi}
-          flatRatePct={flatRatePct}
+        <IrrSheetView
+          input={{
+            principal,
+            flatRatePct,
+            tenureMonths,
+            emi: projection.emi,
+            finalEmi,
+          }}
         />
       </Box>
     </Box>
