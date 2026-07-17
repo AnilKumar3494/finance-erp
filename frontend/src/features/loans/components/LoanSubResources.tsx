@@ -5,6 +5,9 @@ import PrintIcon from '@mui/icons-material/PrintOutlined'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { useLoanTransactions, useLoanSummary } from '@/api/queries/transactions'
+import { useCustomer } from '@/api/queries/customers'
+import { useVehicle } from '@/api/queries/vehicles'
+import { useLoanPersonnel } from '@/api/queries/personnel'
 import { Btn } from '@/components/primitives'
 import { fmtINR } from '@/lib/format'
 import { printLoanStatement } from '../loanStatement'
@@ -76,8 +79,15 @@ function PrintStatementButton({ loan }: { loan: LoanResponse }) {
   const cycles = useDueCycles(loan.id)
   const transactions = useLoanTransactions(loan.id)
   const summary = useLoanSummary(loan.id)
+  // The customer statement mirrors the old iFinance file summary, which needs
+  // the full customer address, the guarantor, and the vehicle's chassis/engine
+  // — none of which ride on the loan's thin nested objects, so fetch them here.
+  const customer = useCustomer(loan.customer_id)
+  const vehicle = useVehicle(loan.vehicle_id ?? undefined)
+  const personnel = useLoanPersonnel(loan.id)
 
-  const loading = cycles.isLoading || transactions.isLoading || summary.isLoading
+  const loading =
+    cycles.isLoading || transactions.isLoading || summary.isLoading || personnel.isLoading
 
   const onPrint = () =>
     printLoanStatement({
@@ -85,6 +95,9 @@ function PrintStatementButton({ loan }: { loan: LoanResponse }) {
       cycles: cycles.data?.results ?? [],
       transactions: transactions.data?.results ?? [],
       summary: summary.data,
+      customer: customer.data,
+      vehicle: vehicle.data,
+      personnel: personnel.data?.results ?? [],
     })
 
   return (
