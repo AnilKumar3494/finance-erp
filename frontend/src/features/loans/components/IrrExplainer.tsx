@@ -3,7 +3,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForwardOutlined'
 
-import { fmtINR } from '@/lib/format'
+import { fmtINRApprox } from '@/lib/format'
 import {
   amortSchedule,
   annualIrrPct,
@@ -67,9 +67,9 @@ export function IrrExplainer({ flatRatePct, showSchedule = true, ...terms }: Irr
       <IrrChartLegend rows={rows} principal={terms.principal} />
 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-        Interest is charged on the full {fmtINR(terms.principal)} for all {terms.tenureMonths}{' '}
-        months, but the customer repays as they go — on average they owe only {fmtINR(avg)}, about
-        half. Same interest on half the money, so the rate against what they actually owe is{' '}
+        Interest is charged on the full {fmtINRApprox(terms.principal)} for all {terms.tenureMonths}{' '}
+        months, but the customer repays as they go — on average they owe only {fmtINRApprox(avg)},
+        about half. Same interest on half the money, so the rate against what they actually owe is{' '}
         <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
           {truePct.toFixed(2)}%
         </Box>
