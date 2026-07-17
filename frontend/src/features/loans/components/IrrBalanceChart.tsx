@@ -2,9 +2,13 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 
-import { fmtINR } from '@/lib/format'
 import type { AmortRow } from '../irrMath'
 import { avgOutstanding } from '../irrMath'
+
+// Whole rupees on the axis and legend — paise are noise at this size. The
+// schedule table still shows them, where they matter.
+const axisFormatter = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 })
+const axisINR = (n: number) => `₹${axisFormatter.format(n)}`
 
 // The picture that explains why a flat rate is worth roughly double.
 //
@@ -59,7 +63,7 @@ export function IrrBalanceChart({ rows, principal, print = false }: IrrBalanceCh
       width="100%"
       height="auto"
       role="img"
-      aria-label={`Outstanding balance falls from ${fmtINR(principal)} to zero over ${rows.length} months, averaging ${fmtINR(avg)}`}
+      aria-label={`Outstanding balance falls from ${axisINR(principal)} to zero over ${rows.length} months, averaging ${axisINR(avg)}`}
       style={{ display: 'block', maxWidth: W, overflow: 'visible' }}
     >
       {/* Shaded gap: charged on the full principal, but this much is already repaid. */}
@@ -102,7 +106,7 @@ export function IrrBalanceChart({ rows, principal, print = false }: IrrBalanceCh
         strokeWidth={1.5}
       />
       <text x={PAD_L - 6} y={y(principal) + 4} textAnchor="end" fontSize={10} fill={labelColor}>
-        {fmtINR(principal)}
+        {axisINR(principal)}
       </text>
 
       {/* Average actually owed — the number that explains the multiple. */}
@@ -116,7 +120,7 @@ export function IrrBalanceChart({ rows, principal, print = false }: IrrBalanceCh
         strokeDasharray="5 4"
       />
       <text x={PAD_L - 6} y={y(avg) + 4} textAnchor="end" fontSize={10} fill={avgColor}>
-        {fmtINR(avg)}
+        {axisINR(avg)}
       </text>
 
       <text x={PAD_L - 6} y={y(0) + 4} textAnchor="end" fontSize={10} fill={labelColor}>
@@ -142,9 +146,9 @@ export function IrrChartLegend({ rows, principal }: { rows: AmortRow[]; principa
   if (avg === null || principal <= 0) return null
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 0.5 }}>
-      <LegendKey color={theme.palette.text.primary} label={`Charged on ${fmtINR(principal)}`} />
+      <LegendKey color={theme.palette.text.primary} label={`Charged on ${axisINR(principal)}`} />
       <LegendKey color={theme.palette.primary.main} label="Actually owed" solid />
-      <LegendKey color={theme.palette.warning.dark} label={`Average owed ${fmtINR(avg)}`} dashed />
+      <LegendKey color={theme.palette.warning.dark} label={`Average owed ${axisINR(avg)}`} dashed />
     </Box>
   )
 }
