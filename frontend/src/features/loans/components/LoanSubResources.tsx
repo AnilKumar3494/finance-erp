@@ -9,8 +9,11 @@ import { Btn } from '@/components/primitives'
 import { fmtINR } from '@/lib/format'
 import { printLoanStatement } from '../loanStatement'
 import { useTransactionFocus } from '../txnFocus'
+import { annualIrrPct, loanCashflow } from '../irrMath'
+import { baseEmisOf, loanIrrTerms } from '../loanIrrTerms'
 import { CollapsibleCard } from './CollapsibleCard'
 import { DueCyclesTab } from './DueCyclesTab'
+import { LoanIrrCard } from './LoanIrrCard'
 import { TransactionsTab } from './TransactionsTab'
 
 // Due cycles and transactions each live in their own collapsible section so the
@@ -40,6 +43,16 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
       ? `${summary.data.transaction_count} payments · ${fmtINR(Number(summary.data.total_paid))} collected`
       : undefined
 
+  // Preview the flat-vs-true comparison on the collapsed header — it is the
+  // whole point of the card, and reuses the cycles already fetched above.
+  const irrTerms = loanIrrTerms(loan, baseEmisOf(cycles.data?.results ?? []))
+  const irrPct = irrTerms ? annualIrrPct(loanCashflow(irrTerms)) : null
+  const flatPct = Number(loan.interest_rate ?? NaN)
+  const irrSubtitle =
+    irrPct !== null && Number.isFinite(flatPct)
+      ? `${flatPct.toFixed(2)}% flat · ${irrPct.toFixed(2)}% true rate`
+      : undefined
+
   return (
     <>
       <CollapsibleCard
@@ -51,6 +64,9 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
       </CollapsibleCard>
       <CollapsibleCard title="Transactions" subtitle={txnSubtitle} openSignal={txnOpenSignal}>
         <TransactionsTab loan={loan} />
+      </CollapsibleCard>
+      <CollapsibleCard title="Interest" subtitle={irrSubtitle}>
+        <LoanIrrCard loan={loan} />
       </CollapsibleCard>
     </>
   )

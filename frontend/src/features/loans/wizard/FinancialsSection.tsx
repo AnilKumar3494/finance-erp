@@ -15,6 +15,7 @@ import { WizardAssignmentCard } from '@/features/loans/wizard/AssignmentCard'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { flatRateProjection } from '@/features/loans/financeMath'
+import { IrrExplainer } from '@/features/loans/components/IrrExplainer'
 import { fmtINR } from '@/lib/format'
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`
@@ -29,7 +30,8 @@ function parseAmount(s: string): number | null {
 function mapErr(error: unknown): string {
   if (error instanceof AxiosError) {
     const detail = serverMessage(error)
-    if (error.response?.status === 403) return detail ?? 'You do not have permission to edit this finance.'
+    if (error.response?.status === 403)
+      return detail ?? 'You do not have permission to edit this finance.'
     if (detail) return detail
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
   }
@@ -93,11 +95,19 @@ function FinancialsForm({
           if (v.hp_number.trim() === '') {
             ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'Enter the HP number' })
           } else if (v.hp_number.trim().length > 30) {
-            ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'HP number is too long (max 30 characters)' })
+            ctx.addIssue({
+              code: 'custom',
+              path: ['hp_number'],
+              message: 'HP number is too long (max 30 characters)',
+            })
           }
           const principal = parseAmount(v.principal)
           if (principal === null) {
-            ctx.addIssue({ code: 'custom', path: ['principal'], message: 'Enter the principal amount' })
+            ctx.addIssue({
+              code: 'custom',
+              path: ['principal'],
+              message: 'Enter the principal amount',
+            })
           } else if (principal < PRINCIPAL_RANGE[0] || principal > PRINCIPAL_RANGE[1]) {
             ctx.addIssue({
               code: 'custom',
@@ -107,7 +117,11 @@ function FinancialsForm({
           }
           const rate = parseAmount(v.interest_rate)
           if (rate === null) {
-            ctx.addIssue({ code: 'custom', path: ['interest_rate'], message: 'Enter the interest rate' })
+            ctx.addIssue({
+              code: 'custom',
+              path: ['interest_rate'],
+              message: 'Enter the interest rate',
+            })
           } else if (rate < RATE_RANGE[0] || rate > RATE_RANGE[1]) {
             ctx.addIssue({
               code: 'custom',
@@ -117,7 +131,11 @@ function FinancialsForm({
           }
           const tenure = parseAmount(v.tenure)
           if (tenure === null || !Number.isInteger(tenure)) {
-            ctx.addIssue({ code: 'custom', path: ['tenure'], message: 'Tenure must be a whole number of months' })
+            ctx.addIssue({
+              code: 'custom',
+              path: ['tenure'],
+              message: 'Tenure must be a whole number of months',
+            })
           } else if (tenure < TENURE_MONTHS_RANGE[0] || tenure > TENURE_MONTHS_RANGE[1]) {
             ctx.addIssue({
               code: 'custom',
@@ -134,7 +152,11 @@ function FinancialsForm({
           }
           const dp = parseAmount(v.down_payment)
           if (dp !== null && principal !== null && dp >= principal) {
-            ctx.addIssue({ code: 'custom', path: ['down_payment'], message: 'Down payment must be less than the principal' })
+            ctx.addIssue({
+              code: 'custom',
+              path: ['down_payment'],
+              message: 'Down payment must be less than the principal',
+            })
           }
         }),
     [],
@@ -201,8 +223,8 @@ function FinancialsForm({
         Financial details
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Enter the loan terms. Once saved, an admin can approve the finance (the down
-        payment mode is captured at approval).
+        Enter the loan terms. Once saved, an admin can approve the finance (the down payment mode is
+        captured at approval).
       </Typography>
 
       <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -282,7 +304,14 @@ function FinancialsForm({
             {...register('down_payment')}
             error={errors.down_payment?.message}
           />
-          {projection && <ProjectionPreview projection={projection} />}
+          {projection && (
+            <ProjectionPreview
+              projection={projection}
+              principal={Number(parseAmount(wPrincipal) ?? NaN)}
+              flatRatePct={Number(parseAmount(wRate) ?? NaN)}
+              tenureMonths={Number(parseAmount(wTenure) ?? NaN)}
+            />
+          )}
           <Box>
             <Btn type="submit" variant="primary" loading={update.isPending}>
               {update.isSuccess ? 'Update financial details' : 'Save financial details'}
@@ -312,11 +341,27 @@ function TwoCol({ children }: { children: React.ReactNode }) {
 
 // Indicative figures the employee can share with the customer. Recomputes live
 // as the form changes; final values are set by the backend on save/approval.
+//
+// The true-rate band below the stats is deliberately explain-by-default: this
+// panel is turned around and shown to the customer (see its caption), and a bare
+// "36.74%" next to a rate they were quoted as 21% invites exactly the question
+// the chart answers.
 function ProjectionPreview({
   projection,
+  principal,
+  flatRatePct,
+  tenureMonths,
 }: {
   projection: NonNullable<ReturnType<typeof flatRateProjection>>
+  principal: number
+  flatRatePct: number
+  tenureMonths: number
 }) {
+  // The backend lets the last instalment absorb the rounding remainder
+  // (services/finance.py `emi_schedule`); reconstruct it so this estimate lines
+  // up with the schedule the loan will actually get on approval.
+  const finalEmi = projection.totalPayable - projection.emi * (tenureMonths - 1)
+
   return (
     <Box
       sx={{
@@ -330,23 +375,49 @@ function ProjectionPreview({
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
         Estimate to share with the customer — final figures are confirmed on approval.
       </Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 2 }}>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
+          gap: 2,
+        }}
+      >
         <Stat label="EMI / month" value={fmtINR(projection.emi)} strong />
         <Stat label="Total interest" value={fmtINR(projection.totalInterest)} />
         <Stat label="Total payable" value={fmtINR(projection.totalPayable)} />
         <Stat label="Financed amount" value={fmtINR(projection.netPrincipal)} />
       </Box>
+      <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+        <IrrExplainer
+          principal={principal}
+          emi={projection.emi}
+          tenureMonths={tenureMonths}
+          finalEmi={finalEmi}
+          flatRatePct={flatRatePct}
+        />
+      </Box>
     </Box>
   )
 }
 
-function Stat({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function Stat({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string
+  value: string
+  strong?: boolean
+}) {
   return (
     <Box>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
         {label}
       </Typography>
-      <Typography variant="body1" sx={{ fontWeight: strong ? 700 : 600, fontSize: strong ? 18 : 16 }}>
+      <Typography
+        variant="body1"
+        sx={{ fontWeight: strong ? 700 : 600, fontSize: strong ? 18 : 16 }}
+      >
         {value}
       </Typography>
     </Box>
