@@ -16,6 +16,7 @@ import AddIcon from '@mui/icons-material/Add'
 import { useUsers, type UserAccount } from '@/api/queries/users'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { PagerBar } from '@/components/PagerBar'
 import type { UserRole } from '@/schemas/enums'
 import { USER_ROLE_META, USER_ROLE_ORDER } from '../userRoleMeta'
 import { RoleChip } from '../components/RoleChip'
@@ -118,6 +119,17 @@ export function TeamPage() {
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
   const rows = (query.data?.results ?? []).filter((u) => u.role !== 'SUPER_ADMIN')
 
+  const pager = (edge: 'top' | 'bottom') =>
+    total > 0 ? (
+      <PagerBar
+        edge={edge}
+        page={page}
+        totalPages={totalPages}
+        label={`${total} ${total === 1 ? 'member' : 'members'}`}
+        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
+      />
+    ) : null
+
   const setRole = (next: UserRole | undefined) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, role: next }) })
 
@@ -214,6 +226,7 @@ export function TeamPage() {
         <EmptyState filtered={!!searchTerm || !!role} onCreate={() => setCreateOpen(true)} />
       ) : (
         <>
+          {pager('top')}
           <DesktopTable
             rows={rows}
             perms={perms}
@@ -228,34 +241,7 @@ export function TeamPage() {
             onRemove={setRemoveTarget}
             onResetPassword={setResetTarget}
           />
-
-          {total > 0 && (
-            <Stack
-              direction="row"
-              spacing={2}
-              sx={{ mt: 3, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}
-            >
-              <Btn
-                variant="ghost"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => navigate({ search: (prev) => ({ ...prev, page: page - 1 }) })}
-              >
-                ‹ Prev
-              </Btn>
-              <Typography variant="body2" color="text.secondary">
-                Page {page} of {totalPages} · {total} {total === 1 ? 'member' : 'members'}
-              </Typography>
-              <Btn
-                variant="ghost"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => navigate({ search: (prev) => ({ ...prev, page: page + 1 }) })}
-              >
-                Next ›
-              </Btn>
-            </Stack>
-          )}
+          {pager('bottom')}
         </>
       )}
 

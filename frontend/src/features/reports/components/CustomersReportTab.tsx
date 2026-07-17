@@ -16,6 +16,7 @@ import {
   type CustomerReportSortField,
 } from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
+import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
@@ -54,6 +55,17 @@ export function CustomersReportTab() {
 
   const total = report.data?.total_customers ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
+
+  const pager = (edge: 'top' | 'bottom') =>
+    total > 0 ? (
+      <PagerBar
+        edge={edge}
+        page={page}
+        totalPages={totalPages}
+        label={`${total} customer${total === 1 ? '' : 's'}`}
+        onPage={setPage}
+      />
+    ) : null
 
   const onExport = async () => {
     setExportError(null)
@@ -114,6 +126,8 @@ export function CustomersReportTab() {
               />
             </Box>
 
+            {report.data.results.length > 0 && pager('top')}
+
             {report.data.results.length === 0 ? (
               <Typography variant="body2" color="text.secondary">
                 No customers to report.
@@ -159,28 +173,7 @@ export function CustomersReportTab() {
               </Card>
             )}
 
-            {total > 0 && (
-              <Stack
-                direction="row"
-                spacing={2}
-                sx={{ alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}
-              >
-                <Btn variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  ‹ Prev
-                </Btn>
-                <Typography variant="body2" color="text.secondary">
-                  Page {page} of {totalPages} · {total} customer{total === 1 ? '' : 's'}
-                </Typography>
-                <Btn
-                  variant="ghost"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next ›
-                </Btn>
-              </Stack>
-            )}
+            {report.data.results.length > 0 && pager('bottom')}
           </>
         )}
       </AsyncSection>
