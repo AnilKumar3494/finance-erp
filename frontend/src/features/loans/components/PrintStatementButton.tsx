@@ -47,6 +47,18 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
         startIcon={<PrintIcon />}
         onClick={onPrint}
         disabled={loading}
+        // Match the medium status chips it sits beside: same 32px pill, and the
+        // same 188px column width on desktop so it aligns flush under them.
+        sx={{
+          height: 32,
+          borderRadius: '16px',
+          minWidth: { xs: 'auto', sm: 188 },
+          px: 2,
+          fontSize: 13,
+          fontWeight: 500,
+          boxShadow: 'none',
+          '&:hover': { boxShadow: 'none' },
+        }}
       >
         Print Statement
       </Btn>
