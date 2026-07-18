@@ -1,16 +1,9 @@
 import { useState } from 'react'
-import Stack from '@mui/material/Stack'
-import PrintIcon from '@mui/icons-material/PrintOutlined'
 
 import type { LoanResponse } from '@/api/queries/loans'
 import { useDueCycles } from '@/api/queries/dueCycles'
-import { useLoanTransactions, useLoanSummary } from '@/api/queries/transactions'
-import { useCustomer } from '@/api/queries/customers'
-import { useVehicle } from '@/api/queries/vehicles'
-import { useLoanPersonnel } from '@/api/queries/personnel'
-import { Btn } from '@/components/primitives'
+import { useLoanSummary } from '@/api/queries/transactions'
 import { fmtINR } from '@/lib/format'
-import { printLoanStatement } from '../loanStatement'
 import { useTransactionFocus } from '../txnFocus'
 import { annualIrrPct, loanCashflow } from '../irrMath'
 import { baseEmisOf, loanIrrTerms } from '../loanIrrTerms'
@@ -58,11 +51,7 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
 
   return (
     <>
-      <CollapsibleCard
-        title="Due cycles"
-        subtitle={dueSubtitle}
-        action={<PrintStatementButton loan={loan} />}
-      >
+      <CollapsibleCard title="Due cycles" subtitle={dueSubtitle}>
         <DueCyclesTab loan={loan} />
       </CollapsibleCard>
       <CollapsibleCard title="Transactions" subtitle={txnSubtitle} openSignal={txnOpenSignal}>
@@ -72,39 +61,5 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
         <LoanIrrCard loan={loan} />
       </CollapsibleCard>
     </>
-  )
-}
-
-function PrintStatementButton({ loan }: { loan: LoanResponse }) {
-  const cycles = useDueCycles(loan.id)
-  const transactions = useLoanTransactions(loan.id)
-  const summary = useLoanSummary(loan.id)
-  // The customer statement mirrors the old iFinance file summary, which needs
-  // the full customer address, the guarantor, and the vehicle's chassis/engine
-  // — none of which ride on the loan's thin nested objects, so fetch them here.
-  const customer = useCustomer(loan.customer_id)
-  const vehicle = useVehicle(loan.vehicle_id ?? undefined)
-  const personnel = useLoanPersonnel(loan.id)
-
-  const loading =
-    cycles.isLoading || transactions.isLoading || summary.isLoading || personnel.isLoading
-
-  const onPrint = () =>
-    printLoanStatement({
-      loan,
-      cycles: cycles.data?.results ?? [],
-      transactions: transactions.data?.results ?? [],
-      summary: summary.data,
-      customer: customer.data,
-      vehicle: vehicle.data,
-      personnel: personnel.data?.results ?? [],
-    })
-
-  return (
-    <Stack sx={{ flexShrink: 0 }}>
-      <Btn variant="ghost" size="sm" startIcon={<PrintIcon />} onClick={onPrint} disabled={loading}>
-        Statement
-      </Btn>
-    </Stack>
   )
 }
