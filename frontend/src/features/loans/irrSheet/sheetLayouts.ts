@@ -29,13 +29,40 @@ const note = (text: string): Cell => ({ text, align: 'left', size: 11 })
 const blank: Cell = { text: '' }
 
 // ============================================================ INPUT ==========
-export function inputSheetRows(m: IrrSheetModel): SheetRow[] {
+
+// One editable field on the calculator page: current raw string + setter.
+export interface EditField {
+  value: string
+  onChange: (v: string) => void
+}
+
+// The fields the calculator lets you type into. Everything else on the sheet is
+// derived (outputs) or out of scope (structured-deal rows, fixed at 0).
+export interface InputSheetEdit {
+  assetCost: EditField
+  netFinance: EditField
+  flatRate: EditField
+  tenure: EditField
+  startDate: EditField
+  clientName: EditField
+}
+
+// An editable value cell: the workbook's blue fill is the "type here" signal.
+const editVal = (f: EditField, type: 'number' | 'date' = 'number', placeholder?: string): Cell => ({
+  align: 'right',
+  box: true,
+  fill: 'blue',
+  size: 11,
+  input: { value: f.value, onChange: f.onChange, type, placeholder },
+})
+
+export function inputSheetRows(m: IrrSheetModel, edit?: InputSheetEdit): SheetRow[] {
   const irr = pct(m.dealIrrPct)
   // 8 columns: leftLabel, leftVal, spacer, midVal, midNote, spacer, rightLabel, rightVal
   const rows: SheetRow[] = [
     [
       lbl('Asset Cost :'),
-      val(gi(m.assetCost)),
+      edit ? editVal(edit.assetCost, 'number', 'optional') : val(gi(m.assetCost)),
       blank,
       blank,
       blank,
@@ -45,7 +72,7 @@ export function inputSheetRows(m: IrrSheetModel): SheetRow[] {
     ],
     [
       lbl('Net Finance :'),
-      val(gi(m.netFinance)),
+      edit ? editVal(edit.netFinance) : val(gi(m.netFinance)),
       blank,
       val('0'),
       note(': Upfront disc.'),
@@ -55,7 +82,7 @@ export function inputSheetRows(m: IrrSheetModel): SheetRow[] {
     ],
     [
       lbl('Flat Rate :'),
-      val(String(m.flatRatePct)),
+      edit ? editVal(edit.flatRate) : val(String(m.flatRatePct)),
       blank,
       val('0'),
       note(': Credit Pd.'),
@@ -75,7 +102,7 @@ export function inputSheetRows(m: IrrSheetModel): SheetRow[] {
     ],
     [
       lbl('Tenure :'),
-      val(String(m.tenureMonths)),
+      edit ? editVal(edit.tenure) : val(String(m.tenureMonths)),
       blank,
       note('No'),
       note(': Margin Money to us'),
@@ -117,12 +144,26 @@ export function inputSheetRows(m: IrrSheetModel): SheetRow[] {
       lbl('Mgmt. Fee :'),
       val('0'),
       blank,
-      blank,
-      note(': First EMI Due Date'),
+      edit ? { ...editVal(edit.startDate, 'date'), span: 2 } : blank,
+      edit ? null : blank,
       blank,
       lbl('EMI Amount :'),
       val(gi(m.emi)),
     ],
+    ...(edit
+      ? [
+          [
+            blank,
+            blank,
+            blank,
+            { text: ': First EMI Due Date', align: 'left', size: 11, span: 2 } as Cell,
+            null,
+            blank,
+            blank,
+            blank,
+          ] as SheetRow,
+        ]
+      : []),
     [lbl('Loading :'), val('0'), blank, blank, blank, blank, lbl('Instl. Amt. 1 :'), val('0')],
     [blank, blank, blank, blank, blank, blank, lbl('Instl. Amt. 2 :'), val('0')],
     [blank, blank, blank, blank, blank, blank, lbl('Instl. Amt. 3 :'), val('0')],
@@ -132,7 +173,20 @@ export function inputSheetRows(m: IrrSheetModel): SheetRow[] {
     [
       { text: 'Client Name:', align: 'right', span: 2 },
       null,
-      { text: '', span: 6, underline: true },
+      edit
+        ? {
+            span: 6,
+            underline: true,
+            align: 'left',
+            size: 11,
+            input: {
+              value: edit.clientName.value,
+              onChange: edit.clientName.onChange,
+              type: 'text',
+              placeholder: 'optional',
+            },
+          }
+        : { text: '', span: 6, underline: true },
       null,
       null,
       null,

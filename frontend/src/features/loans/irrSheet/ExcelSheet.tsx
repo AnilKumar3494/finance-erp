@@ -17,6 +17,17 @@ export interface Cell {
   /** only an underline (the workbook's form fields) */ underline?: boolean
   color?: string
   size?: number
+  /**
+   * Makes the cell a live input (the calculator page). The input inherits the
+   * cell's look — the workbook's blue fill is the "you can type here" signal,
+   * exactly as in Excel.
+   */
+  input?: {
+    value: string
+    onChange: (v: string) => void
+    type?: 'text' | 'number' | 'date'
+    placeholder?: string
+  }
 }
 
 // null marks a position covered by a preceding span — skipped in render.
@@ -85,7 +96,27 @@ export function ExcelSheet({
                 }
                 return (
                   <td key={c} colSpan={cell.span} rowSpan={cell.rspan} style={style}>
-                    {cell.text ?? ''}
+                    {cell.input ? (
+                      <input
+                        type={cell.input.type ?? 'text'}
+                        inputMode={cell.input.type === 'number' ? 'decimal' : undefined}
+                        value={cell.input.value}
+                        placeholder={cell.input.placeholder}
+                        onChange={(e) => cell.input!.onChange(e.target.value)}
+                        style={{
+                          width: '100%',
+                          border: 'none',
+                          outline: 'none',
+                          background: 'transparent',
+                          textAlign: cell.align ?? 'left',
+                          font: 'inherit',
+                          color: 'inherit',
+                          padding: 0,
+                        }}
+                      />
+                    ) : (
+                      (cell.text ?? '')
+                    )}
                   </td>
                 )
               })}
