@@ -75,6 +75,12 @@ class Loan(AuditBase):
     documentation_fee: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
     )
+    dsc_fee: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    rto_fee: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
 
     # --------------------------------------------------
     # LIFECYCLE — penalty rate, approval, due day

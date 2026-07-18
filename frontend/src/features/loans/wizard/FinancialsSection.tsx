@@ -46,6 +46,8 @@ interface FinFormValues {
   down_payment: string
   processing_fee: string
   documentation_fee: string
+  dsc_fee: string
+  rto_fee: string
 }
 
 export function FinancialsSection({ financeId }: { financeId: string }) {
@@ -90,6 +92,8 @@ function FinancialsForm({
           down_payment: z.string(),
           processing_fee: z.string(),
           documentation_fee: z.string(),
+          dsc_fee: z.string(),
+          rto_fee: z.string(),
         })
         .superRefine((v, ctx) => {
           if (v.hp_number.trim() === '') {
@@ -143,7 +147,13 @@ function FinancialsForm({
               message: `Tenure must be between ${TENURE_MONTHS_RANGE[0]} and ${TENURE_MONTHS_RANGE[1]} months`,
             })
           }
-          for (const key of ['down_payment', 'processing_fee', 'documentation_fee'] as const) {
+          for (const key of [
+            'down_payment',
+            'processing_fee',
+            'documentation_fee',
+            'dsc_fee',
+            'rto_fee',
+          ] as const) {
             if (v[key].trim() === '') continue
             const amt = parseAmount(v[key])
             if (amt === null || amt < 0) {
@@ -178,6 +188,8 @@ function FinancialsForm({
       down_payment: loan.down_payment ?? '',
       processing_fee: loan.processing_fee ?? '',
       documentation_fee: loan.documentation_fee ?? '',
+      dsc_fee: loan.dsc_fee ?? '',
+      rto_fee: loan.rto_fee ?? '',
     },
   })
 
@@ -211,6 +223,8 @@ function FinancialsForm({
       down_payment: feeOrUndef(v.down_payment),
       processing_fee: feeOrUndef(v.processing_fee),
       documentation_fee: feeOrUndef(v.documentation_fee),
+      dsc_fee: feeOrUndef(v.dsc_fee),
+      rto_fee: feeOrUndef(v.rto_fee),
     }
     update.mutate(payload, { onSuccess: () => reset(v) })
   }
@@ -293,6 +307,24 @@ function FinancialsForm({
               placeholder="0"
               {...register('documentation_fee')}
               error={errors.documentation_fee?.message}
+            />
+          </TwoCol>
+          <TwoCol>
+            <Input
+              id="fin_dsc"
+              label="DSC fee"
+              inputMode="decimal"
+              placeholder="0"
+              {...register('dsc_fee')}
+              error={errors.dsc_fee?.message}
+            />
+            <Input
+              id="fin_rto"
+              label="RTO fee"
+              inputMode="decimal"
+              placeholder="0"
+              {...register('rto_fee')}
+              error={errors.rto_fee?.message}
             />
           </TwoCol>
           <Input

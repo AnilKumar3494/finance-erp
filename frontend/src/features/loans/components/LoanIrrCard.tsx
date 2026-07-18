@@ -32,7 +32,11 @@ export function LoanIrrCard({ loan }: { loan: LoanResponse }) {
     customerName: loan.customer?.full_name ?? null,
     location: loan.customer?.mandal_village ?? null,
     agreementNo: loan.hp_number ?? null,
-    fees: Number(loan.processing_fee ?? 0) + Number(loan.documentation_fee ?? 0),
+    fees:
+      Number(loan.processing_fee ?? 0) +
+      Number(loan.documentation_fee ?? 0) +
+      Number(loan.dsc_fee ?? 0) +
+      Number(loan.rto_fee ?? 0),
   }
 
   let input: IrrSheetInput | null = null

@@ -38,6 +38,8 @@ def _loan_audit_snapshot(loan: Loan) -> dict:
         "down_payment": str(loan.down_payment),
         "processing_fee": str(loan.processing_fee),
         "documentation_fee": str(loan.documentation_fee),
+        "dsc_fee": str(loan.dsc_fee),
+        "rto_fee": str(loan.rto_fee),
         "penalty_rate": str(loan.penalty_rate) if loan.penalty_rate is not None else None,
         "status": loan.status.value,
         "approval_date": loan.approval_date.isoformat() if loan.approval_date else None,
@@ -389,6 +391,8 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         down_payment=data.down_payment,
         processing_fee=data.processing_fee,
         documentation_fee=data.documentation_fee,
+        dsc_fee=data.dsc_fee,
+        rto_fee=data.rto_fee,
         # penalty_rate defaults to 36.00 from the DB; admin can override via update.
         status=LoanStatus.DRAFT,
         created_by_id=created_by,
