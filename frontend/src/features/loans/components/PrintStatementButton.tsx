@@ -41,7 +41,13 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
 
   return (
     <Stack sx={{ flexShrink: 0 }}>
-      <Btn variant="ghost" size="sm" startIcon={<PrintIcon />} onClick={onPrint} disabled={loading}>
+      <Btn
+        variant="primary"
+        size="sm"
+        startIcon={<PrintIcon />}
+        onClick={onPrint}
+        disabled={loading}
+      >
         Print Statement
       </Btn>
     </Stack>
