@@ -20,6 +20,7 @@ import {
   type SortOrder,
 } from '@/api/queries/vehicles'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { fmtINR } from '@/lib/format'
@@ -133,6 +134,17 @@ export function VehiclesListPage() {
   const total = query.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
   const rows = query.data?.results ?? []
+
+  const pager = (edge: 'top' | 'bottom') =>
+    total > 0 ? (
+      <PagerBar
+        edge={edge}
+        page={page}
+        totalPages={totalPages}
+        label={`${total} vehicle${total === 1 ? '' : 's'}`}
+        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
+      />
+    ) : null
 
   const goToCreate = () => navigate({ to: '/vehicles/new' })
 
@@ -251,6 +263,7 @@ export function VehiclesListPage() {
             />
           ) : (
             <>
+              {pager('top')}
               <DesktopTable
                 rows={rows}
                 page={page}
@@ -259,35 +272,8 @@ export function VehiclesListPage() {
                 onSortChange={setSort}
               />
               <MobileCards rows={rows} page={page} />
+              {pager('bottom')}
             </>
-          )}
-
-          {total > 0 && (
-            <Stack
-              direction="row"
-              spacing={2}
-              sx={{ mt: 3, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}
-            >
-              <Btn
-                variant="ghost"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => navigate({ search: (prev) => ({ ...prev, page: page - 1 }) })}
-              >
-                ‹ Prev
-              </Btn>
-              <Typography variant="body2" color="text.secondary">
-                Page {page} of {totalPages} · {total} vehicle{total === 1 ? '' : 's'}
-              </Typography>
-              <Btn
-                variant="ghost"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => navigate({ search: (prev) => ({ ...prev, page: page + 1 }) })}
-              >
-                Next ›
-              </Btn>
-            </Stack>
           )}
         </>
       )}

@@ -32,8 +32,16 @@ from app.models.transaction import (
     TransactionStatus,
     TransactionType,
 )
+from app.models.cash_entry import CASH_IN_TYPES, CashEntryType
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.services.cash_entry import (
+    cash_entries_in_range,
+    cash_entry_net_before,
+    cash_entry_type_sums,
+    expense_category_sums,
+)
+from app.services.finance import total_payable as calc_total_payable
 from app.utils.time import today_in_tz
 
 
@@ -829,4 +837,657 @@ def get_monthly_trends(db: Session, months: int = 12) -> dict:
         "collections": [
             {"month": mo, "amount": collections_map.get(mo, _ZERO)} for mo in axis
         ],
+    }
+
+
+# --------------------------------------------------
+# DAY REPORT (daily cash book)
+# --------------------------------------------------
+def _cash_position_before(db: Session, day: date) -> Decimal:
+    """
+    Net cash position from system-tracked money movements strictly before `day`:
+    all SUCCESS receipts (REGULAR EMIs + DOWN_PAYMENTs) plus net capital &
+    expense entries (cash_entries), minus all loan disbursements (principal of
+    loans approved before `day`).
+    """
+    receipts = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date < day,
+        )
+        .scalar()
+    )
+    disbursed = (
+        db.query(func.coalesce(func.sum(Loan.principal), 0))
+        .filter(
+            Loan.is_deleted == False,
+            Loan.approval_date.isnot(None),
+            Loan.approval_date < day,
+        )
+        .scalar()
+    )
+    return _d(receipts) - _d(disbursed) + cash_entry_net_before(db, day)
+
+
+def get_day_report(db: Session, date1: date, date2: date) -> dict:
+    """
+    Daily cash book over [date1, date2] (inclusive), one section per day that
+    had activity.
+
+    Receipts   = SUCCESS transactions bucketed on effective_payment_date
+                 (REGULAR EMIs and DOWN_PAYMENTs both count — a cash book
+                 tracks money in, not just EMI collection), plus CAPITAL_IN /
+                 OTHER_INCOME cash entries on entry_date.
+    Payments   = loan disbursements (principal) bucketed on approval_date,
+                 plus EXPENSE / CAPITAL_OUT cash entries on entry_date.
+    Balances   roll forward day to day: closing(d) = opening(d) + receipts(d)
+                 − payments(d); opening(date1) is the all-time net position
+                 before date1 (see _cash_position_before).
+    """
+    receipt_rows = (
+        db.query(Transaction, Loan, Customer, DueCycle, User)
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .outerjoin(DueCycle, DueCycle.id == Transaction.due_cycle_id)
+        .outerjoin(User, User.id == Transaction.collected_by_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .order_by(Transaction.effective_payment_date, Transaction.created_at)
+        .all()
+    )
+
+    disbursement_rows = (
+        db.query(Loan, Customer)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.approval_date.isnot(None),
+            Loan.approval_date >= date1,
+            Loan.approval_date <= date2,
+            Loan.principal.isnot(None),
+        )
+        .order_by(Loan.approval_date, Loan.created_at)
+        .all()
+    )
+
+    # Group both movement kinds by day, then roll balances forward.
+    receipts_by_day: dict[date, list] = {}
+    for txn, loan, customer, cycle, collector in receipt_rows:
+        receipts_by_day.setdefault(txn.effective_payment_date, []).append(
+            {
+                "transaction_id": txn.id,
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "transaction_type": txn.transaction_type,
+                "payment_mode": txn.payment_mode,
+                "cycle_number": cycle.cycle_number if cycle is not None else None,
+                "collected_by": collector.username if collector is not None else None,
+                "amount": _d(txn.amount),
+            }
+        )
+
+    payments_by_day: dict[date, list] = {}
+    for loan, customer in disbursement_rows:
+        payments_by_day.setdefault(loan.approval_date, []).append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "description": "Finance disbursement",
+                "amount": _d(loan.principal),
+            }
+        )
+
+    # Capital & expense entries — the non-loan side of the cash book.
+    entries_in_by_day: dict[date, list] = {}
+    entries_out_by_day: dict[date, list] = {}
+    for e in cash_entries_in_range(db, date1, date2):
+        bucket = entries_in_by_day if e.entry_type in CASH_IN_TYPES else entries_out_by_day
+        bucket.setdefault(e.entry_date, []).append(
+            {
+                "entry_id": e.id,
+                "entry_type": e.entry_type,
+                "category": e.category,
+                "notes": e.notes,
+                "amount": _d(e.amount),
+            }
+        )
+
+    opening = _cash_position_before(db, date1)
+
+    days = []
+    balance = opening
+    mode_totals = {m.value.lower(): _ZERO for m in _BREAKDOWN_MODES}
+    mode_totals["other"] = _ZERO
+    grand = {
+        "receipts": _ZERO,
+        "payments": _ZERO,
+        "emi": _ZERO,
+        "down_payments": _ZERO,
+        "capital_in": _ZERO,
+        "other_income": _ZERO,
+        "expenses": _ZERO,
+        "capital_out": _ZERO,
+    }
+
+    active_days = (
+        set(receipts_by_day)
+        | set(payments_by_day)
+        | set(entries_in_by_day)
+        | set(entries_out_by_day)
+    )
+    for day in sorted(active_days):
+        receipts = receipts_by_day.get(day, [])
+        payments = payments_by_day.get(day, [])
+        entries_in = entries_in_by_day.get(day, [])
+        entries_out = entries_out_by_day.get(day, [])
+        day_entries_in = sum((e["amount"] for e in entries_in), _ZERO)
+        day_entries_out = sum((e["amount"] for e in entries_out), _ZERO)
+        day_receipts = sum((r["amount"] for r in receipts), _ZERO) + day_entries_in
+        day_payments = sum((p["amount"] for p in payments), _ZERO) + day_entries_out
+        day_emi = sum(
+            (
+                r["amount"]
+                for r in receipts
+                if r["transaction_type"] == TransactionType.REGULAR
+            ),
+            _ZERO,
+        )
+        for r in receipts:
+            mode = r["payment_mode"]
+            key = mode.value.lower() if mode in _BREAKDOWN_MODES else "other"
+            mode_totals[key] += r["amount"]
+        for e in entries_in:
+            key = "capital_in" if e["entry_type"] == CashEntryType.CAPITAL_IN else "other_income"
+            grand[key] += e["amount"]
+        for e in entries_out:
+            key = "expenses" if e["entry_type"] == CashEntryType.EXPENSE else "capital_out"
+            grand[key] += e["amount"]
+
+        day_opening = balance
+        balance = day_opening + day_receipts - day_payments
+        grand["receipts"] += day_receipts
+        grand["payments"] += day_payments
+        grand["emi"] += day_emi
+        grand["down_payments"] += day_receipts - day_entries_in - day_emi
+
+        days.append(
+            {
+                "date": day,
+                "opening_balance": day_opening,
+                "closing_balance": balance,
+                "total_receipts": day_receipts,
+                "total_payments": day_payments,
+                "emi_collection": day_emi,
+                "down_payments": day_receipts - day_entries_in - day_emi,
+                "receipts": receipts,
+                "payments": payments,
+                "entries_in": entries_in,
+                "entries_out": entries_out,
+            }
+        )
+
+    return {
+        "date1": date1,
+        "date2": date2,
+        "opening_balance": opening,
+        "closing_balance": balance,
+        "total_receipts": grand["receipts"],
+        "total_payments": grand["payments"],
+        "total_emi_collection": grand["emi"],
+        "total_down_payments": grand["down_payments"],
+        "total_capital_in": grand["capital_in"],
+        "total_other_income": grand["other_income"],
+        "total_expenses": grand["expenses"],
+        "total_capital_out": grand["capital_out"],
+        "cash": mode_totals["cash"],
+        "gpay": mode_totals["gpay"],
+        "phonepe": mode_totals["phonepe"],
+        "bank_transfer": mode_totals["bank_transfer"],
+        "other": mode_totals["other"],
+        "days": days,
+    }
+
+
+# --------------------------------------------------
+# RECEIVED INTEREST (interest earned on collections in a window)
+# --------------------------------------------------
+def get_received_interest(db: Session, date1: date, date2: date) -> dict:
+    """
+    Per-loan interest earned on EMI collections inside [date1, date2].
+
+    Loans are flat-rate here, so every collected rupee carries the same
+    interest share: (total_payable − principal) / total_payable, with
+    total_payable from the canonical schedule formula (finance.total_payable).
+    received_interest = paid_in_window × that share, per loan.
+
+    DOWN_PAYMENT transactions are excluded (origination cash, no interest
+    component). Loans missing terms (unapproved drafts) report zero interest.
+    """
+    rows = (
+        db.query(
+            Loan.id,
+            Loan.loan_number,
+            Loan.hp_number,
+            Loan.principal,
+            Loan.interest_rate,
+            Loan.tenure,
+            Customer.id.label("customer_id"),
+            Customer.full_name,
+            func.coalesce(func.sum(Transaction.amount), 0).label("paid"),
+            func.count(Transaction.id).label("txn_count"),
+        )
+        .join(Transaction, Transaction.loan_id == Loan.id)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .group_by(Loan.id, Customer.id)
+        .order_by(Customer.full_name.asc(), Loan.id.asc())
+        .all()
+    )
+
+    two_places = Decimal("0.01")
+    results = []
+    total_paid = _ZERO
+    total_interest = _ZERO
+    for r in rows:
+        paid = _d(r.paid)
+        interest = _ZERO
+        if r.principal and r.interest_rate is not None and r.tenure:
+            tp = calc_total_payable(_d(r.principal), _d(r.interest_rate), r.tenure)
+            if tp > 0:
+                interest = (paid * (tp - _d(r.principal)) / tp).quantize(two_places)
+        total_paid += paid
+        total_interest += interest
+        results.append(
+            {
+                "loan_id": r.id,
+                "loan_number": r.loan_number,
+                "hp_number": r.hp_number,
+                "customer_id": r.customer_id,
+                "customer_name": r.full_name,
+                "amount_paid": paid,
+                "received_interest": interest,
+                "transaction_count": r.txn_count,
+            }
+        )
+
+    return {
+        "date1": date1,
+        "date2": date2,
+        "total_amount_paid": total_paid,
+        "total_received_interest": total_interest,
+        "results": results,
+    }
+
+
+# --------------------------------------------------
+# HP OUTSTANDING / HP RECEIVABLE (as-of-now open-loan ledger)
+# --------------------------------------------------
+def _open_loan_ledger_rows(db: Session, statuses=OPEN_LOAN_STATUSES):
+    """
+    One row per loan in `statuses` with its due-cycle ledger totals:
+    (Loan, Customer, payable, collected, outstanding).
+
+    Same source of truth as the dashboard/portfolio numbers: due_cycles over
+    OPEN_LOAN_STATUSES by default, outstanding floored at 0 per cycle. The
+    balance sheet passes (LoanStatus.BAD_DEBT,) to size write-offs.
+    """
+    cycle_sub = (
+        db.query(
+            DueCycle.loan_id.label("loan_id"),
+            func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
+            func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            DueCycle.total_due > DueCycle.total_received,
+                            DueCycle.total_due - DueCycle.total_received,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("outstanding"),
+        )
+        .filter(DueCycle.is_deleted == False)
+        .group_by(DueCycle.loan_id)
+        .subquery()
+    )
+
+    return (
+        db.query(
+            Loan,
+            Customer,
+            func.coalesce(cycle_sub.c.payable, 0).label("payable"),
+            func.coalesce(cycle_sub.c.collected, 0).label("collected"),
+            func.coalesce(cycle_sub.c.outstanding, 0).label("outstanding"),
+        )
+        .join(Customer, Customer.id == Loan.customer_id)
+        .outerjoin(cycle_sub, cycle_sub.c.loan_id == Loan.id)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.status.in_(statuses),
+        )
+        .order_by(Customer.full_name.asc(), Loan.id.asc())
+        .all()
+    )
+
+
+def get_hp_outstanding(db: Session) -> dict:
+    """Per open loan: principal, payable, collected, outstanding — plus totals."""
+    results = []
+    totals = {"principal": _ZERO, "payable": _ZERO, "collected": _ZERO, "outstanding": _ZERO}
+    for loan, customer, payable, collected, outstanding in _open_loan_ledger_rows(db):
+        principal = _d(loan.principal)
+        payable_d, collected_d, outstanding_d = _d(payable), _d(collected), _d(outstanding)
+        totals["principal"] += principal
+        totals["payable"] += payable_d
+        totals["collected"] += collected_d
+        totals["outstanding"] += outstanding_d
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "branch_point": customer.branch_point,
+                "status": loan.status,
+                "principal": principal,
+                "payable": payable_d,
+                "collected": collected_d,
+                "outstanding": outstanding_d,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_principal": totals["principal"],
+        "total_payable": totals["payable"],
+        "total_collected": totals["collected"],
+        "total_outstanding": totals["outstanding"],
+        "results": results,
+    }
+
+
+def get_hp_receivable(db: Session) -> dict:
+    """
+    Per open loan: interest still to be earned = outstanding × the loan's
+    flat-rate interest share (total_payable − principal) / total_payable —
+    the receivable-side mirror of get_received_interest.
+    """
+    two_places = Decimal("0.01")
+    results = []
+    total_outstanding = _ZERO
+    total_receivable = _ZERO
+    for loan, customer, _payable, _collected, outstanding in _open_loan_ledger_rows(db):
+        outstanding_d = _d(outstanding)
+        receivable = _ZERO
+        if loan.principal and loan.interest_rate is not None and loan.tenure:
+            tp = calc_total_payable(_d(loan.principal), _d(loan.interest_rate), loan.tenure)
+            if tp > 0:
+                receivable = (
+                    outstanding_d * (tp - _d(loan.principal)) / tp
+                ).quantize(two_places)
+        total_outstanding += outstanding_d
+        total_receivable += receivable
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "outstanding": outstanding_d,
+                "receivable_interest": receivable,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_outstanding": total_outstanding,
+        "total_receivable_interest": total_receivable,
+        "results": results,
+    }
+
+
+# --------------------------------------------------
+# HP REGISTER (all executed finances)
+# --------------------------------------------------
+def get_hp_register(db: Session) -> dict:
+    """
+    The register of executed finances: every non-deleted, non-DRAFT loan with
+    its terms, vehicle, and dates. DRAFTs are excluded — a register records
+    agreements, not applications in progress.
+    """
+    rows = (
+        db.query(Loan, Customer, Vehicle)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .outerjoin(Vehicle, Vehicle.id == Loan.vehicle_id)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.status != LoanStatus.DRAFT,
+        )
+        .order_by(Loan.approval_date.asc().nulls_last(), Loan.created_at.asc())
+        .all()
+    )
+
+    results = []
+    total_principal = _ZERO
+    total_payable_sum = _ZERO
+    for loan, customer, vehicle in rows:
+        principal = _d(loan.principal)
+        tp = _ZERO
+        if loan.principal and loan.interest_rate is not None and loan.tenure:
+            tp = calc_total_payable(_d(loan.principal), _d(loan.interest_rate), loan.tenure)
+        total_principal += principal
+        total_payable_sum += tp
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "customer_mobile": customer.mobile_number,
+                "vehicle_plate": vehicle.plate_number if vehicle is not None else None,
+                "approval_date": loan.approval_date,
+                "principal": principal,
+                "interest_rate": _d(loan.interest_rate) if loan.interest_rate is not None else None,
+                "tenure": loan.tenure,
+                "total_payable": tp,
+                "status": loan.status,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_principal": total_principal,
+        "total_payable": total_payable_sum,
+        "results": results,
+    }
+
+
+# --------------------------------------------------
+# PROFIT & LOSS / BALANCE SHEET
+# --------------------------------------------------
+def _interest_received_total(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> tuple[Decimal, Decimal]:
+    """
+    (total_paid, total_interest) over REGULAR SUCCESS collections, applying
+    each loan's flat-rate interest share — the aggregate twin of
+    get_received_interest (which returns the per-loan rows).
+    """
+    q = (
+        db.query(
+            Loan.principal,
+            Loan.interest_rate,
+            Loan.tenure,
+            func.coalesce(func.sum(Transaction.amount), 0).label("paid"),
+        )
+        .join(Transaction, Transaction.loan_id == Loan.id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+        )
+    )
+    if date1 is not None:
+        q = q.filter(Transaction.effective_payment_date >= date1)
+    if date2 is not None:
+        q = q.filter(Transaction.effective_payment_date <= date2)
+    rows = q.group_by(Loan.id).all()
+
+    two_places = Decimal("0.01")
+    total_paid = _ZERO
+    total_interest = _ZERO
+    for r in rows:
+        paid = _d(r.paid)
+        total_paid += paid
+        if r.principal and r.interest_rate is not None and r.tenure:
+            tp = calc_total_payable(_d(r.principal), _d(r.interest_rate), r.tenure)
+            if tp > 0:
+                total_interest += (paid * (tp - _d(r.principal)) / tp).quantize(two_places)
+    return total_paid, total_interest
+
+
+def get_pnl(db: Session, date1: date, date2: date) -> dict:
+    """
+    Profit & Loss for [date1, date2].
+
+    Income = interest earned on the window's EMI collections (flat-rate share,
+    same rule as Received Interest) + OTHER_INCOME cash entries. Expenses =
+    EXPENSE cash entries, broken down by category. Capital movements and down
+    payments are balance-sheet items, not P&L; bad-debt write-offs carry no
+    event date, so they too surface only on the balance sheet.
+    """
+    collections, interest_received = _interest_received_total(db, date1, date2)
+    sums = cash_entry_type_sums(db, date1, date2)
+    other_income = sums.get(CashEntryType.OTHER_INCOME, _ZERO)
+    expenses = sums.get(CashEntryType.EXPENSE, _ZERO)
+    return {
+        "date1": date1,
+        "date2": date2,
+        "collections": collections,
+        "interest_received": interest_received,
+        "other_income": other_income,
+        "total_income": interest_received + other_income,
+        "total_expenses": expenses,
+        "expenses_by_category": [
+            {"category": category, "amount": amount}
+            for category, amount in expense_category_sums(db, date1, date2)
+        ],
+        "net_profit": interest_received + other_income - expenses,
+    }
+
+
+def get_balance_sheet(db: Session) -> dict:
+    """
+    Balance sheet as of today (all history).
+
+    Assets = cash in hand (the day report's closing position) + HP outstanding,
+    split into principal receivable and unearned interest by each loan's
+    flat-rate share. Funded by = net capital + retained earnings (interest
+    earned + other income − expenses − bad-debt principal written off) + down
+    payments received + that same unearned interest. Under flat-share
+    accounting the two sides agree exactly; `difference` surfaces whatever
+    per-transaction rounding or data quirks remain instead of hiding them.
+    """
+    two_places = Decimal("0.01")
+    today = _today()
+    cash_in_hand = _cash_position_before(db, today + timedelta(days=1))
+
+    def _split(rows):
+        """(outstanding_total, interest_portion) for ledger rows, flat-share."""
+        outstanding_total = _ZERO
+        interest_portion = _ZERO
+        for loan, _customer, _payable, _collected, outstanding in rows:
+            outstanding_d = _d(outstanding)
+            outstanding_total += outstanding_d
+            if loan.principal and loan.interest_rate is not None and loan.tenure:
+                tp = calc_total_payable(_d(loan.principal), _d(loan.interest_rate), loan.tenure)
+                if tp > 0:
+                    interest_portion += (
+                        outstanding_d * (tp - _d(loan.principal)) / tp
+                    ).quantize(two_places)
+        return outstanding_total, interest_portion
+
+    open_rows = _open_loan_ledger_rows(db)
+    receivable_total, unearned_interest = _split(open_rows)
+    receivable_principal = receivable_total - unearned_interest
+
+    # Write-offs: BAD_DEBT loans keep their unpaid cycles; the principal share
+    # is a realised loss, the interest share simply never materialises.
+    bad_total, bad_interest = _split(
+        _open_loan_ledger_rows(db, statuses=(LoanStatus.BAD_DEBT,))
+    )
+    bad_debt_written_off = bad_total - bad_interest
+
+    _, interest_earned = _interest_received_total(db)
+    sums = cash_entry_type_sums(db)
+    capital_in = sums.get(CashEntryType.CAPITAL_IN, _ZERO)
+    capital_out = sums.get(CashEntryType.CAPITAL_OUT, _ZERO)
+    other_income = sums.get(CashEntryType.OTHER_INCOME, _ZERO)
+    expenses = sums.get(CashEntryType.EXPENSE, _ZERO)
+
+    down_payments = _d(
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.DOWN_PAYMENT,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+        )
+        .scalar()
+    )
+
+    retained_earnings = interest_earned + other_income - expenses - bad_debt_written_off
+    total_assets = cash_in_hand + receivable_total
+    total_funded = (
+        (capital_in - capital_out) + retained_earnings + down_payments + unearned_interest
+    )
+    return {
+        "as_of": today,
+        "cash_in_hand": cash_in_hand,
+        "receivable_principal": receivable_principal,
+        "unearned_interest": unearned_interest,
+        "receivable_total": receivable_total,
+        "total_assets": total_assets,
+        "open_loans": len(open_rows),
+        "capital_in": capital_in,
+        "capital_out": capital_out,
+        "capital_net": capital_in - capital_out,
+        "interest_earned": interest_earned,
+        "other_income": other_income,
+        "expenses": expenses,
+        "bad_debt_written_off": bad_debt_written_off,
+        "retained_earnings": retained_earnings,
+        "down_payments_received": down_payments,
+        "total_funded": total_funded,
+        "difference": total_assets - total_funded,
     }

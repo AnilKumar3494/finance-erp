@@ -29,6 +29,7 @@ import { isValidVehiclePlate } from '@/schemas/primitives'
 import { EditableSection } from '@/features/loans/components/EditableSection'
 import { CollapsibleCard } from '@/features/loans/components/CollapsibleCard'
 import { DocumentLine } from '@/features/loans/components/DocumentLine'
+import { VehicleDocsBody } from '@/features/loans/sections/VehicleInfoSection'
 import { LoanStatusChip } from '@/features/loans/components/LoanStatusChip'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { FieldGrid, FieldRow } from '@/features/loans/components/DetailFields'
@@ -105,7 +106,7 @@ function DetailBody({ vehicle }: { vehicle: VehicleResponse }) {
 
       <AttachedLoansCard loans={loans} loading={loansQuery.isLoading} />
 
-      <DocumentsCard vehicleId={vehicle.id} />
+      <DocumentsCard vehicleId={vehicle.id} loans={loans} canEdit={isAdmin} />
 
       {isAdmin && <DangerZone vehicle={vehicle} loans={loans} />}
 
@@ -274,27 +275,56 @@ function AttachedLoansCard({ loans, loading }: { loans: LoanResponse[]; loading:
 }
 
 // --------------------------------------------------
-// Documents (read-only)
+// Documents — the same RC / insurance / photo slots the finance page offers
 // --------------------------------------------------
 
-function DocumentsCard({ vehicleId }: { vehicleId: string }) {
+// A document row carries a customer_id, but a vehicle only has a customer
+// through the finances secured on it. Prefer the live one; fall back to the
+// most recent attachment so a settled vehicle still files under whoever last
+// held it. A vehicle with no finance at all has nobody to file under, so it
+// stays read-only until one is attached.
+function docCustomerId(loans: LoanResponse[]): string | null {
+  const active = loans.find((l) => l.status === 'ACTIVE')
+  return (active ?? loans[0])?.customer_id ?? null
+}
+
+function DocumentsCard({
+  vehicleId,
+  loans,
+  canEdit,
+}: {
+  vehicleId: string
+  loans: LoanResponse[]
+  canEdit: boolean
+}) {
   const docsQuery = useDocuments({ vehicle_id: vehicleId, page_size: 100 })
   const docs = docsQuery.data?.results ?? []
+  const customerId = docCustomerId(loans)
+
   return (
-    <CollapsibleCard title="Documents">
+    <CollapsibleCard
+      title="Documents"
+      subtitle={docs.length > 0 ? `${docs.length} on file` : 'None on file'}
+    >
       {docsQuery.isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
           <Spinner size={20} />
         </Box>
-      ) : docs.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          No documents on file for this vehicle.
-        </Typography>
+      ) : customerId ? (
+        <VehicleDocsBody vehicleId={vehicleId} customerId={customerId} canEdit={canEdit} />
       ) : (
         <Stack spacing={1.5}>
-          {docs.map((d) => (
-            <DocumentLine key={d.id} doc={d} />
-          ))}
+          {docs.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No documents on file for this vehicle.
+            </Typography>
+          ) : (
+            docs.map((d) => <DocumentLine key={d.id} doc={d} />)
+          )}
+          <Typography variant="body2" color="text.secondary">
+            Attach this vehicle to a finance before uploading documents — a document is filed
+            under a customer, and this vehicle has none yet.
+          </Typography>
         </Stack>
       )}
     </CollapsibleCard>

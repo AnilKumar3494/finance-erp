@@ -4,7 +4,8 @@ import { ReportsPage } from '@/features/reports/pages/ReportsPage'
 import { REPORT_TABS, type ReportTab } from '@/features/reports/tabs'
 
 interface ReportsSearch {
-  tab: ReportTab
+  // Absent = the report-gallery landing grid.
+  tab?: ReportTab
 }
 
 export const Route = createFileRoute('/_authed/reports')({
@@ -13,7 +14,7 @@ export const Route = createFileRoute('/_authed/reports')({
     const tab =
       typeof raw.tab === 'string' && (REPORT_TABS as readonly string[]).includes(raw.tab)
         ? (raw.tab as ReportTab)
-        : 'overview'
+        : undefined
     return { tab }
   },
   component: ReportsPage,

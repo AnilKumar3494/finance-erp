@@ -12,6 +12,7 @@ from app.core.rate_limit import limiter
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.api.v1.routes import (
     auth,
+    cash_entries,
     customers,
     vehicles,
     loans,
@@ -108,6 +109,7 @@ app.include_router(bad_debt_propose_router, prefix="/api/v1")
 app.include_router(bad_debt_review_router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
+app.include_router(cash_entries.router, prefix="/api/v1")
 
 
 # --------------------------------------------------

@@ -56,6 +56,8 @@ export interface LoanResponse {
   down_payment: string
   processing_fee: string
   documentation_fee: string
+  dsc_fee: string
+  rto_fee: string
   status: LoanStatus
   is_deleted: boolean
   created_by_id: string | null
@@ -105,6 +107,8 @@ export interface LoanCreate {
   down_payment?: string
   processing_fee?: string
   documentation_fee?: string
+  dsc_fee?: string
+  rto_fee?: string
   // Required by the backend only when down_payment > 0.
   down_payment_mode?: PaymentMethod | null
   penalty_rate?: string | null
@@ -123,6 +127,8 @@ export interface LoanUpdate {
   down_payment?: string
   processing_fee?: string
   documentation_fee?: string
+  dsc_fee?: string
+  rto_fee?: string
   penalty_rate?: string
 }
 
@@ -329,11 +335,9 @@ export function useCloseLoan(id: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (payload: LoanCloseRequest) => {
-      const { data } = await apiClient.post<LoanClosureResponse>(
-        `/loans/${id}/close`,
-        payload,
-        { headers: { 'Idempotency-Key': uuidv4() } },
-      )
+      const { data } = await apiClient.post<LoanClosureResponse>(`/loans/${id}/close`, payload, {
+        headers: { 'Idempotency-Key': uuidv4() },
+      })
       return data
     },
     onSuccess: (closure) => {

@@ -16,6 +16,7 @@ import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { EmiDueChip } from '../components/EmiDueChip'
+import { PrintStatementButton } from '../components/PrintStatementButton'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
@@ -239,6 +240,7 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
           >
             <LoanStatusChip status={loan.status} size="medium" />
             <EmiDueChip status={loan.emi_due_status} size="medium" />
+            {loan.status !== 'DRAFT' && <PrintStatementButton loan={loan} />}
           </Stack>
         </Stack>
         <Divider />
@@ -315,7 +317,10 @@ function AuditCard({ loan }: { loan: LoanResponse }) {
         Audit
       </Typography>
       <FieldGrid>
-        <FieldRow label="Approved at" value={fmtDate(loan.approval_date) || fmtDateTime(loan.created_at)} />
+        <FieldRow
+          label="Approved at"
+          value={fmtDate(loan.approval_date) || fmtDateTime(loan.created_at)}
+        />
         <FieldRow label="Last updated" value={fmtDateTime(loan.updated_at)} />
         <FieldRow label="Created by" value={actor(loan.created_by, loan.created_by_id)} />
         <FieldRow label="Updated by" value={actor(loan.updated_by, loan.updated_by_id)} />
