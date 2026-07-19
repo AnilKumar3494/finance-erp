@@ -18,6 +18,7 @@ export function IrrSheetPage() {
   const [flatRate, setFlatRate] = useState('21')
   const [tenure, setTenure] = useState('12')
   const [assetCost, setAssetCost] = useState('')
+  const [fees, setFees] = useState('')
   const [startDate, setStartDate] = useState('')
   const [clientName, setClientName] = useState('')
 
@@ -33,6 +34,7 @@ export function IrrSheetPage() {
     flatRate: { value: flatRate, onChange: setFlatRate },
     tenure: { value: tenure, onChange: setTenure },
     assetCost: { value: assetCost, onChange: setAssetCost },
+    fees: { value: fees, onChange: setFees },
     startDate: { value: startDate, onChange: setStartDate },
     clientName: { value: clientName, onChange: setClientName },
   }
@@ -54,6 +56,7 @@ export function IrrSheetPage() {
             flatRatePct: num(flatRate),
             tenureMonths: num(tenure),
             assetCost: assetCost.trim() === '' ? null : num(assetCost),
+            fees: fees.trim() === '' ? 0 : num(fees),
             startDate: startDate || null,
             customerName: clientName.trim() || null,
           }}

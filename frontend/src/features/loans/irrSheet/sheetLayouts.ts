@@ -43,6 +43,7 @@ export interface InputSheetEdit {
   netFinance: EditField
   flatRate: EditField
   tenure: EditField
+  fees: EditField
   startDate: EditField
   clientName: EditField
 }
@@ -142,7 +143,10 @@ export function inputSheetRows(m: IrrSheetModel, edit?: InputSheetEdit): SheetRo
     ],
     [
       lbl('Mgmt. Fee :'),
-      val('0'),
+      // The upfront charges — processing + documentation + DSC + RTO on a saved
+      // loan, typed directly on the calculator. Same figure the DV tab carries
+      // as "Service Charges", so the two tabs agree.
+      edit ? editVal(edit.fees, 'number', 'optional') : val(gi(m.fees)),
       blank,
       edit ? { ...editVal(edit.startDate, 'date'), span: 2 } : blank,
       edit ? null : blank,
