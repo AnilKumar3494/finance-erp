@@ -90,10 +90,16 @@ export function ExcelSheet({
                   background: cell.fill ? FILL[cell.fill] : undefined,
                   color: cell.color,
                   fontSize: cell.size,
-                  border: cell.box ? '1px solid #a6a6a6' : undefined,
-                  borderBottom: cell.underline ? '1px solid #808080' : undefined,
                   fontVariantNumeric: 'tabular-nums',
                 }
+                // Assign the borders only when they apply. Setting
+                // `borderBottom: undefined` alongside the `border` shorthand
+                // clears the bottom edge the shorthand just set, which left
+                // every boxed cell open at the bottom — invisible mid-block
+                // (the next row draws its own top border) but plainly broken on
+                // the last row of a block.
+                if (cell.box) style.border = '1px solid #a6a6a6'
+                if (cell.underline) style.borderBottom = '1px solid #808080'
                 return (
                   <td key={c} colSpan={cell.span} rowSpan={cell.rspan} style={style}>
                     {cell.input ? (

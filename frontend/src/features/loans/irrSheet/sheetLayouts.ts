@@ -231,6 +231,10 @@ export const INPUT_COLS = [96, 58, 6, 22, 86, 6, 116, 62]
 // ============================================================ AMORT ==========
 export function amortSheetRows(m: IrrSheetModel): SheetRow[] {
   const start = m.startDate ? dayjs(m.startDate) : null
+  // Every value in the info block spans the same two columns, so the block ends
+  // on one straight edge — the text fields (Name, Agreement no.) and the
+  // figures used to stop at different widths.
+  const v2 = (text: string): Cell => ({ ...val(text), span: 2 })
   const info: SheetRow[] = [
     [
       { text: 'Amortisation Schedule', bold: true, size: 13, span: 6 },
@@ -249,10 +253,10 @@ export function amortSheetRows(m: IrrSheetModel): SheetRow[] {
       blank,
     ],
     [lbl('Location'), { text: m.location ?? '—', span: 2, box: true }, null, blank, blank, blank],
-    [lbl('Loan Amt'), val(gi(m.netFinance)), blank, blank, blank, blank],
-    [lbl('EMI'), val(gi(m.emi)), blank, blank, blank, blank],
-    [lbl('No. of EMI'), val(String(m.tenureMonths)), blank, blank, blank, blank],
-    [lbl('No. of Adv EMI'), val('0'), blank, blank, blank, blank],
+    [lbl('Loan Amt'), v2(gi(m.netFinance)), null, blank, blank, blank],
+    [lbl('EMI'), v2(gi(m.emi)), null, blank, blank, blank],
+    [lbl('No. of EMI'), v2(String(m.tenureMonths)), null, blank, blank, blank],
+    [lbl('No. of Adv EMI'), v2('0'), null, blank, blank, blank],
     [
       lbl('Agreement no.'),
       { text: m.agreementNo ?? '—', span: 2, box: true },
@@ -261,11 +265,11 @@ export function amortSheetRows(m: IrrSheetModel): SheetRow[] {
       blank,
       blank,
     ],
-    [lbl('Agreement Rate'), val(pct(m.dealIrrPct)), blank, blank, blank, blank],
+    [lbl('Agreement Rate'), v2(pct(m.dealIrrPct)), null, blank, blank, blank],
     [
       lbl('PDC Start Date'),
-      { text: start ? start.format('DD-MMM-YYYY') : '—', box: true, align: 'right' },
-      blank,
+      { text: start ? start.format('DD-MMM-YYYY') : '—', box: true, align: 'right', span: 2 },
+      null,
       blank,
       blank,
       blank,
@@ -298,7 +302,9 @@ export function amortSheetRows(m: IrrSheetModel): SheetRow[] {
   const totalPrincipal = m.schedule.reduce((a, r) => a + r.principal, 0)
   const totalInterest = m.schedule.reduce((a, r) => a + r.interest, 0)
   const totalRow: SheetRow = [
-    blank,
+    // Boxed rather than blank so the schedule closes on a continuous bottom
+    // edge — an unboxed corner cell read as the grid breaking off.
+    { text: '', box: true },
     { text: 'TOTAL', align: 'center', bold: true, box: true },
     { text: '', box: true },
     { text: g2(totalPrincipal), align: 'right', bold: true, box: true },
@@ -314,7 +320,9 @@ export const AMORT_COLS = [80, 110, 90, 110, 100, 130]
 // ============================================================ DV =============
 export function dvSheetRows(m: IrrSheetModel): SheetRow[] {
   const yrs = (m.tenureMonths / 12).toFixed(m.tenureMonths % 12 === 0 ? 0 : 2)
-  const box2: Cell = { text: '', span: 2, box: true }
+  // Spans the same three columns as the Product / Customer Name rows above, so
+  // the checklist box has one straight right edge instead of a ragged one.
+  const box3: Cell = { text: '', span: 3, box: true }
   const rows: SheetRow[] = [
     [
       { text: 'Disbursment Checklist', bold: true, size: 13, align: 'center', span: 4 },
@@ -330,10 +338,10 @@ export function dvSheetRows(m: IrrSheetModel): SheetRow[] {
       null,
       null,
     ],
-    [{ text: 'Category', box: true }, box2, null, blank],
-    [{ text: 'Model', box: true }, box2, null, blank],
-    [{ text: 'Dealer', box: true }, box2, null, blank],
-    [{ text: 'Source', box: true }, box2, null, blank],
+    [{ text: 'Category', box: true }, box3, null, null],
+    [{ text: 'Model', box: true }, box3, null, null],
+    [{ text: 'Dealer', box: true }, box3, null, null],
+    [{ text: 'Source', box: true }, box3, null, null],
     [blank, blank, blank, blank],
     [{ text: 'Finance Details', bold: true, align: 'center', span: 4 }, null, null, null],
     [
