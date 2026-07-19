@@ -22,11 +22,21 @@ export interface InputProps extends Omit<TextFieldProps, 'label' | 'error' | 'he
   highlight?: boolean
 }
 
+// What a highlighted field says instead of its usual placeholder. A field
+// flagged by the approval walk-through is not optional any more — saying
+// "Optional" there contradicts the outline drawn around it.
+const REQUIRED_TO_APPROVE = 'Required to Approve the Loan'
+
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, required, error, hint, warning, highlight, id, sx, ...rest },
+  { label, required, error, hint, warning, highlight, id, sx, placeholder, ...rest },
   ref,
 ) {
   const showWarning = !!warning && !error
+  // Highlighted fields are required-to-approve: they carry the asterisk even
+  // when the base schema treats them as optional, and say so in the placeholder
+  // whatever the call site passed.
+  const isBlocking = !!highlight
+  const shownPlaceholder = isBlocking ? REQUIRED_TO_APPROVE : placeholder
   const highlightSx =
     (highlight || showWarning) && !error
       ? {
@@ -39,7 +49,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   return (
     <Box>
       {label && (
-        <FieldLabel htmlFor={id} required={required}>
+        <FieldLabel htmlFor={id} required={required || isBlocking}>
           {label}
         </FieldLabel>
       )}
@@ -49,6 +59,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         error={!!error}
         fullWidth
         size="small"
+        placeholder={shownPlaceholder}
         sx={[highlightSx, ...(Array.isArray(sx) ? sx : [sx])]}
         {...rest}
       />
