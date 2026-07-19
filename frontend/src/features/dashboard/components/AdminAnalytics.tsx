@@ -35,7 +35,7 @@ export function AdminAnalytics() {
     <Stack spacing={4}>
       <Box>
         <Typography variant="h3" sx={{ mb: 1.5 }}>
-          Loan portfolio
+          Loan Portfolio
         </Typography>
         <AsyncSection isLoading={portfolio.isLoading} isError={portfolio.isError} error={portfolio.error}>
           {portfolio.data && (

@@ -84,7 +84,7 @@ export function ActionQueue({ isAdmin }: { isAdmin: boolean }) {
   return (
     <Box>
       <Typography variant="h3" sx={{ mb: 1.5 }}>
-        Needs attention
+        Needs Attention
       </Typography>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
         {loading ? (

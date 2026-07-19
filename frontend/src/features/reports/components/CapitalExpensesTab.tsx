@@ -294,7 +294,7 @@ function AddEntryDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Add capital / expense entry</DialogTitle>
+      <DialogTitle>Add Capital / Expense Entry</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           {create.isError && (

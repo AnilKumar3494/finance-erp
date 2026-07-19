@@ -55,7 +55,7 @@ export function OverviewTab() {
 
       <Box>
         <Typography variant="h3" sx={{ mb: 1.5 }}>
-          Loan portfolio
+          Loan Portfolio
         </Typography>
         <AsyncSection
           isLoading={portfolio.isLoading}

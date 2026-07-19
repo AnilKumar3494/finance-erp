@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { LoanDetailPage } from '@/features/loans/pages/LoanDetailPage'
 
 export const Route = createFileRoute('/_authed/finances/$loanId/')({
-  staticData: { title: 'Finance detail' },
+  staticData: { title: 'Finance Detail' },
   component: RouteComponent,
 })
 

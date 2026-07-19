@@ -27,7 +27,7 @@ export function VehicleCreatePage() {
 
       <Card>
         <Typography variant="h3" sx={{ mb: 2 }}>
-          Register a vehicle
+          Register a Vehicle
         </Typography>
         <VehicleForm
           mode="create"

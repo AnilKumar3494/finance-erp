@@ -216,7 +216,7 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 0.5 }}>
-        Customer details
+        Customer Details
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {customer.full_name} · {customer.mobile_number}
@@ -363,7 +363,7 @@ function IdentityProofsCard({ customer }: { customer: CustomerResponse }) {
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 0.5 }}>
-        Identity proof documents
+        Identity Proof Documents
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Upload a scan for each available proof. Aadhaar and PAN are recommended.
@@ -466,7 +466,7 @@ function StabilityDocsCard({
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 0.5 }}>
-        Stability proof documents
+        Stability Proof Documents
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Upload any available proof of stability.

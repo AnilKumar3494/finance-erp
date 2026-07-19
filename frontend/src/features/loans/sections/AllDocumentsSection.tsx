@@ -69,7 +69,7 @@ export function AllDocumentsSection({
 
   return (
     <CollapsibleCard
-      title="Finance documents"
+      title="Finance Documents"
       subtitle={docs.length ? `${docs.length} on file` : undefined}
     >
       <Stack
