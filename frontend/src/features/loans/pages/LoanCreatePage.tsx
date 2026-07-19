@@ -18,11 +18,7 @@ import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
 import { VehiclePicker } from '@/features/loans/components/VehiclePicker'
 import { PAYMENT_METHOD_LABELS } from '@/features/loans/paymentMethodLabels'
 import { PaymentMethod } from '@/schemas/enums'
-import {
-  PRINCIPAL_RANGE,
-  RATE_RANGE,
-  TENURE_MONTHS_RANGE,
-} from '@/schemas/primitives'
+import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 
 // --------------------------------------------------
 // Validation. Money/rate/tenure are kept as STRINGS in the form (matching
@@ -48,6 +44,8 @@ const Schema = z
     down_payment: z.string(),
     processing_fee: z.string(),
     documentation_fee: z.string(),
+    dsc_fee: z.string(),
+    rto_fee: z.string(),
     down_payment_mode: z.string(),
   })
   .superRefine((v, ctx) => {
@@ -77,7 +75,11 @@ const Schema = z
     if (tenure === null) {
       ctx.addIssue({ code: 'custom', path: ['tenure'], message: 'Enter the tenure' })
     } else if (!Number.isInteger(tenure)) {
-      ctx.addIssue({ code: 'custom', path: ['tenure'], message: 'Tenure must be a whole number of months' })
+      ctx.addIssue({
+        code: 'custom',
+        path: ['tenure'],
+        message: 'Tenure must be a whole number of months',
+      })
     } else if (tenure < TENURE_MONTHS_RANGE[0] || tenure > TENURE_MONTHS_RANGE[1]) {
       ctx.addIssue({
         code: 'custom',
@@ -86,7 +88,13 @@ const Schema = z
       })
     }
 
-    const fees: Array<keyof typeof v> = ['down_payment', 'processing_fee', 'documentation_fee']
+    const fees: Array<keyof typeof v> = [
+      'down_payment',
+      'processing_fee',
+      'documentation_fee',
+      'dsc_fee',
+      'rto_fee',
+    ]
     for (const key of fees) {
       const raw = v[key]
       if (raw.trim() === '') continue
@@ -126,6 +134,8 @@ const DEFAULTS: FormValues = {
   down_payment: '',
   processing_fee: '',
   documentation_fee: '',
+  dsc_fee: '',
+  rto_fee: '',
   down_payment_mode: '',
 }
 
@@ -190,7 +200,11 @@ export function LoanCreatePage() {
       down_payment: hasDp ? values.down_payment.trim() : undefined,
       processing_fee: feeOrUndef(values.processing_fee),
       documentation_fee: feeOrUndef(values.documentation_fee),
-      down_payment_mode: hasDp ? (values.down_payment_mode as LoanCreate['down_payment_mode']) : undefined,
+      dsc_fee: feeOrUndef(values.dsc_fee),
+      rto_fee: feeOrUndef(values.rto_fee),
+      down_payment_mode: hasDp
+        ? (values.down_payment_mode as LoanCreate['down_payment_mode'])
+        : undefined,
     }
 
     createMutation.mutate(payload, {
@@ -294,6 +308,24 @@ export function LoanCreatePage() {
                 placeholder="0"
                 {...register('documentation_fee')}
                 error={errors.documentation_fee?.message}
+              />
+            </TwoColumn>
+            <TwoColumn>
+              <Input
+                id="dsc_fee"
+                label="DSC fee"
+                inputMode="decimal"
+                placeholder="0"
+                {...register('dsc_fee')}
+                error={errors.dsc_fee?.message}
+              />
+              <Input
+                id="rto_fee"
+                label="RTO fee"
+                inputMode="decimal"
+                placeholder="0"
+                {...register('rto_fee')}
+                error={errors.rto_fee?.message}
               />
             </TwoColumn>
             <TwoColumn>

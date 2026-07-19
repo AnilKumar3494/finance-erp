@@ -7,11 +7,7 @@ import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 
-import {
-  useUpdateLoan,
-  type LoanResponse,
-  type LoanUpdate,
-} from '@/api/queries/loans'
+import { useUpdateLoan, type LoanResponse, type LoanUpdate } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
@@ -35,7 +31,8 @@ function parseAmount(s: string): number | null {
 function mapErr(error: unknown): string {
   if (error instanceof AxiosError) {
     const detail = serverMessage(error)
-    if (error.response?.status === 403) return detail ?? 'You do not have permission to edit these terms.'
+    if (error.response?.status === 403)
+      return detail ?? 'You do not have permission to edit these terms.'
     if (error.response?.status === 409) return detail ?? 'These terms can no longer be edited.'
     if (detail) return detail
     if (error.code === 'ERR_NETWORK') return 'Cannot reach server. Check your connection.'
@@ -71,13 +68,15 @@ export function FinanceInfoSection({
       sectionId="sec-finance"
       openSignal={openSignal}
       missing={missing?.map((m) => m.label)}
-      subtitle={[
-        money(loan.principal),
-        loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : null,
-        loan.tenure != null ? `${loan.tenure} months` : null,
-      ]
-        .filter(Boolean)
-        .join(' · ') || undefined}
+      subtitle={
+        [
+          money(loan.principal),
+          loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : null,
+          loan.tenure != null ? `${loan.tenure} months` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || undefined
+      }
       canEdit={perm.canEdit}
       warning={warning}
       view={<FinanceView loan={loan} />}
@@ -108,16 +107,15 @@ function FinanceView({ loan }: { loan: LoanResponse }) {
         label="Interest rate"
         value={loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : undefined}
       />
-      <FieldRow
-        label="Tenure"
-        value={loan.tenure != null ? `${loan.tenure} months` : undefined}
-      />
+      <FieldRow label="Tenure" value={loan.tenure != null ? `${loan.tenure} months` : undefined} />
       <FieldRow label="EMI amount" value={emi} />
       <FieldRow label="Monthly interest" value={money(loan.monthly_interest)} />
       <FieldRow label="Total payable" value={money(loan.total_payable)} />
       <FieldRow label="Down payment" value={fmtINR(Number(loan.down_payment))} />
       <FieldRow label="Processing fee" value={fmtINR(Number(loan.processing_fee))} />
       <FieldRow label="Documentation fee" value={fmtINR(Number(loan.documentation_fee))} />
+      <FieldRow label="DSC fee" value={fmtINR(Number(loan.dsc_fee))} />
+      <FieldRow label="RTO fee" value={fmtINR(Number(loan.rto_fee))} />
       <FieldRow label="Net loan principal" value={money(loan.net_loan_principal)} />
       <FieldRow label="Net disbursed amount" value={money(loan.net_disbursed_amount)} />
       <FieldRow
@@ -145,6 +143,8 @@ interface FormValues {
   down_payment: string
   processing_fee: string
   documentation_fee: string
+  dsc_fee: string
+  rto_fee: string
   penalty_rate: string
 }
 
@@ -172,18 +172,28 @@ function FinanceEditForm({
           down_payment: z.string(),
           processing_fee: z.string(),
           documentation_fee: z.string(),
+          dsc_fee: z.string(),
+          rto_fee: z.string(),
           penalty_rate: z.string(),
         })
         .superRefine((v, ctx) => {
           if (v.hp_number.trim() === '') {
             ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'Enter the HP number' })
           } else if (v.hp_number.trim().length > 30) {
-            ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'HP number is too long (max 30 characters)' })
+            ctx.addIssue({
+              code: 'custom',
+              path: ['hp_number'],
+              message: 'HP number is too long (max 30 characters)',
+            })
           }
           if (canEditSensitive) {
             const principal = parseAmount(v.principal)
             if (principal === null) {
-              ctx.addIssue({ code: 'custom', path: ['principal'], message: 'Enter the principal amount' })
+              ctx.addIssue({
+                code: 'custom',
+                path: ['principal'],
+                message: 'Enter the principal amount',
+              })
             } else if (principal < PRINCIPAL_RANGE[0] || principal > PRINCIPAL_RANGE[1]) {
               ctx.addIssue({
                 code: 'custom',
@@ -193,7 +203,11 @@ function FinanceEditForm({
             }
             const rate = parseAmount(v.interest_rate)
             if (rate === null) {
-              ctx.addIssue({ code: 'custom', path: ['interest_rate'], message: 'Enter the interest rate' })
+              ctx.addIssue({
+                code: 'custom',
+                path: ['interest_rate'],
+                message: 'Enter the interest rate',
+              })
             } else if (rate < RATE_RANGE[0] || rate > RATE_RANGE[1]) {
               ctx.addIssue({
                 code: 'custom',
@@ -203,7 +217,11 @@ function FinanceEditForm({
             }
             const tenure = parseAmount(v.tenure)
             if (tenure === null || !Number.isInteger(tenure)) {
-              ctx.addIssue({ code: 'custom', path: ['tenure'], message: 'Tenure must be a whole number of months' })
+              ctx.addIssue({
+                code: 'custom',
+                path: ['tenure'],
+                message: 'Tenure must be a whole number of months',
+              })
             } else if (tenure < TENURE_MONTHS_RANGE[0] || tenure > TENURE_MONTHS_RANGE[1]) {
               ctx.addIssue({
                 code: 'custom',
@@ -213,12 +231,25 @@ function FinanceEditForm({
             }
             const dp = parseAmount(v.down_payment)
             if (dp === null || dp < 0) {
-              ctx.addIssue({ code: 'custom', path: ['down_payment'], message: 'Enter a valid amount' })
+              ctx.addIssue({
+                code: 'custom',
+                path: ['down_payment'],
+                message: 'Enter a valid amount',
+              })
             } else if (principal !== null && dp >= principal) {
-              ctx.addIssue({ code: 'custom', path: ['down_payment'], message: 'Down payment must be less than the principal' })
+              ctx.addIssue({
+                code: 'custom',
+                path: ['down_payment'],
+                message: 'Down payment must be less than the principal',
+              })
             }
           }
-          for (const key of ['processing_fee', 'documentation_fee'] as const) {
+          for (const key of [
+            'processing_fee',
+            'documentation_fee',
+            'dsc_fee',
+            'rto_fee',
+          ] as const) {
             const amt = parseAmount(v[key])
             if (amt === null || amt < 0) {
               ctx.addIssue({ code: 'custom', path: [key], message: 'Enter a valid amount' })
@@ -250,6 +281,8 @@ function FinanceEditForm({
       down_payment: loan.down_payment,
       processing_fee: loan.processing_fee,
       documentation_fee: loan.documentation_fee,
+      dsc_fee: loan.dsc_fee,
+      rto_fee: loan.rto_fee,
       penalty_rate: loan.penalty_rate ?? '36',
     },
   })
@@ -345,6 +378,22 @@ function FinanceEditForm({
             error={errors.documentation_fee?.message}
           />
         </TwoCol>
+        <TwoCol>
+          <Input
+            id="fin_dsc"
+            label="DSC fee"
+            inputMode="decimal"
+            {...register('dsc_fee')}
+            error={errors.dsc_fee?.message}
+          />
+          <Input
+            id="fin_rto"
+            label="RTO fee"
+            inputMode="decimal"
+            {...register('rto_fee')}
+            error={errors.rto_fee?.message}
+          />
+        </TwoCol>
         <Input
           id="fin_penalty"
           label="Penalty rate (% per month)"
@@ -377,7 +426,8 @@ function buildDiff(v: FormValues, loan: LoanResponse, canEditSensitive: boolean)
 
   if (canEditSensitive) {
     if (numChanged(v.principal, loan.principal ?? '')) p.principal = v.principal.trim()
-    if (numChanged(v.interest_rate, loan.interest_rate ?? '')) p.interest_rate = v.interest_rate.trim()
+    if (numChanged(v.interest_rate, loan.interest_rate ?? ''))
+      p.interest_rate = v.interest_rate.trim()
     if (Number(v.tenure) !== (loan.tenure ?? NaN)) p.tenure = Number(v.tenure)
     if (numChanged(v.down_payment, loan.down_payment)) p.down_payment = v.down_payment.trim()
   }
@@ -385,6 +435,8 @@ function buildDiff(v: FormValues, loan: LoanResponse, canEditSensitive: boolean)
   if (numChanged(v.documentation_fee, loan.documentation_fee)) {
     p.documentation_fee = v.documentation_fee.trim()
   }
+  if (numChanged(v.dsc_fee, loan.dsc_fee)) p.dsc_fee = v.dsc_fee.trim()
+  if (numChanged(v.rto_fee, loan.rto_fee)) p.rto_fee = v.rto_fee.trim()
   if (numChanged(v.penalty_rate, loan.penalty_rate ?? '36')) p.penalty_rate = v.penalty_rate.trim()
 
   return p

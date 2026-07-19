@@ -76,7 +76,12 @@ def enrich_loan(
         )
         response.net_loan_principal = loan.principal - loan.down_payment
         response.net_disbursed_amount = (
-            loan.principal - loan.down_payment - loan.processing_fee - loan.documentation_fee
+            loan.principal
+            - loan.down_payment
+            - loan.processing_fee
+            - loan.documentation_fee
+            - loan.dsc_fee
+            - loan.rto_fee
         )
 
     if includes:

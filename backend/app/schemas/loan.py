@@ -75,6 +75,8 @@ class LoanBase(BaseModel):
     down_payment: Decimal = Field(default=Decimal("0.00"), ge=0)
     processing_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     documentation_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
+    dsc_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
+    rto_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
 
     @field_validator("hp_number")
     @classmethod
@@ -163,6 +165,8 @@ class LoanUpdate(BaseModel):
     down_payment: Optional[Decimal] = Field(None, ge=0)
     processing_fee: Optional[Decimal] = Field(None, ge=0)
     documentation_fee: Optional[Decimal] = Field(None, ge=0)
+    dsc_fee: Optional[Decimal] = Field(None, ge=0)
+    rto_fee: Optional[Decimal] = Field(None, ge=0)
     penalty_rate: Optional[Decimal] = Field(None, ge=0, le=1000)
 
     model_config = {"extra": "forbid"}
