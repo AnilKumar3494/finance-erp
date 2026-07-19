@@ -21,6 +21,7 @@ import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { LoanStatusChip } from '../components/LoanStatusChip'
 import { EmiDueChip } from '../components/EmiDueChip'
+import { PrintStatementButton } from '../components/PrintStatementButton'
 import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
 import { LoanActions } from '../components/LoanActions'
@@ -321,6 +322,7 @@ function HeaderCard({
               title={onStatusClick ? 'Go to loan actions' : undefined}
             />
             <EmiDueChip status={loan.emi_due_status} size="medium" />
+            {loan.status !== 'DRAFT' && <PrintStatementButton loan={loan} />}
           </Stack>
         </Stack>
 
