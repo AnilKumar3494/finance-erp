@@ -557,6 +557,30 @@ function VehicleDocs({
   canEdit: boolean
 }) {
   const docsQuery = useDocuments({ vehicle_id: vehicleId, page_size: 100 })
+  const docs = docsQuery.data?.results ?? []
+  return (
+    <Collapsible
+      title="Vehicle documents"
+      subtitle={docs.length > 0 ? `${docs.length} on file` : 'None on file'}
+    >
+      <VehicleDocsBody vehicleId={vehicleId} customerId={customerId} canEdit={canEdit} />
+    </Collapsible>
+  )
+}
+
+// The slots themselves, without the collapsible chrome — the Vehicles detail
+// page renders these inside its own card, so both pages offer the same three
+// uploads against the same `vehicle_id` documents.
+export function VehicleDocsBody({
+  vehicleId,
+  customerId,
+  canEdit,
+}: {
+  vehicleId: string
+  customerId: string
+  canEdit: boolean
+}) {
+  const docsQuery = useDocuments({ vehicle_id: vehicleId, page_size: 100 })
   const del = useDeleteDocument()
 
   const docs = docsQuery.data?.results ?? []
@@ -571,10 +595,7 @@ function VehicleDocs({
   }
 
   return (
-    <Collapsible
-      title="Vehicle documents"
-      subtitle={docs.length > 0 ? `${docs.length} on file` : 'None on file'}
-    >
+    <>
       {docsQuery.isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
           <Spinner size={20} />
@@ -627,7 +648,7 @@ function VehicleDocs({
           ))}
         </Stack>
       )}
-    </Collapsible>
+    </>
   )
 }
 
