@@ -75,7 +75,7 @@ export function QuickActions({ isAdmin }: { isAdmin: boolean }) {
   return (
     <Box>
       <Typography variant="h3" sx={{ mb: 1.5 }}>
-        Quick actions
+        Quick Actions
       </Typography>
       <Box
         sx={{

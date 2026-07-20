@@ -93,7 +93,7 @@ export function LoanActions({
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 2 }}>
-        Loan actions
+        Loan Actions
       </Typography>
       <Stack spacing={2} divider={<Divider flexItem />}>
         {actions}

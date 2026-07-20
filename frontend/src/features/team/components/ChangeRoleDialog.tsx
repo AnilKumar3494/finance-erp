@@ -52,7 +52,7 @@ export function ChangeRoleDialog({
 
   return (
     <Dialog open={open} onClose={close} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontSize: 18 }}>Change role</DialogTitle>
+      <DialogTitle sx={{ fontSize: 18 }}>Change Role</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           <Typography variant="body2" color="text.secondary">

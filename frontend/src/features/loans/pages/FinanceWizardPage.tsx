@@ -253,7 +253,7 @@ function CustomerGate({ onStarted }: { onStarted: (loanId: string) => void }) {
       )}
       <Card>
         <Typography variant="h3" sx={{ mb: 1 }}>
-          Select the customer
+          Select the Customer
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
           Choose the customer this finance is for. We create a draft immediately so documents,

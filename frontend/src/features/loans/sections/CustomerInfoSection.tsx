@@ -388,7 +388,7 @@ function CustomerDocs({ customerId, canEdit }: { customerId: string; canEdit: bo
 
   return (
     <Collapsible
-      title="Identity proof documents"
+      title="Identity Proof Documents"
       subtitle={onFileCount > 0 ? `${onFileCount} on file` : 'None on file'}
     >
       {proofsQuery.isLoading ? (

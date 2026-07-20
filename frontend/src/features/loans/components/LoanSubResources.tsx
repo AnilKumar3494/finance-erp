@@ -51,13 +51,13 @@ export function LoanSubResources({ loan }: { loan: LoanResponse }) {
 
   return (
     <>
-      <CollapsibleCard title="Due cycles" subtitle={dueSubtitle}>
+      <CollapsibleCard title="Due Cycles" subtitle={dueSubtitle}>
         <DueCyclesTab loan={loan} />
       </CollapsibleCard>
       <CollapsibleCard title="Transactions" subtitle={txnSubtitle} openSignal={txnOpenSignal}>
         <TransactionsTab loan={loan} />
       </CollapsibleCard>
-      <CollapsibleCard title="Interest" subtitle={irrSubtitle}>
+      <CollapsibleCard title="IRR Sheet and Calculations" subtitle={irrSubtitle}>
         <LoanIrrCard loan={loan} />
       </CollapsibleCard>
     </>

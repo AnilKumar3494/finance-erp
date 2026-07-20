@@ -180,7 +180,7 @@ export function RecordPaymentDialog({
 
   return (
     <Dialog open={open} onClose={close} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>Record payment</DialogTitle>
+      <DialogTitle sx={{ pb: 1 }}>Record Payment</DialogTitle>
       <Box component="form" id="record-payment-form" onSubmit={handleSubmit(onSubmit)} noValidate>
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2.5}>

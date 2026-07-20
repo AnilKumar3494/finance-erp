@@ -13,7 +13,7 @@ export interface NewFinanceSearch {
 const MAX_STEP = 5
 
 export const Route = createFileRoute('/_authed/finances/new')({
-  staticData: { title: 'New finance' },
+  staticData: { title: 'New Finance' },
   validateSearch: (raw: Record<string, unknown>): NewFinanceSearch => {
     const financeId =
       typeof raw.financeId === 'string' && raw.financeId.length > 0

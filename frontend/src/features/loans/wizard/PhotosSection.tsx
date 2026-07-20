@@ -37,7 +37,7 @@ export function PhotosSection({
     return (
       <Card>
         <Typography variant="h3" sx={{ mb: 1 }}>
-          Customer with vehicle
+          Customer with Vehicle
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Add a vehicle in the Vehicle step before uploading customer-with-vehicle photos.
@@ -57,7 +57,7 @@ function PhotosCard({ vehicleId, customerId }: { vehicleId: string; customerId: 
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 0.5 }}>
-        Customer with vehicle
+        Customer with Vehicle
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Upload photos of the customer with the vehicle. You can add more than one.
