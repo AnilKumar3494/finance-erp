@@ -162,6 +162,7 @@ class DayReportReceipt(BaseModel):
     cycle_number: int | None
     collected_by: str | None
     amount: Decimal
+    ta_amount: Decimal = Decimal("0")   # Travelling Allowance collected on this receipt
 
 
 class DayReportPayment(BaseModel):
@@ -192,6 +193,7 @@ class DayReportDay(BaseModel):
     total_receipts: Decimal
     total_payments: Decimal
     emi_collection: Decimal
+    ta_collection: Decimal = Decimal("0")
     down_payments: Decimal
     receipts: list[DayReportReceipt]
     payments: list[DayReportPayment]
@@ -209,6 +211,7 @@ class DayReport(BaseModel):
     total_receipts: Decimal
     total_payments: Decimal
     total_emi_collection: Decimal
+    total_ta_collection: Decimal = Decimal("0")
     total_down_payments: Decimal
     total_capital_in: Decimal
     total_other_income: Decimal

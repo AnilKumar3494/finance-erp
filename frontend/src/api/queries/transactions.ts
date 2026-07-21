@@ -169,6 +169,8 @@ export function useLoanSummary(loanId: string | undefined, enabled = true) {
 export interface TransactionCreate {
   loan_id: string
   amount: string
+  // Travelling Allowance collected with this EMI (separate income; optional).
+  ta_amount?: string
   payment_mode: PaymentMethod
   // Required by the backend as of the cycle-required change — every payment
   // must land on a specific cycle to keep total_received in sync.

@@ -32,7 +32,9 @@ function receiptDesc(r: DayReportReceipt): string {
       : r.cycle_number != null
         ? `EMI · cycle #${r.cycle_number}`
         : 'EMI'
-  return `${kind} · ${MODE_LABELS[r.payment_mode] ?? r.payment_mode}`
+  // Surface the Travelling Allowance collected on this receipt (iFinance "EMI TA").
+  const ta = Number(r.ta_amount) > 0 ? ` · TA ${inr(r.ta_amount)}` : ''
+  return `${kind} · ${MODE_LABELS[r.payment_mode] ?? r.payment_mode}${ta}`
 }
 
 // A capital/expense ledger row — no loan to click through to, so it renders
@@ -167,7 +169,9 @@ export function DayLedgerTable({ day }: { day: DayReportDay }) {
               <TableCell sx={{ fontWeight: 700 }}>TOTAL</TableCell>
               <TableCell colSpan={3}>
                 <Typography variant="caption" color="text.secondary">
-                  EMI {inr(day.emi_collection)} · Down payments {inr(day.down_payments)}
+                  EMI {inr(day.emi_collection)}
+                  {Number(day.ta_collection) > 0 ? ` · TA ${inr(day.ta_collection)}` : ''} · Down
+                  payments {inr(day.down_payments)}
                 </Typography>
               </TableCell>
               <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>

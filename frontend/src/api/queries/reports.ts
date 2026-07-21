@@ -125,6 +125,7 @@ export interface DayReportReceipt {
   cycle_number: number | null
   collected_by: string | null
   amount: string
+  ta_amount: string
 }
 
 export interface DayReportPayment {
@@ -153,6 +154,7 @@ export interface DayReportDay {
   total_receipts: string
   total_payments: string
   emi_collection: string
+  ta_collection: string
   down_payments: string
   receipts: DayReportReceipt[]
   payments: DayReportPayment[]
@@ -170,6 +172,7 @@ export interface DayReport {
   total_receipts: string
   total_payments: string
   total_emi_collection: string
+  total_ta_collection: string
   total_down_payments: string
   total_capital_in: string
   total_other_income: string

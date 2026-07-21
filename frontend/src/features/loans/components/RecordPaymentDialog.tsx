@@ -39,6 +39,7 @@ function mapErr(error: unknown): string {
 
 interface FormValues {
   amount: string
+  ta_amount: string
   payment_mode: PaymentMethod
   effective_payment_date: Dayjs | null
   due_cycle_id: string
@@ -50,6 +51,12 @@ const Schema = z.object({
     const n = Number(s.trim())
     return s.trim() !== '' && Number.isFinite(n) && n > 0
   }, 'Enter a valid amount greater than 0'),
+  // TA (Travelling Allowance) — optional, collected on top of the EMI. Empty = none.
+  ta_amount: z.string().refine((s) => {
+    if (s.trim() === '') return true
+    const n = Number(s.trim())
+    return Number.isFinite(n) && n >= 0
+  }, 'Enter a valid TA amount (0 or more)'),
   payment_mode: PaymentMethod,
   effective_payment_date: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
   due_cycle_id: z
@@ -99,6 +106,7 @@ export function RecordPaymentDialog({
   const defaults = useMemo<FormValues>(
     () => ({
       amount: defaultAmount,
+      ta_amount: '',
       payment_mode: 'CASH',
       effective_payment_date: dayjs(),
       due_cycle_id: seededCycleId,
@@ -164,6 +172,7 @@ export function RecordPaymentDialog({
     const payload: TransactionCreate = {
       loan_id: loanId,
       amount: v.amount.trim(),
+      ta_amount: v.ta_amount.trim() === '' ? undefined : v.ta_amount.trim(),
       payment_mode: v.payment_mode,
       // Cycle is required (zod-validated) so v.due_cycle_id is always a real
       // UUID by the time we get here.
@@ -214,6 +223,16 @@ export function RecordPaymentDialog({
               placeholder="e.g. 6500"
               {...register('amount')}
               error={errors.amount?.message}
+            />
+
+            <Input
+              id="rp_ta"
+              label="TA (Travelling Allowance)"
+              inputMode="decimal"
+              placeholder="Optional — e.g. 200"
+              hint="Collected on top of the EMI. Separate income; not part of the loan balance."
+              {...register('ta_amount')}
+              error={errors.ta_amount?.message}
             />
 
             <Controller

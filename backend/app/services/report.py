@@ -935,6 +935,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
                 "cycle_number": cycle.cycle_number if cycle is not None else None,
                 "collected_by": collector.username if collector is not None else None,
                 "amount": _d(txn.amount),
+                "ta_amount": _d(txn.ta_amount),
             }
         )
 
@@ -977,6 +978,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         "receipts": _ZERO,
         "payments": _ZERO,
         "emi": _ZERO,
+        "ta": _ZERO,
         "down_payments": _ZERO,
         "capital_in": _ZERO,
         "other_income": _ZERO,
@@ -1007,6 +1009,9 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
             ),
             _ZERO,
         )
+        # TA (Travelling Allowance) — collected alongside EMIs, reported as its own
+        # line like iFinance's "EMI TA"; kept OUT of receipts/emi/position totals.
+        day_ta = sum((r["ta_amount"] for r in receipts), _ZERO)
         for r in receipts:
             mode = r["payment_mode"]
             key = mode.value.lower() if mode in _BREAKDOWN_MODES else "other"
@@ -1023,6 +1028,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         grand["receipts"] += day_receipts
         grand["payments"] += day_payments
         grand["emi"] += day_emi
+        grand["ta"] += day_ta
         grand["down_payments"] += day_receipts - day_entries_in - day_emi
 
         days.append(
@@ -1033,6 +1039,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
                 "total_receipts": day_receipts,
                 "total_payments": day_payments,
                 "emi_collection": day_emi,
+                "ta_collection": day_ta,
                 "down_payments": day_receipts - day_entries_in - day_emi,
                 "receipts": receipts,
                 "payments": payments,
@@ -1049,6 +1056,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         "total_receipts": grand["receipts"],
         "total_payments": grand["payments"],
         "total_emi_collection": grand["emi"],
+        "total_ta_collection": grand["ta"],
         "total_down_payments": grand["down_payments"],
         "total_capital_in": grand["capital_in"],
         "total_other_income": grand["other_income"],
