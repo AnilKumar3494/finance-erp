@@ -37,6 +37,27 @@ from app.core.db import SessionLocal
 from app.models.audit_log import AuditLog
 from app.models.due_cycle import CycleStatus, DueCycle
 from app.models.loan import Loan, LoanStatus
+
+# Register EVERY ORM mapper. Run standalone (`python -m
+# app.jobs.nightly_cycle_check`) this module only imports Loan + DueCycle
+# directly, but their relationships reference Customer, Vehicle, User,
+# Personnel, etc. Without those classes in the registry SQLAlchemy can't
+# resolve the mapper graph and every run aborts on the first query. Import
+# the full model set so mapper configuration succeeds. Unused otherwise.
+from app.models import (  # noqa: F401
+    bad_debt_proposal,
+    cash_entry,
+    customer,
+    document,
+    identity_proof,
+    loan_closure,
+    penalty_event,
+    personnel,
+    stability_document,
+    transaction,
+    user,
+    vehicle,
+)
 from app.services.finance import days_in_month_of
 from app.services.penalty import (
     apply_penalty,
