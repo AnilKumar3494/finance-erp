@@ -683,6 +683,76 @@ def get_employee_report(db: Session) -> dict:
     }
 
 
+def get_collection_by_collector(db: Session, date1: date, date2: date) -> dict:
+    """
+    Per-collector collections over [date1, date2] (inclusive) — the app's twin of
+    iFinance's date-ranged Collection Report. REGULAR SUCCESS receipts only,
+    bucketed on effective_payment_date, grouped by the collecting user, with the
+    payment-mode split and TA broken out. Collectors with no receipts in the
+    window are omitted.
+    """
+    def _mode(mode: PaymentMethod):
+        return func.coalesce(
+            func.sum(case((Transaction.payment_mode == mode, Transaction.amount), else_=0)),
+            0,
+        )
+
+    rows = (
+        db.query(
+            User.id,
+            User.username,
+            User.role,
+            User.is_active,
+            User.is_deleted,
+            func.coalesce(func.sum(Transaction.amount), 0).label("total_amount"),
+            func.coalesce(func.sum(Transaction.ta_amount), 0).label("ta_amount"),
+            func.count(Transaction.id).label("txn_count"),
+            _mode(PaymentMethod.CASH).label("cash"),
+            _mode(PaymentMethod.GPAY).label("gpay"),
+            _mode(PaymentMethod.PHONEPE).label("phonepe"),
+            _mode(PaymentMethod.BANK_TRANSFER).label("bank_transfer"),
+        )
+        .join(Transaction, Transaction.collected_by_id == User.id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .group_by(User.id, User.username, User.role, User.is_active, User.is_deleted)
+        .all()
+    )
+
+    results = []
+    for r in rows:
+        breakdown = _d(r.cash) + _d(r.gpay) + _d(r.phonepe) + _d(r.bank_transfer)
+        results.append({
+            "collector_id": str(r.id),
+            "collector_name": r.username,
+            "role": r.role,
+            "is_active": bool(r.is_active) and not bool(r.is_deleted),
+            "total_amount": _d(r.total_amount),
+            "ta_amount": _d(r.ta_amount),
+            "transaction_count": r.txn_count,
+            "cash": _d(r.cash),
+            "gpay": _d(r.gpay),
+            "phonepe": _d(r.phonepe),
+            "bank_transfer": _d(r.bank_transfer),
+            "other": _d(r.total_amount) - breakdown,
+        })
+    results.sort(key=lambda x: x["total_amount"], reverse=True)
+
+    return {
+        "date1": date1,
+        "date2": date2,
+        "total_collected": sum((r["total_amount"] for r in results), _ZERO),
+        "total_ta": sum((r["ta_amount"] for r in results), _ZERO),
+        "total_transactions": sum(r["transaction_count"] for r in results),
+        "results": results,
+    }
+
+
 # --------------------------------------------------
 # Charts
 # --------------------------------------------------

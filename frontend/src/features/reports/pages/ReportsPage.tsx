@@ -23,6 +23,7 @@ import { Btn, Card } from '@/components/primitives'
 import type { ReportTab } from '../tabs'
 import { OverviewTab } from '../components/OverviewTab'
 import { CollectionsTab } from '../components/CollectionsTab'
+import { CollectorsTab } from '../components/CollectorsTab'
 import { CustomersReportTab } from '../components/CustomersReportTab'
 import { EmployeesTab } from '../components/EmployeesTab'
 import { DayReportTab } from '../components/DayReportTab'
@@ -72,6 +73,12 @@ const REPORT_SECTIONS: ReportSection[] = [
         label: 'Collections',
         description: 'Daily or monthly collection totals split by payment mode.',
         icon: PaymentsOutlined,
+      },
+      {
+        tab: 'collectors',
+        label: 'By Collector',
+        description: 'Collections per collector over a date range, with the payment-mode split.',
+        icon: BadgeOutlined,
       },
     ],
   },
@@ -161,6 +168,7 @@ const REPORT_SECTIONS: ReportSection[] = [
 const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.ReactNode }> = {
   overview: { title: 'Overview', render: () => <OverviewTab /> },
   collections: { title: 'Collections', render: () => <CollectionsTab /> },
+  collectors: { title: 'By Collector', render: () => <CollectorsTab /> },
   customers: { title: 'Customers', render: () => <CustomersReportTab /> },
   employees: { title: 'Employees', render: () => <EmployeesTab /> },
   day: { title: 'Day Report', render: () => <DayReportTab /> },

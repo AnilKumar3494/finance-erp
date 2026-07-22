@@ -326,6 +326,30 @@ class PnlExpenseCategory(BaseModel):
     amount: Decimal
 
 
+class CollectorCollectionRow(BaseModel):
+    collector_id: uuid.UUID
+    collector_name: str
+    role: str
+    is_active: bool
+    total_amount: Decimal
+    ta_amount: Decimal
+    transaction_count: int
+    cash: Decimal
+    gpay: Decimal
+    phonepe: Decimal
+    bank_transfer: Decimal
+    other: Decimal
+
+
+class CollectionByCollectorReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    total_collected: Decimal
+    total_ta: Decimal
+    total_transactions: int
+    results: list[CollectorCollectionRow]
+
+
 class PnlReport(BaseModel):
     date1: date_type
     date2: date_type
