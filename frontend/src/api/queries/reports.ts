@@ -278,6 +278,7 @@ export interface PnlReport {
   date2: string
   collections: string
   interest_received: string
+  ta_income: string
   other_income: string
   total_income: string
   total_expenses: string

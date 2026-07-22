@@ -331,6 +331,7 @@ class PnlReport(BaseModel):
     date2: date_type
     collections: Decimal
     interest_received: Decimal
+    ta_income: Decimal = Decimal("0")
     other_income: Decimal
     total_income: Decimal
     total_expenses: Decimal

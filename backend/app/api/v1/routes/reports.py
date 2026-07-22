@@ -97,6 +97,9 @@ def collections(
 # --------------------------------------------------
 # Longest range the day report will expand; keeps the row payload bounded.
 _DAY_REPORT_MAX_DAYS = 92
+# P&L can be run over the full business lifetime (to reconcile against iFinance's
+# all-time figures), so allow up to ~12 years rather than a single financial year.
+_PNL_MAX_DAYS = 4400
 
 
 def _validated_range(
@@ -203,7 +206,7 @@ def pnl_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    d1, d2 = _validated_range(date1, date2, 366)
+    d1, d2 = _validated_range(date1, date2, _PNL_MAX_DAYS)
     return get_pnl(db, d1, d2)
 
 

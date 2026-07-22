@@ -1397,19 +1397,36 @@ def get_pnl(db: Session, date1: date, date2: date) -> dict:
     sums = cash_entry_type_sums(db, date1, date2)
     other_income = sums.get(CashEntryType.OTHER_INCOME, _ZERO)
     expenses = sums.get(CashEntryType.EXPENSE, _ZERO)
+    # TA (Travelling Allowance) collected on EMIs is real income, separate from
+    # the interest share — bucket on the same effective_payment_date window.
+    ta_income = _d(
+        db.query(func.coalesce(func.sum(Transaction.ta_amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .scalar()
+    )
+    total_income = interest_received + ta_income + other_income
     return {
         "date1": date1,
         "date2": date2,
         "collections": collections,
         "interest_received": interest_received,
+        "ta_income": ta_income,
         "other_income": other_income,
-        "total_income": interest_received + other_income,
+        "total_income": total_income,
         "total_expenses": expenses,
         "expenses_by_category": [
             {"category": category, "amount": amount}
             for category, amount in expense_category_sums(db, date1, date2)
         ],
-        "net_profit": interest_received + other_income - expenses,
+        "net_profit": total_income - expenses,
     }
 
 
