@@ -147,9 +147,20 @@ class LoanApproveRequest(BaseModel):
     """
     Body for POST /loans/{id}/approve.
     `down_payment_mode` is required only if the loan has a down_payment > 0.
+    `approval_date` / `first_emi_date` are optional overrides so an admin can
+    backdate a finance to its real iFinance origination date (both default to
+    today / one month after approval when omitted).
     """
 
     down_payment_mode: Optional[PaymentMethod] = None
+    approval_date: Optional[date] = Field(
+        None,
+        description="Origination date. Defaults to today; may be backdated, never future.",
+    )
+    first_emi_date: Optional[date] = Field(
+        None,
+        description="Date the first EMI falls due. Defaults to one month after approval.",
+    )
 
 
 # --------------------------------------------------

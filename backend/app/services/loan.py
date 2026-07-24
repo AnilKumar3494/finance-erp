@@ -417,6 +417,8 @@ def approve_loan(
     approved_by: uuid.UUID,
     down_payment_mode: Optional[str] = None,
     *,
+    approval_date: Optional[date] = None,
+    first_emi_date: Optional[date] = None,
     request: Optional[Request] = None,
 ) -> Loan:
     """
@@ -450,16 +452,27 @@ def approve_loan(
     if loan.down_payment and loan.down_payment > 0 and not down_payment_mode:
         raise ValueError("down_payment_mode is required when down_payment > 0")
 
+    today = date.today()
+    # Approval date defaults to today, but the admin may backdate it to the real
+    # iFinance origination date. Never allow a future date. The first-EMI date,
+    # if given, shapes the cycle schedule; otherwise cycles run from approval.
+    eff_approval = approval_date or today
+    if eff_approval > today:
+        raise ValueError("Approval date cannot be in the future")
+    if first_emi_date is not None and first_emi_date < eff_approval:
+        raise ValueError("First-EMI date cannot be before the approval date")
+
     before = _loan_audit_snapshot(loan)
 
-    today = date.today()
-    loan.approval_date = today
-    loan.due_day_of_month = today.day
+    loan.approval_date = eff_approval
+    loan.due_day_of_month = (first_emi_date or eff_approval).day
     loan.status = LoanStatus.ACTIVE
     loan.updated_by_id = approved_by
 
     # Generate due cycles (cycles are added to session, not yet committed).
-    cycles = generate_cycles_for_loan(db, loan, approved_by=approved_by)
+    cycles = generate_cycles_for_loan(
+        db, loan, approved_by=approved_by, first_emi_date=first_emi_date
+    )
 
     # Flush so the cycles have IDs we can reference in the DP transaction.
     db.flush()
@@ -474,7 +487,7 @@ def approve_loan(
                 transaction_type=TransactionType.DOWN_PAYMENT,
                 status=TransactionStatus.SUCCESS,
                 punctuality_status=PunctualityStatus.PAID_ON_TIME,
-                effective_payment_date=today,
+                effective_payment_date=eff_approval,
                 due_cycle_id=first_cycle.id if first_cycle else None,
                 collected_by_id=approved_by,
                 created_by_id=approved_by,

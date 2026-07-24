@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import { serverMessage } from '@/api/errors'
+import dayjs, { type Dayjs } from 'dayjs'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import Box from '@mui/material/Box'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -20,7 +22,7 @@ import {
 } from '@/api/queries/badDebt'
 import { useCustomer } from '@/api/queries/customers'
 import { useAuth } from '@/app/auth-context'
-import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { PaymentMethod } from '@/schemas/enums'
 import { fmtDateTime } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
@@ -120,6 +122,9 @@ function ApproveAction({
   const [gapsOpen, setGapsOpen] = useState(false)
   const [mode, setMode] = useState('')
   const [modeError, setModeError] = useState<string>()
+  // Optional backdating to the real iFinance origination date. Empty = today.
+  const [approvalDate, setApprovalDate] = useState<Dayjs | null>(null)
+  const [firstEmiDate, setFirstEmiDate] = useState<Dayjs | null>(null)
 
   const requireMode = Number(loan.down_payment) > 0
 
@@ -132,6 +137,8 @@ function ApproveAction({
     approve.reset()
     setMode('')
     setModeError(undefined)
+    setApprovalDate(null)
+    setFirstEmiDate(null)
     setOpen(true)
   }
   const closeDialog = () => {
@@ -168,7 +175,11 @@ function ApproveAction({
       return
     }
     approve.mutate(
-      { down_payment_mode: requireMode ? (mode as PaymentMethod) : undefined },
+      {
+        down_payment_mode: requireMode ? (mode as PaymentMethod) : undefined,
+        approval_date: approvalDate ? approvalDate.format('YYYY-MM-DD') : undefined,
+        first_emi_date: firstEmiDate ? firstEmiDate.format('YYYY-MM-DD') : undefined,
+      },
       { onSuccess: () => closeDialog() },
     )
   }
@@ -275,6 +286,45 @@ function ApproveAction({
               ))}
             </Input>
           )}
+
+          <Box sx={{ mt: requireMode ? 2.5 : 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+              Dates (optional)
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Leave blank to use today. Set these to backdate a finance to its
+              original iFinance dates if it was added late.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Box sx={{ flex: 1 }}>
+                <FieldLabel htmlFor="approve_date">Approval date</FieldLabel>
+                <DatePicker
+                  value={approvalDate}
+                  onChange={(d) => setApprovalDate(d)}
+                  format="DD MMM YYYY"
+                  maxDate={dayjs()}
+                  slotProps={{
+                    textField: { id: 'approve_date', size: 'small', fullWidth: true },
+                    field: { clearable: true },
+                  }}
+                />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <FieldLabel htmlFor="approve_first_emi">First EMI date</FieldLabel>
+                <DatePicker
+                  value={firstEmiDate}
+                  onChange={(d) => setFirstEmiDate(d)}
+                  format="DD MMM YYYY"
+                  minDate={approvalDate ?? undefined}
+                  slotProps={{
+                    textField: { id: 'approve_first_emi', size: 'small', fullWidth: true },
+                    field: { clearable: true },
+                  }}
+                />
+              </Box>
+            </Stack>
+          </Box>
+
           {approve.isError && (
             <Box sx={{ mt: 2 }}>
               <ErrorBanner message={mapActionError(approve.error)} />

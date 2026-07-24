@@ -435,6 +435,7 @@ def create_transaction(
     transaction = Transaction(
         loan_id=data.loan_id,
         amount=data.amount,
+        ta_amount=data.ta_amount or Decimal("0"),
         payment_mode=data.payment_mode,
         notes=base_notes or None,
         status=TransactionStatus.PENDING,

@@ -53,6 +53,7 @@ export function PnlTab() {
       ['Section', 'Item', 'Amount'],
       [
         ['Income', 'Interest earned on collections', report.interest_received],
+        ['Income', 'TA collected', report.ta_income],
         ['Income', 'Other income', report.other_income],
         ['Income', 'Total income', report.total_income],
         ...report.expenses_by_category.map(
@@ -74,6 +75,7 @@ export function PnlTab() {
           heading: 'INCOME',
           lines: [
             { label: 'Interest earned on collections', value: pdfINR(report.interest_received), indent: true },
+            { label: 'TA collected', value: pdfINR(report.ta_income), indent: true },
             { label: 'Other income', value: pdfINR(report.other_income), indent: true },
             { label: 'Total income', value: pdfINR(report.total_income), bold: true },
           ],
@@ -153,7 +155,7 @@ export function PnlTab() {
                 <KpiCard
                   label="Income"
                   value={inr(report.total_income)}
-                  hint={`Interest ${inr(report.interest_received)} · Other ${inr(report.other_income)}`}
+                  hint={`Interest ${inr(report.interest_received)} · TA ${inr(report.ta_income)} · Other ${inr(report.other_income)}`}
                   accent="success.main"
                 />
                 <KpiCard label="Expenses" value={inr(report.total_expenses)} accent="error.main" />
@@ -181,6 +183,12 @@ export function PnlTab() {
                         <TableCell>Interest earned on collections</TableCell>
                         <TableCell align="right" sx={{ color: 'success.main' }}>
                           {inr(report.interest_received)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>TA (travelling allowance) collected</TableCell>
+                        <TableCell align="right" sx={{ color: 'success.main' }}>
+                          {inr(report.ta_income)}
                         </TableCell>
                       </TableRow>
                       <TableRow>

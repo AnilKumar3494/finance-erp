@@ -32,6 +32,7 @@ def generate_cycles_for_loan(
     db: Session,
     loan: Loan,
     approved_by: uuid.UUID,
+    first_emi_date: Optional[date] = None,
 ) -> List[DueCycle]:
     """
     Create one DueCycle row per month of tenure.
@@ -74,7 +75,14 @@ def generate_cycles_for_loan(
         emi_for_this_cycle = (
             final_emi if cycle_number == loan.tenure else regular_emi
         )
-        due = cycle_due_date(loan.approval_date, cycle_number)
+        # When an explicit first-EMI date is given (e.g. backdating a loan from
+        # iFinance), cycle 1 falls on it and each later cycle a month on; else
+        # the default is one month after the approval date.
+        due = (
+            cycle_due_date(first_emi_date, cycle_number - 1)
+            if first_emi_date is not None
+            else cycle_due_date(loan.approval_date, cycle_number)
+        )
 
         cycle = DueCycle(
             loan_id=loan.id,

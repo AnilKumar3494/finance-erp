@@ -13,6 +13,7 @@ from app.models.user import User, UserRole
 from app.schemas.report import (
     BalanceSheetReport,
     ChartEntry,
+    CollectionByCollectorReport,
     CollectionReport,
     CustomerReport,
     DashboardSummary,
@@ -30,6 +31,7 @@ from app.services.report import (
     count_customers,
     get_balance_sheet,
     get_collection_chart,
+    get_collection_by_collector,
     get_collection_report,
     get_customer_report,
     get_dashboard_summary,
@@ -92,11 +94,29 @@ def collections(
     return get_collection_report(db, period=period, days=days)
 
 
+@router.get(
+    "/collections-by-collector",
+    response_model=CollectionByCollectorReport,
+    summary="Per-collector collections over a date range (matches iFinance's Collection Report)",
+)
+def collections_by_collector(
+    date1: Optional[date] = Query(None, description="Start date (default: today, IST)"),
+    date2: Optional[date] = Query(None, description="End date (default: date1)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    d1, d2 = _validated_range(date1, date2, 366)
+    return get_collection_by_collector(db, d1, d2)
+
+
 # --------------------------------------------------
 # DAY REPORT (daily cash book — single day or range)
 # --------------------------------------------------
 # Longest range the day report will expand; keeps the row payload bounded.
 _DAY_REPORT_MAX_DAYS = 92
+# P&L can be run over the full business lifetime (to reconcile against iFinance's
+# all-time figures), so allow up to ~12 years rather than a single financial year.
+_PNL_MAX_DAYS = 4400
 
 
 def _validated_range(
@@ -203,7 +223,7 @@ def pnl_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    d1, d2 = _validated_range(date1, date2, 366)
+    d1, d2 = _validated_range(date1, date2, _PNL_MAX_DAYS)
     return get_pnl(db, d1, d2)
 
 

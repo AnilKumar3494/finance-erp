@@ -162,6 +162,7 @@ class DayReportReceipt(BaseModel):
     cycle_number: int | None
     collected_by: str | None
     amount: Decimal
+    ta_amount: Decimal = Decimal("0")   # Travelling Allowance collected on this receipt
 
 
 class DayReportPayment(BaseModel):
@@ -192,6 +193,7 @@ class DayReportDay(BaseModel):
     total_receipts: Decimal
     total_payments: Decimal
     emi_collection: Decimal
+    ta_collection: Decimal = Decimal("0")
     down_payments: Decimal
     receipts: list[DayReportReceipt]
     payments: list[DayReportPayment]
@@ -209,6 +211,7 @@ class DayReport(BaseModel):
     total_receipts: Decimal
     total_payments: Decimal
     total_emi_collection: Decimal
+    total_ta_collection: Decimal = Decimal("0")
     total_down_payments: Decimal
     total_capital_in: Decimal
     total_other_income: Decimal
@@ -323,11 +326,36 @@ class PnlExpenseCategory(BaseModel):
     amount: Decimal
 
 
+class CollectorCollectionRow(BaseModel):
+    collector_id: uuid.UUID
+    collector_name: str
+    role: str
+    is_active: bool
+    total_amount: Decimal
+    ta_amount: Decimal
+    transaction_count: int
+    cash: Decimal
+    gpay: Decimal
+    phonepe: Decimal
+    bank_transfer: Decimal
+    other: Decimal
+
+
+class CollectionByCollectorReport(BaseModel):
+    date1: date_type
+    date2: date_type
+    total_collected: Decimal
+    total_ta: Decimal
+    total_transactions: int
+    results: list[CollectorCollectionRow]
+
+
 class PnlReport(BaseModel):
     date1: date_type
     date2: date_type
     collections: Decimal
     interest_received: Decimal
+    ta_income: Decimal = Decimal("0")
     other_income: Decimal
     total_income: Decimal
     total_expenses: Decimal

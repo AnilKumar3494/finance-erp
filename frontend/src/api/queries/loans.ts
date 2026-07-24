@@ -261,6 +261,10 @@ export function useDeleteLoan(id: string) {
 export interface LoanApproveRequest {
   // Required by the backend only when the loan has a down_payment > 0.
   down_payment_mode?: PaymentMethod | null
+  // Optional overrides for backdating a finance to its real iFinance dates.
+  // Omit both to default to today / one month after approval.
+  approval_date?: string | null
+  first_emi_date?: string | null
 }
 
 // Approve DRAFT -> ACTIVE. This is a member-path POST, so the global

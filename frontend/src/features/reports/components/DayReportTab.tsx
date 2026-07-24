@@ -65,7 +65,7 @@ export function DayReportTab() {
                 <KpiCard
                   label="Receipts"
                   value={inr(report.total_receipts)}
-                  hint={`EMI ${inr(report.total_emi_collection)} · Down ${inr(report.total_down_payments)} · Capital+income ${fmtINR(Number(report.total_capital_in) + Number(report.total_other_income))}`}
+                  hint={`EMI ${inr(report.total_emi_collection)} · TA ${inr(report.total_ta_collection)} · Down ${inr(report.total_down_payments)} · Capital+income ${fmtINR(Number(report.total_capital_in) + Number(report.total_other_income))}`}
                   accent="success.main"
                 />
                 <KpiCard
