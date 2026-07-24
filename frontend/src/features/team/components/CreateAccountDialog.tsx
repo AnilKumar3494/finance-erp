@@ -126,7 +126,7 @@ export function CreateAccountDialog({ open, onClose }: { open: boolean; onClose:
         <CreatedPanel creds={created} onDone={close} />
       ) : (
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <DialogTitle sx={{ fontSize: 18 }}>Add account</DialogTitle>
+          <DialogTitle sx={{ fontSize: 18 }}>Add Account</DialogTitle>
           <DialogContent>
             <Stack spacing={2.5} sx={{ mt: 0.5 }}>
               {mutationError && <ErrorBanner message={mutationError} />}

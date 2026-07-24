@@ -624,7 +624,7 @@ function PersonnelIdDocs({
 
   return (
     <Collapsible
-      title="ID & other documents"
+      title="ID & Other Documents"
       subtitle={proofs.length > 0 ? `${proofs.length} on file` : 'None on file'}
     >
       {proofs.length > 0 ? (

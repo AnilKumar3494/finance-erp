@@ -64,7 +64,7 @@ export function FinanceInfoSection({
 
   return (
     <EditableSection
-      title="Finance terms"
+      title="Finance Terms"
       sectionId="sec-finance"
       openSignal={openSignal}
       missing={missing?.map((m) => m.label)}

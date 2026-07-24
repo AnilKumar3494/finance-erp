@@ -560,7 +560,7 @@ function VehicleDocs({
   const docs = docsQuery.data?.results ?? []
   return (
     <Collapsible
-      title="Vehicle documents"
+      title="Vehicle Documents"
       subtitle={docs.length > 0 ? `${docs.length} on file` : 'None on file'}
     >
       <VehicleDocsBody vehicleId={vehicleId} customerId={customerId} canEdit={canEdit} />

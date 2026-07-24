@@ -26,6 +26,13 @@ class TransactionBase(BaseModel):
         description="Payment amount must be positive",
     )
     payment_mode: PaymentMethod
+    ta_amount: Decimal = Field(
+        Decimal("0"),
+        ge=0,
+        max_digits=15,
+        decimal_places=2,
+        description="Travelling Allowance collected with this EMI (separate income; not part of the EMI amount or loan balance).",
+    )
     notes: Optional[str] = Field(None, max_length=1000)
 
 
@@ -81,6 +88,13 @@ class TransactionUpdate(BaseModel):
         max_digits=15,
         decimal_places=2,
         description="Correct the recorded amount.",
+    )
+    ta_amount: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        max_digits=15,
+        decimal_places=2,
+        description="Correct the Travelling Allowance collected with this payment.",
     )
     effective_payment_date: Optional[date] = Field(
         None,

@@ -96,7 +96,7 @@ function DetailBody({ vehicle }: { vehicle: VehicleResponse }) {
       <HeaderCard vehicle={vehicle} />
 
       <EditableSection
-        title="Vehicle details"
+        title="Vehicle Details"
         sectionId="sec-vehicle-attrs"
         subtitle={vehicle.plate_number}
         canEdit={isAdmin}
@@ -215,7 +215,7 @@ function VehicleView({ vehicle }: { vehicle: VehicleResponse }) {
 function AttachedLoansCard({ loans, loading }: { loans: LoanResponse[]; loading: boolean }) {
   const navigate = useNavigate()
   return (
-    <CollapsibleCard title="Attached loans">
+    <CollapsibleCard title="Attached Loans">
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
           <Spinner size={20} />

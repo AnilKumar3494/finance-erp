@@ -125,6 +125,7 @@ export interface DayReportReceipt {
   cycle_number: number | null
   collected_by: string | null
   amount: string
+  ta_amount: string
 }
 
 export interface DayReportPayment {
@@ -153,6 +154,7 @@ export interface DayReportDay {
   total_receipts: string
   total_payments: string
   emi_collection: string
+  ta_collection: string
   down_payments: string
   receipts: DayReportReceipt[]
   payments: DayReportPayment[]
@@ -170,6 +172,7 @@ export interface DayReport {
   total_receipts: string
   total_payments: string
   total_emi_collection: string
+  total_ta_collection: string
   total_down_payments: string
   total_capital_in: string
   total_other_income: string
@@ -275,11 +278,36 @@ export interface PnlReport {
   date2: string
   collections: string
   interest_received: string
+  ta_income: string
   other_income: string
   total_income: string
   total_expenses: string
   expenses_by_category: PnlExpenseCategory[]
   net_profit: string
+}
+
+export interface CollectorCollectionRow {
+  collector_id: string
+  collector_name: string
+  role: string
+  is_active: boolean
+  total_amount: string
+  ta_amount: string
+  transaction_count: number
+  cash: string
+  gpay: string
+  phonepe: string
+  bank_transfer: string
+  other: string
+}
+
+export interface CollectionByCollectorReport {
+  date1: string
+  date2: string
+  total_collected: string
+  total_ta: string
+  total_transactions: number
+  results: CollectorCollectionRow[]
 }
 
 export interface BalanceSheetReport {
@@ -328,6 +356,8 @@ export const reportKeys = {
   hpRegister: () => [...reportKeys.all, 'hpRegister'] as const,
   pnl: (date1: string, date2: string) => [...reportKeys.all, 'pnl', date1, date2] as const,
   balanceSheet: () => [...reportKeys.all, 'balanceSheet'] as const,
+  collectionsByCollector: (date1: string, date2: string) =>
+    [...reportKeys.all, 'collectionsByCollector', date1, date2] as const,
 }
 
 // Reports change slowly relative to a session; a short stale window keeps the
@@ -462,6 +492,26 @@ export function useDayReport(date1: string, date2: string, enabled = true) {
       const { data } = await apiClient.get<DayReport>('/reports/day-report', {
         params: { date1, date2 },
       })
+      return data
+    },
+    enabled: enabled && !!date1 && !!date2,
+    staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useCollectionsByCollector(
+  date1: string,
+  date2: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: reportKeys.collectionsByCollector(date1, date2),
+    queryFn: async () => {
+      const { data } = await apiClient.get<CollectionByCollectorReport>(
+        '/reports/collections-by-collector',
+        { params: { date1, date2 } },
+      )
       return data
     },
     enabled: enabled && !!date1 && !!date2,

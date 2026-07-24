@@ -43,7 +43,7 @@ export function IrrSheetPage() {
     <Box sx={{ width: { xs: '100%', md: '80%' }, mx: 'auto' }}>
       <Card>
         <Typography variant="h2" sx={{ fontSize: { xs: 18, sm: 20 }, mb: 0.5 }}>
-          IRR Sheet
+          IRR Sheet for Testing
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Price a deal before it exists — enter the terms in the blue cells and read off the true

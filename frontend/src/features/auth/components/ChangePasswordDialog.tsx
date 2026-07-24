@@ -111,7 +111,7 @@ export function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose
         <SuccessPanel onDone={close} />
       ) : (
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <DialogTitle sx={{ fontSize: 18 }}>Change password</DialogTitle>
+          <DialogTitle sx={{ fontSize: 18 }}>Change Password</DialogTitle>
           <DialogContent>
             <Stack spacing={2.5} sx={{ mt: 0.5 }}>
               {bannerError && <ErrorBanner message={bannerError} />}

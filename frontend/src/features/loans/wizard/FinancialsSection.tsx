@@ -234,7 +234,7 @@ function FinancialsForm({
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 0.5 }}>
-        Financial details
+        Financial Details
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Enter the loan terms. Once saved, an admin can approve the finance (the down payment mode is

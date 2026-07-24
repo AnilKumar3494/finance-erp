@@ -151,7 +151,7 @@ export function EditTransactionDialog({
 
   return (
     <Dialog open={open} onClose={close} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>Edit transaction</DialogTitle>
+      <DialogTitle sx={{ pb: 1 }}>Edit Transaction</DialogTitle>
       <Box component="form" id="edit-txn-form" onSubmit={handleSubmit(submit)} noValidate>
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2.5}>

@@ -99,7 +99,7 @@ export function ResetPasswordDialog({
         <IssuedPanel display={display} username={user.username} password={issued} onDone={close} />
       ) : (
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <DialogTitle sx={{ fontSize: 18 }}>Reset password</DialogTitle>
+          <DialogTitle sx={{ fontSize: 18 }}>Reset Password</DialogTitle>
           <DialogContent>
             <Stack spacing={2.5} sx={{ mt: 0.5 }}>
               <Typography variant="body2" color="text.secondary">

@@ -48,6 +48,7 @@ class Transaction(AuditBase):
 
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_transactions_amount_positive"),
+        CheckConstraint("ta_amount >= 0", name="ck_transactions_ta_amount_nonneg"),
     )
 
     # --------------------------------------------------
@@ -71,6 +72,13 @@ class Transaction(AuditBase):
     # TRANSACTION DETAILS
     # --------------------------------------------------
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+
+    # Travelling Allowance — a per-visit collection charge (usually Rs.200) taken
+    # ALONGSIDE the EMI (mirrors iFinance's taHPReceipts). Separate income: it does
+    # NOT reduce the loan balance or count as EMI collection; reports sum it apart.
+    ta_amount: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     payment_mode: Mapped[PaymentMethod] = mapped_column(
         Enum(PaymentMethod, name="payment_method", create_type=False), nullable=False

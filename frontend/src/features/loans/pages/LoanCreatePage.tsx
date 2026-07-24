@@ -249,7 +249,7 @@ export function LoanCreatePage() {
 
         <Card>
           <Typography variant="h3" sx={{ mb: 2 }}>
-            Loan terms
+            Loan Terms
           </Typography>
           <Stack spacing={2.5}>
             <Input
@@ -289,7 +289,7 @@ export function LoanCreatePage() {
 
         <Card>
           <Typography variant="h3" sx={{ mb: 2 }}>
-            Fees and down payment
+            Fees and Down Payment
           </Typography>
           <Stack spacing={2.5}>
             <TwoColumn>

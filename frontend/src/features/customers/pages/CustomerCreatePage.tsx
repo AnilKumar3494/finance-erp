@@ -187,7 +187,7 @@ export function CustomerCreatePage() {
       <Stack spacing={3}>
         <Card>
           <Typography variant="h3" sx={{ mb: 2 }}>
-            Personal info
+            Personal Info
           </Typography>
           <Stack spacing={2.5}>
             <Input

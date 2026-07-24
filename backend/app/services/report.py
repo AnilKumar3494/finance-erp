@@ -683,6 +683,76 @@ def get_employee_report(db: Session) -> dict:
     }
 
 
+def get_collection_by_collector(db: Session, date1: date, date2: date) -> dict:
+    """
+    Per-collector collections over [date1, date2] (inclusive) — the app's twin of
+    iFinance's date-ranged Collection Report. REGULAR SUCCESS receipts only,
+    bucketed on effective_payment_date, grouped by the collecting user, with the
+    payment-mode split and TA broken out. Collectors with no receipts in the
+    window are omitted.
+    """
+    def _mode(mode: PaymentMethod):
+        return func.coalesce(
+            func.sum(case((Transaction.payment_mode == mode, Transaction.amount), else_=0)),
+            0,
+        )
+
+    rows = (
+        db.query(
+            User.id,
+            User.username,
+            User.role,
+            User.is_active,
+            User.is_deleted,
+            func.coalesce(func.sum(Transaction.amount), 0).label("total_amount"),
+            func.coalesce(func.sum(Transaction.ta_amount), 0).label("ta_amount"),
+            func.count(Transaction.id).label("txn_count"),
+            _mode(PaymentMethod.CASH).label("cash"),
+            _mode(PaymentMethod.GPAY).label("gpay"),
+            _mode(PaymentMethod.PHONEPE).label("phonepe"),
+            _mode(PaymentMethod.BANK_TRANSFER).label("bank_transfer"),
+        )
+        .join(Transaction, Transaction.collected_by_id == User.id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .group_by(User.id, User.username, User.role, User.is_active, User.is_deleted)
+        .all()
+    )
+
+    results = []
+    for r in rows:
+        breakdown = _d(r.cash) + _d(r.gpay) + _d(r.phonepe) + _d(r.bank_transfer)
+        results.append({
+            "collector_id": str(r.id),
+            "collector_name": r.username,
+            "role": r.role,
+            "is_active": bool(r.is_active) and not bool(r.is_deleted),
+            "total_amount": _d(r.total_amount),
+            "ta_amount": _d(r.ta_amount),
+            "transaction_count": r.txn_count,
+            "cash": _d(r.cash),
+            "gpay": _d(r.gpay),
+            "phonepe": _d(r.phonepe),
+            "bank_transfer": _d(r.bank_transfer),
+            "other": _d(r.total_amount) - breakdown,
+        })
+    results.sort(key=lambda x: x["total_amount"], reverse=True)
+
+    return {
+        "date1": date1,
+        "date2": date2,
+        "total_collected": sum((r["total_amount"] for r in results), _ZERO),
+        "total_ta": sum((r["ta_amount"] for r in results), _ZERO),
+        "total_transactions": sum(r["transaction_count"] for r in results),
+        "results": results,
+    }
+
+
 # --------------------------------------------------
 # Charts
 # --------------------------------------------------
@@ -935,6 +1005,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
                 "cycle_number": cycle.cycle_number if cycle is not None else None,
                 "collected_by": collector.username if collector is not None else None,
                 "amount": _d(txn.amount),
+                "ta_amount": _d(txn.ta_amount),
             }
         )
 
@@ -977,6 +1048,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         "receipts": _ZERO,
         "payments": _ZERO,
         "emi": _ZERO,
+        "ta": _ZERO,
         "down_payments": _ZERO,
         "capital_in": _ZERO,
         "other_income": _ZERO,
@@ -1007,6 +1079,9 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
             ),
             _ZERO,
         )
+        # TA (Travelling Allowance) — collected alongside EMIs, reported as its own
+        # line like iFinance's "EMI TA"; kept OUT of receipts/emi/position totals.
+        day_ta = sum((r["ta_amount"] for r in receipts), _ZERO)
         for r in receipts:
             mode = r["payment_mode"]
             key = mode.value.lower() if mode in _BREAKDOWN_MODES else "other"
@@ -1023,6 +1098,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         grand["receipts"] += day_receipts
         grand["payments"] += day_payments
         grand["emi"] += day_emi
+        grand["ta"] += day_ta
         grand["down_payments"] += day_receipts - day_entries_in - day_emi
 
         days.append(
@@ -1033,6 +1109,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
                 "total_receipts": day_receipts,
                 "total_payments": day_payments,
                 "emi_collection": day_emi,
+                "ta_collection": day_ta,
                 "down_payments": day_receipts - day_entries_in - day_emi,
                 "receipts": receipts,
                 "payments": payments,
@@ -1049,6 +1126,7 @@ def get_day_report(db: Session, date1: date, date2: date) -> dict:
         "total_receipts": grand["receipts"],
         "total_payments": grand["payments"],
         "total_emi_collection": grand["emi"],
+        "total_ta_collection": grand["ta"],
         "total_down_payments": grand["down_payments"],
         "total_capital_in": grand["capital_in"],
         "total_other_income": grand["other_income"],
@@ -1389,19 +1467,36 @@ def get_pnl(db: Session, date1: date, date2: date) -> dict:
     sums = cash_entry_type_sums(db, date1, date2)
     other_income = sums.get(CashEntryType.OTHER_INCOME, _ZERO)
     expenses = sums.get(CashEntryType.EXPENSE, _ZERO)
+    # TA (Travelling Allowance) collected on EMIs is real income, separate from
+    # the interest share — bucket on the same effective_payment_date window.
+    ta_income = _d(
+        db.query(func.coalesce(func.sum(Transaction.ta_amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+            Transaction.effective_payment_date >= date1,
+            Transaction.effective_payment_date <= date2,
+        )
+        .scalar()
+    )
+    total_income = interest_received + ta_income + other_income
     return {
         "date1": date1,
         "date2": date2,
         "collections": collections,
         "interest_received": interest_received,
+        "ta_income": ta_income,
         "other_income": other_income,
-        "total_income": interest_received + other_income,
+        "total_income": total_income,
         "total_expenses": expenses,
         "expenses_by_category": [
             {"category": category, "amount": amount}
             for category, amount in expense_category_sums(db, date1, date2)
         ],
-        "net_profit": interest_received + other_income - expenses,
+        "net_profit": total_income - expenses,
     }
 
 

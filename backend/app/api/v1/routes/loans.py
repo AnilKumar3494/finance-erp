@@ -165,6 +165,8 @@ def approve_loan_route(
             down_payment_mode=(
                 payload.down_payment_mode.value if payload.down_payment_mode else None
             ),
+            approval_date=payload.approval_date,
+            first_emi_date=payload.first_emi_date,
             request=request,
         )
     except ValueError as e:

@@ -4,6 +4,7 @@
 export const REPORT_TABS = [
   'overview',
   'collections',
+  'collectors',
   'customers',
   'employees',
   'day',

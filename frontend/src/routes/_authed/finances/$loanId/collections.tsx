@@ -14,7 +14,7 @@ interface CollectionsSearch {
 }
 
 export const Route = createFileRoute('/_authed/finances/$loanId/collections')({
-  staticData: { title: 'Collections workspace' },
+  staticData: { title: 'Collections Workspace' },
   validateSearch: (raw: Record<string, unknown>): CollectionsSearch => {
     const action = raw.action === 'record' ? 'record' : undefined
     const cycleId =

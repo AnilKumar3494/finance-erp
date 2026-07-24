@@ -24,8 +24,10 @@ export function FieldLabel({ htmlFor, required, children }: FieldLabelProps) {
       }}
     >
       {children}
+      {/* Red, the near-universal convention for a mandatory field — blue read
+          as decoration rather than an instruction. */}
       {required && (
-        <Box component="span" aria-hidden sx={{ color: 'primary.main', fontWeight: 600 }}>
+        <Box component="span" aria-hidden sx={{ color: 'error.main', fontWeight: 600 }}>
           *
         </Box>
       )}

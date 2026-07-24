@@ -331,7 +331,7 @@ function HeaderCard({
         {/* Loan terms — the fixed contract figures. */}
         <Box>
           <Typography variant="overline" color="text.secondary">
-            Loan terms
+            Loan Terms
           </Typography>
           <Box
             sx={{

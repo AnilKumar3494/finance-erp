@@ -297,7 +297,7 @@ function VehicleDocsCard({ vehicleId, customerId }: { vehicleId: string; custome
   return (
     <Card>
       <Typography variant="h3" sx={{ mb: 2 }}>
-        Vehicle documents
+        Vehicle Documents
       </Typography>
       {docsQuery.isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
