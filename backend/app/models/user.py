@@ -57,6 +57,13 @@ class User(AuditBase):
         DateTime(timezone=True), nullable=True
     )
 
+    # Bumped on password change / admin reset to revoke previously-issued JWTs.
+    # Every token carries this as a `tv` claim; the auth guard rejects a stale
+    # one. See services.auth.create_access_token / decode_access_token.
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+
     # --------------------------------------------------
     # SOFT-DELETE OVERRIDE
     # A deleted user must also be deactivated so they can never authenticate
