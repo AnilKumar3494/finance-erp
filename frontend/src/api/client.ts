@@ -8,8 +8,12 @@ import { tokenStorage } from '@/lib/storage'
 // only — collection endpoints, not sub-resources.
 const IDEMPOTENT_POST_PATHS = new Set(['/customers', '/transactions', '/loans'])
 
+// Prod sets VITE_API_BASE_URL to an absolute backend URL (Vercel dashboard).
+// With no env file — a fresh clone running `pnpm dev` — fall back to a relative
+// `/api/v1`, which the Vite dev proxy (see vite.config.ts) forwards to the
+// local backend. Either way the app has a working base URL out of the box.
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
   headers: { 'Content-Type': 'application/json' },
 })
 
