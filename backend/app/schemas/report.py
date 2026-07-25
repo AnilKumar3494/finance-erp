@@ -268,6 +268,7 @@ class HpOutstandingRow(BaseModel):
 
 class HpOutstandingReport(BaseModel):
     total_loans: int
+    total_customers: int = 0
     total_principal: Decimal
     total_payable: Decimal
     total_collected: Decimal
@@ -287,6 +288,7 @@ class HpReceivableRow(BaseModel):
 
 class HpReceivableReport(BaseModel):
     total_loans: int
+    total_customers: int = 0
     total_outstanding: Decimal
     total_receivable_interest: Decimal
     results: list[HpReceivableRow]
@@ -313,6 +315,7 @@ class HpRegisterRow(BaseModel):
 
 class HpRegisterReport(BaseModel):
     total_loans: int
+    total_customers: int = 0
     total_principal: Decimal
     total_payable: Decimal
     results: list[HpRegisterRow]

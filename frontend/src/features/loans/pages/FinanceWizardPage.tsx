@@ -7,6 +7,7 @@ import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
+import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Step from '@mui/material/Step'
 import StepButton from '@mui/material/StepButton'
@@ -259,28 +260,27 @@ function CustomerGate({ onStarted }: { onStarted: (loanId: string) => void }) {
           Choose the customer this finance is for. We create a draft immediately so documents,
           vehicle, and personnel can be attached as you go.
         </Typography>
+        <Btn
+          variant="outline"
+          startIcon={<PersonAddIcon />}
+          onClick={() => setAddOpen(true)}
+          sx={{ px: 3, py: 1.25, fontSize: 15, fontWeight: 600 }}
+        >
+          New Customer
+        </Btn>
+
+        <Divider sx={{ my: 3, color: 'text.secondary', fontSize: 13 }}>or</Divider>
+
         <CustomerPicker
           value={customer}
           onChange={(c) => {
             setCustomer(c)
             if (c) setCustomerError(undefined)
           }}
+          label="Search for Existing Customer"
           required
           error={customerError}
         />
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="body2" color="text.secondary">
-            Add a new customer:
-          </Typography>
-          <Btn
-            variant="ghost"
-            size="sm"
-            startIcon={<PersonAddIcon />}
-            onClick={() => setAddOpen(true)}
-          >
-            New Customer
-          </Btn>
-        </Stack>
         <Stack direction="row" spacing={2} sx={{ mt: 3, justifyContent: 'flex-end' }}>
           <Btn variant="primary" onClick={start} loading={create.isPending}>
             Start finance

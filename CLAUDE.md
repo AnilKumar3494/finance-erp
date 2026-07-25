@@ -69,8 +69,30 @@ branches after a merge).
   `/readyz`. Migrations are typically applied by the user (Anil) on EC2 — a
   frontend change that depends on a new backend column/route is not live until
   that deploy + migration lands.
-- Local DB access (when needed) is via an SSH tunnel through EC2 to RDS on a
-  non-default local port (6543, since local Postgres holds 5432).
+- **Running the whole stack locally** needs no tunnel: `docker start erp-mig`
+  (postgres:18 on `:5433`, already holds migrations + real data) +
+  `backend/.venv/bin/uvicorn main:app --port 8000` (app object is `main:app` at
+  the backend root) + `cd frontend && pnpm dev`. Locally `/readyz` is
+  `degraded` with `s3: fail` (no AWS creds) — only document uploads are
+  affected. Add `--host 0.0.0.0` to both servers to reach them from a phone.
+- Reaching the **remote** RDS (dev/UAT data) is the SSH-tunnel path, through
+  EC2 on local port 6543 (local Postgres holds 5432).
+
+## Reporting constraint (read before promising any historical report)
+
+**Nothing in the schema records when a loan was closed.** `loan_closures` is
+empty, `audit_logs` holds a handful of rows, and there is no `closure_date` on
+`loans`. Closing a loan does not settle its due-cycles either — ~2900 CLOSED
+loans still carry unpaid cycles (~₹128.5M).
+
+So a point-in-time ("as of 31 Mar") outstanding, receivable, or balance sheet
+is **not derivable**: counting closed loans invents phantom debt, and filtering
+by today's status silently drops every loan closed since that date. The report
+date filters are therefore *cohort* filters — "the finances written in this
+window, as they stand now". Balance Sheet and Overview take no window at all
+(they mix loan and non-loan aggregates, so a cohort filter stops them
+balancing). Enabling true as-of reporting means first backfilling a closure
+date — inferable from last payment date for ~99.5% of closed loans.
 
 ## Working conventions
 

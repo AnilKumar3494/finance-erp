@@ -12,7 +12,7 @@ import TableRow from '@mui/material/TableRow'
 import { useState } from 'react'
 
 import { useEmployeeReport, type EmployeePerformance } from '@/api/queries/reports'
-import { Card } from '@/components/primitives'
+import { Card, ErrorBanner } from '@/components/primitives'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import type { UserRole } from '@/schemas/enums'
@@ -20,6 +20,13 @@ import { fmtINR } from '@/lib/format'
 import { money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { ReportDateRange } from './ReportDateRange'
+import {
+  EMPTY_RANGE,
+  isoOrUndefined,
+  rangeError,
+  type DateRangeValue,
+} from '../dateRange'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   SUPER_ADMIN: 'Super admin',
@@ -38,16 +45,32 @@ const EMP_ACCESSORS: Partial<Record<EmpField, (e: EmployeePerformance) => string
 }
 
 export function EmployeesTab() {
-  const report = useEmployeeReport()
+  const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
+  const invalidRange = rangeError(range)
+  const report = useEmployeeReport(!invalidRange, {
+    date1: isoOrUndefined(range.from),
+    date2: isoOrUndefined(range.to),
+  })
   const [sort, setSort] = useState<SortState<EmpField>>({ sort_by: 'collected', sort_order: 'desc' })
   const onSort = (field: EmpField, defaultDir: 'asc' | 'desc') =>
     setSort((s) => toggleSort(s, field, defaultDir))
   const rows = useClientSort(report.data?.results ?? [], sort.sort_by, sort.sort_order, EMP_ACCESSORS)
 
   return (
-    <AsyncSection isLoading={report.isLoading} isError={report.isError} error={report.error}>
-      {report.data && (
-        <Stack spacing={3}>
+    <Stack spacing={3}>
+      <ReportDateRange
+        idPrefix="emp"
+        value={range}
+        onChange={setRange}
+        fromLabel="Collected from"
+        toLabel="Collected to"
+      />
+
+      {invalidRange && <ErrorBanner message={invalidRange} />}
+
+      <AsyncSection isLoading={report.isLoading} isError={report.isError} error={report.error}>
+        {report.data && (
+          <Stack spacing={3}>
           <Box sx={KPI_GRID_SX}>
             <KpiCard label="Employees" value={String(report.data.total_employees)} />
             <KpiCard
@@ -99,8 +122,9 @@ export function EmployeesTab() {
               </TableContainer>
             </Card>
           )}
-        </Stack>
-      )}
-    </AsyncSection>
+          </Stack>
+        )}
+      </AsyncSection>
+    </Stack>
   )
 }

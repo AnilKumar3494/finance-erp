@@ -1,8 +1,9 @@
 # FinERP Frontend — Module Build Context
 
 You are working on `/home/ak/finance-erp-frontend/frontend`, a Vite + React + TS
-ERP for an Indian NBFC (Vehicle Finance). Backend is FastAPI at
-`http://localhost:8000/api/v1` (run separately; do not modify).
+ERP for an Indian NBFC (Vehicle Finance). Backend is FastAPI on
+`http://localhost:8000`, reached through the dev-server proxy at `/api/v1`
+(run separately; do not modify).
 
 ## 1. Stack (locked — do not change without asking)
 
@@ -75,7 +76,12 @@ src/
 
 ## 4. Backend integration
 
-- **Base URL**: `import.meta.env.VITE_API_BASE_URL` (= `http://localhost:8000/api/v1` in dev).
+- **Base URL**: `import.meta.env.VITE_API_BASE_URL`. In dev this is the
+  *relative* `/api/v1` (see `frontend/.env`), which the Vite dev-server proxy
+  in `vite.config.ts` forwards to `http://localhost:8000`. Keep it relative:
+  an absolute `http://localhost:8000/...` breaks access from another device
+  (phone on the LAN), because `localhost` then means the phone. Point the proxy
+  elsewhere with `VITE_DEV_PROXY_TARGET`.
 - **Auth**: JWT bearer in `Authorization` header — set automatically by
   the request interceptor in `src/api/client.ts` from `tokenStorage`.
 - **401 handling**: response interceptor clears the token and hard-redirects
@@ -205,7 +211,10 @@ function mapError(error: unknown): string {
 - **MUI theme bridge**: `src/styles/mui-theme.ts` reads tokens via
   `getComputedStyle` at theme-build time. Rebuilt on mode change.
 - **Primitives in `src/components/primitives/`**:
-  - `<Btn variant="primary|ghost|success|danger" size="sm|md" loading>`
+  - `<Btn variant="primary|outline|ghost|success|danger" size="sm|md" loading>`
+    — `outline` is a bordered secondary action: use it when something must read
+    as a real button but must not compete with the view's filled primary CTA.
+    `ghost` is a text button (reads as a link).
   - `<Card>` — Paper, p:3 default
   - `<Input label required error={msg}>` — RHF-compatible (forwards ref)
   - `<FieldLabel required>` — label + accent asterisk
@@ -250,6 +259,20 @@ function mapError(error: unknown): string {
 - **Open-redirect**: any `?redirect=` from URL must pass `sanitizeRedirect()`
   before navigating (see `src/features/auth/redirect.ts`). Reject anything not
   starting with a single `/`.
+- **Lint rule `react-refresh/only-export-components`**: a `.tsx` file may export
+  components *only*. Putting helper functions/constants beside a component trips
+  it — put them in a sibling `.ts` (e.g. `features/reports/dateRange.ts` next to
+  `components/ReportDateRange.tsx`).
+- **Reports date filters**: the six windowed reports share
+  `features/reports/dateRange.ts` (`DateRangeValue`, `EMPTY_RANGE`,
+  `isoOrUndefined`, `rangeError`) and `components/ReportDateRange.tsx`. Both
+  bounds are optional and start empty = unbounded, so an untouched report
+  returns everything. Query keys MUST include the window or two windows share
+  one cache entry (see `win()` in `api/queries/reports.ts`).
+- **A date filter is only real if the endpoint takes it.** Before adding a
+  picker, confirm the param exists in `backend/app/api/v1/routes/` or
+  `/openapi.json` — several report endpoints take none, and a control that
+  changes nothing is worse than no control.
 
 ## 9. Recipe — building a new module
 
@@ -276,7 +299,7 @@ For a hypothetical `customers` module:
 ## 10. Definition of done
 
 - `pnpm typecheck` passes.
-- `pnpm dev` serves on :3000 with no console errors on page load.
+- `pnpm dev` serves on :5173 (strict port) with no console errors on page load.
 - Feature works end-to-end against the real backend with a real user.
 - No new dependencies added without approval.
 - No hex colors outside tokens.css.
@@ -293,10 +316,17 @@ For a hypothetical `customers` module:
   hard to undo): confirm before doing.
 - **Never modify `backend/`** unless explicitly asked. Adding to
   `backend/.gitignore` for safety is OK.
-- Backend is at AWS RDS (private subnet) reachable via SSH tunnel through EC2:
+- **Local DB is Docker, not a tunnel.** `docker start erp-mig` (postgres:18,
+  host `:5433` → container `:5432`) is what `backend/.env` targets
+  (`DB_HOST=localhost DB_PORT=5433`); it already holds applied migrations and
+  real data. Run the API with `backend/.venv/bin/uvicorn main:app --port 8000`
+  (the app object is `main:app`, at the backend root — not `app.main`).
+  `/readyz` returns `degraded` with `s3: fail` locally (no AWS creds); db and
+  migrations read `ok`. Only document/S3 uploads are affected.
+- The **shared AWS RDS** (private subnet) is the *remote* dev/UAT path, reached
+  by SSH tunnel through EC2 on local port 6543 (5432 is taken):
   `ssh -i ~/.ssh/key_erp_dev_server.pem -N -L 6543:erp-db-dev.<host>:5432 ubuntu@<ec2>`.
-  Local Postgres conflicts with 5432, so we use 6543. Backend `.env` uses
-  `DB_HOST=localhost DB_PORT=6543`.
+  Use it only when you genuinely need remote data.
 
 ## 12. Reference — auth module (already built)
 

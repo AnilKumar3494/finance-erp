@@ -221,6 +221,7 @@ export interface HpOutstandingRow {
 
 export interface HpOutstandingReport {
   total_loans: number
+  total_customers: number
   total_principal: string
   total_payable: string
   total_collected: string
@@ -240,6 +241,7 @@ export interface HpReceivableRow {
 
 export interface HpReceivableReport {
   total_loans: number
+  total_customers: number
   total_outstanding: string
   total_receivable_interest: string
   results: HpReceivableRow[]
@@ -263,6 +265,7 @@ export interface HpRegisterRow {
 
 export interface HpRegisterReport {
   total_loans: number
+  total_customers: number
   total_principal: string
   total_payable: string
   results: HpRegisterRow[]
@@ -335,25 +338,41 @@ export interface BalanceSheetReport {
 // Query keys
 // --------------------------------------------------
 
+/**
+ * Optional date window for the reports that scope by one. Both ends are
+ * optional: omitting a bound leaves that side unbounded, which is how these
+ * reports behaved before the filter existed.
+ */
+export interface DateWindow {
+  date1?: string
+  date2?: string
+}
+
+// Query keys must vary with the window, or two different windows would share
+// one cache entry. Undefined normalises to null so the key stays stable.
+const win = (w?: DateWindow) => [w?.date1 ?? null, w?.date2 ?? null] as const
+
 export const reportKeys = {
   all: ['reports'] as const,
   summary: () => [...reportKeys.all, 'summary'] as const,
   portfolio: () => [...reportKeys.all, 'portfolio'] as const,
-  collections: (period: string, days: number) =>
-    [...reportKeys.all, 'collections', period, days] as const,
+  collections: (period: string, days: number, w?: DateWindow) =>
+    [...reportKeys.all, 'collections', period, days, ...win(w)] as const,
   collectionChart: (months: number) =>
     [...reportKeys.all, 'collectionChart', months] as const,
   trends: (months: number) => [...reportKeys.all, 'trends', months] as const,
-  customers: (page: number, pageSize: number) =>
-    [...reportKeys.all, 'customers', page, pageSize] as const,
-  employees: () => [...reportKeys.all, 'employees'] as const,
+  customers: (page: number, pageSize: number, w?: DateWindow) =>
+    [...reportKeys.all, 'customers', page, pageSize, ...win(w)] as const,
+  employees: (w?: DateWindow) => [...reportKeys.all, 'employees', ...win(w)] as const,
   dayReport: (date1: string, date2: string) =>
     [...reportKeys.all, 'dayReport', date1, date2] as const,
   receivedInterest: (date1: string, date2: string) =>
     [...reportKeys.all, 'receivedInterest', date1, date2] as const,
-  hpOutstanding: () => [...reportKeys.all, 'hpOutstanding'] as const,
-  hpReceivable: () => [...reportKeys.all, 'hpReceivable'] as const,
-  hpRegister: () => [...reportKeys.all, 'hpRegister'] as const,
+  hpOutstanding: (w?: DateWindow) =>
+    [...reportKeys.all, 'hpOutstanding', ...win(w)] as const,
+  hpReceivable: (w?: DateWindow) =>
+    [...reportKeys.all, 'hpReceivable', ...win(w)] as const,
+  hpRegister: (w?: DateWindow) => [...reportKeys.all, 'hpRegister', ...win(w)] as const,
   pnl: (date1: string, date2: string) => [...reportKeys.all, 'pnl', date1, date2] as const,
   balanceSheet: () => [...reportKeys.all, 'balanceSheet'] as const,
   collectionsByCollector: (date1: string, date2: string) =>
@@ -397,17 +416,19 @@ export function useCollectionReport(
   period: 'daily' | 'monthly',
   days: number,
   enabled = true,
+  window?: DateWindow,
 ) {
   return useQuery({
-    queryKey: reportKeys.collections(period, days),
+    queryKey: reportKeys.collections(period, days, window),
     queryFn: async () => {
       const { data } = await apiClient.get<CollectionReport>('/reports/collections', {
-        params: { period, days },
+        params: { period, days, ...window },
       })
       return data
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -457,29 +478,38 @@ export function useCustomerReport(
   pageSize: number,
   enabled = true,
   sort?: CustomerReportSort,
+  window?: DateWindow,
 ) {
   return useQuery({
-    queryKey: [...reportKeys.customers(page, pageSize), sort?.sort_by ?? null, sort?.sort_order ?? null],
+    queryKey: [
+      ...reportKeys.customers(page, pageSize, window),
+      sort?.sort_by ?? null,
+      sort?.sort_order ?? null,
+    ],
     queryFn: async () => {
       const { data } = await apiClient.get<CustomerReport>('/reports/customers', {
-        params: { page, page_size: pageSize, ...sort },
+        params: { page, page_size: pageSize, ...sort, ...window },
       })
       return data
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 
-export function useEmployeeReport(enabled = true) {
+export function useEmployeeReport(enabled = true, window?: DateWindow) {
   return useQuery({
-    queryKey: reportKeys.employees(),
+    queryKey: reportKeys.employees(window),
     queryFn: async () => {
-      const { data } = await apiClient.get<EmployeeReport>('/reports/employees')
+      const { data } = await apiClient.get<EmployeeReport>('/reports/employees', {
+        params: { ...window },
+      })
       return data
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -522,39 +552,48 @@ export function useCollectionsByCollector(
 
 // As-of-now HP portfolio reports (admin-only). Each returns every row in one
 // response — the register views client-sort/filter/export them.
-export function useHpOutstanding(enabled = true) {
+export function useHpOutstanding(enabled = true, window?: DateWindow) {
   return useQuery({
-    queryKey: reportKeys.hpOutstanding(),
+    queryKey: reportKeys.hpOutstanding(window),
     queryFn: async () => {
-      const { data } = await apiClient.get<HpOutstandingReport>('/reports/hp-outstanding')
+      const { data } = await apiClient.get<HpOutstandingReport>('/reports/hp-outstanding', {
+        params: { ...window },
+      })
       return data
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 
-export function useHpReceivable(enabled = true) {
+export function useHpReceivable(enabled = true, window?: DateWindow) {
   return useQuery({
-    queryKey: reportKeys.hpReceivable(),
+    queryKey: reportKeys.hpReceivable(window),
     queryFn: async () => {
-      const { data } = await apiClient.get<HpReceivableReport>('/reports/hp-receivable')
+      const { data } = await apiClient.get<HpReceivableReport>('/reports/hp-receivable', {
+        params: { ...window },
+      })
       return data
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 
-export function useHpRegister(enabled = true) {
+export function useHpRegister(enabled = true, window?: DateWindow) {
   return useQuery({
-    queryKey: reportKeys.hpRegister(),
+    queryKey: reportKeys.hpRegister(window),
     queryFn: async () => {
-      const { data } = await apiClient.get<HpRegisterReport>('/reports/hp-register')
+      const { data } = await apiClient.get<HpRegisterReport>('/reports/hp-register', {
+        params: { ...window },
+      })
       return data
     },
     enabled,
     staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
   })
 }
 
