@@ -98,6 +98,7 @@
   /* ---------- Layout ---------- */
   --sidebar-w: 220px;
   --sidebar-w-collapsed: 56px;
+  --topbar-h: 64px;
   --topbar-h-mobile: 52px;
   --bottombar-h-mobile: 60px;
   --page-pad-top: 24px;

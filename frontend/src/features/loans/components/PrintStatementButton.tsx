@@ -48,11 +48,13 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
         onClick={onPrint}
         disabled={loading}
         // Match the medium status chips it sits beside: same 32px pill, and the
-        // same 188px column width on desktop so it aligns flush under them.
+        // same 220px column width on desktop so it aligns flush under them.
+        // 220 is what the label needs on one line — the chips follow it.
         sx={{
           height: 32,
           borderRadius: '16px',
-          minWidth: { xs: 'auto', sm: 188 },
+          minWidth: { xs: 'auto', sm: 220 },
+          whiteSpace: 'nowrap',
           px: 2,
           fontSize: 13,
           fontWeight: 500,
@@ -60,7 +62,7 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
           '&:hover': { boxShadow: 'none' },
         }}
       >
-        Print Statement
+        Print Customer PDF
       </Btn>
     </Stack>
   )
