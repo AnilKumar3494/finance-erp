@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { AxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
-import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
@@ -14,14 +13,11 @@ import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
-import { LoanStatusChip } from '../components/LoanStatusChip'
-import { EmiDueChip } from '../components/EmiDueChip'
-import { PrintStatementButton } from '../components/PrintStatementButton'
+import { LoanIdentityCard } from '../components/LoanIdentityCard'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
-import { loanDisplayId } from '../loanIdentity'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
 import { VehicleInfoSection } from '../sections/VehicleInfoSection'
@@ -175,75 +171,9 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
       .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null
 
   return (
-    <Card>
-      <Stack spacing={1.5}>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={{ xs: 1.5, sm: 2 }}
-          sx={{
-            alignItems: { xs: 'stretch', sm: 'flex-start' },
-            justifyContent: 'space-between',
-          }}
-        >
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="overline" color="text.secondary">
-              Finance
-            </Typography>
-            <Typography
-              variant="h1"
-              sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}
-            >
-              {loanDisplayId(loan)}
-            </Typography>
-            {loan.hp_number && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ fontFamily: 'var(--font-mono)' }}
-              >
-                LMS: {loan.loan_number}
-              </Typography>
-            )}
-            {loan.customer?.full_name && (
-              <Box sx={{ mt: 0.75 }}>
-                <Typography variant="body2">
-                  <Box component="span" sx={{ color: 'text.secondary' }}>
-                    Name:{' '}
-                  </Box>
-                  <Box component="span" sx={{ fontWeight: 600 }}>
-                    {loan.customer.full_name}
-                  </Box>
-                </Typography>
-                {loan.customer.mobile_number && (
-                  <Typography variant="body2">
-                    <Box component="span" sx={{ color: 'text.secondary' }}>
-                      Phone Number:{' '}
-                    </Box>
-                    <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                      {loan.customer.mobile_number}
-                    </Box>
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </Box>
-          <Stack
-            direction={{ xs: 'row', sm: 'column' }}
-            spacing={{ xs: 1, sm: 0.5 }}
-            sx={{
-              flexShrink: 0,
-              flexWrap: 'wrap',
-              rowGap: { xs: 1, sm: 0.5 },
-              alignItems: { xs: 'flex-start', sm: 'flex-end' },
-              '& .MuiChip-root': { minWidth: { xs: 'auto', sm: 188 }, justifyContent: 'center' },
-            }}
-          >
-            <LoanStatusChip status={loan.status} size="medium" />
-            <EmiDueChip status={loan.emi_due_status} size="medium" />
-            {loan.status !== 'DRAFT' && <PrintStatementButton loan={loan} />}
-          </Stack>
-        </Stack>
-        <Divider />
+    <>
+      <LoanIdentityCard loan={loan} eyebrow="Finance" showLmsNumber />
+      <Card>
         <Box
           sx={{
             display: 'grid',
@@ -276,8 +206,8 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
             <HeaderStat label="Total payable" value={fmtINR(Number(loan.total_payable))} />
           )}
         </Box>
-      </Stack>
-    </Card>
+      </Card>
+    </>
   )
 }
 
