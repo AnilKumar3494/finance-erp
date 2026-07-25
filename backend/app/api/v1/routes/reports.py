@@ -88,10 +88,13 @@ def loan_portfolio(
 def collections(
     period: Literal["daily", "monthly"] = Query("daily"),
     days: int = Query(30, ge=1, le=365),
+    date1: Optional[date] = Query(None, description="Start date (overrides `days`)"),
+    date2: Optional[date] = Query(None, description="End date (default: no upper bound)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    return get_collection_report(db, period=period, days=days)
+    d1, d2 = _optional_range(date1, date2)
+    return get_collection_report(db, period=period, days=days, date1=d1, date2=d2)
 
 
 @router.get(
@@ -138,6 +141,35 @@ def _validated_range(
     return d1, d2
 
 
+def _optional_range(
+    date1: Optional[date], date2: Optional[date]
+) -> tuple[Optional[date], Optional[date]]:
+    """
+    Order-check a window without defaulting either end.
+
+    Unlike `_validated_range`, an omitted bound stays None and means
+    "unbounded". Reports that historically returned all-time data use this so
+    that calling them without dates keeps the old behaviour. No max-days cap:
+    these reports are row-bounded by the loan/employee count, not by span.
+    """
+    if date1 is not None and date2 is not None and date2 < date1:
+        raise HTTPException(status_code=400, detail="date2 must be on or after date1.")
+    return date1, date2
+
+
+def _validated_as_of(as_of: Optional[date]) -> date:
+    """Point-in-time reports default to IST-today and reject future dates."""
+    from app.core.config import settings
+    from app.utils.time import today_in_tz
+
+    today = today_in_tz(settings.REPORTS_TIMEZONE)
+    if as_of is None:
+        return today
+    if as_of > today:
+        raise HTTPException(status_code=400, detail="as_of cannot be in the future.")
+    return as_of
+
+
 @router.get(
     "/day-report",
     response_model=DayReport,
@@ -182,9 +214,13 @@ def received_interest(
     summary="Per-loan payable / collected / outstanding for open finances",
 )
 def hp_outstanding(
-    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+    date1: Optional[date] = Query(None, description="Earliest approval date"),
+    date2: Optional[date] = Query(None, description="Latest approval date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-    return get_hp_outstanding(db)
+    d1, d2 = _optional_range(date1, date2)
+    return get_hp_outstanding(db, d1, d2)
 
 
 @router.get(
@@ -193,9 +229,13 @@ def hp_outstanding(
     summary="Per-loan interest still to be earned on open finances",
 )
 def hp_receivable(
-    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+    date1: Optional[date] = Query(None, description="Earliest approval date"),
+    date2: Optional[date] = Query(None, description="Latest approval date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-    return get_hp_receivable(db)
+    d1, d2 = _optional_range(date1, date2)
+    return get_hp_receivable(db, d1, d2)
 
 
 @router.get(
@@ -204,9 +244,13 @@ def hp_receivable(
     summary="Register of all executed finances (non-draft)",
 )
 def hp_register(
-    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+    date1: Optional[date] = Query(None, description="Earliest approval date"),
+    date2: Optional[date] = Query(None, description="Latest approval date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-    return get_hp_register(db)
+    d1, d2 = _optional_range(date1, date2)
+    return get_hp_register(db, d1, d2)
 
 
 # --------------------------------------------------
@@ -278,10 +322,13 @@ def customer_report(
         description="Sort column: full_name | mobile_number | active_loans | principal | paid | outstanding",
     ),
     sort_order: Optional[str] = Query(None, description="asc | desc (default desc)"),
+    date1: Optional[date] = Query(None, description="Earliest loan approval date"),
+    date2: Optional[date] = Query(None, description="Latest loan approval date"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_report_access),
 ):
     scope = _scope_to_employee(current_user)
+    d1, d2 = _optional_range(date1, date2)
     report = get_customer_report(
         db,
         page=page,
@@ -289,6 +336,8 @@ def customer_report(
         assigned_employee_id=scope,
         sort_by=sort_by,
         sort_order=sort_order,
+        date1=d1,
+        date2=d2,
     )
 
     # R1: the JSON listing of customer rows is the same PII surface the
@@ -333,9 +382,13 @@ def customer_report(
     summary="Employee collection performance",
 )
 def employee_report(
-    db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+    date1: Optional[date] = Query(None, description="Start of collection window"),
+    date2: Optional[date] = Query(None, description="End of collection window"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
-    return get_employee_report(db)
+    d1, d2 = _optional_range(date1, date2)
+    return get_employee_report(db, d1, d2)
 
 
 # --------------------------------------------------

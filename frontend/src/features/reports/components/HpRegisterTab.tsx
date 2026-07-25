@@ -13,7 +13,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpRegister, type HpRegisterRow } from '@/api/queries/reports'
-import { Btn, Card, Input } from '@/components/primitives'
+import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
@@ -21,6 +21,13 @@ import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
+import { ReportDateRange } from './ReportDateRange'
+import {
+  EMPTY_RANGE,
+  isoOrUndefined,
+  rangeError,
+  type DateRangeValue,
+} from '../dateRange'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -51,7 +58,12 @@ const STATUS_LABELS: Record<string, string> = {
  * agreement terms, vehicle, and approval date per loan.
  */
 export function HpRegisterTab() {
-  const query = useHpRegister()
+  const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
+  const invalidRange = rangeError(range)
+  const query = useHpRegister(!invalidRange, {
+    date1: isoOrUndefined(range.from),
+    date2: isoOrUndefined(range.to),
+  })
   const report = query.data
   const navigate = useNavigate()
 
@@ -149,11 +161,22 @@ export function HpRegisterTab() {
 
   return (
     <Stack spacing={3}>
+      <ReportDateRange
+        idPrefix="hpreg"
+        value={range}
+        onChange={setRange}
+        fromLabel="Approved from"
+        toLabel="Approved to"
+      />
+
+      {invalidRange && <ErrorBanner message={invalidRange} />}
+
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
         {report && (
           <>
             <Box sx={KPI_GRID_SX}>
               <KpiCard label="Finances" value={String(report.total_loans)} />
+              <KpiCard label="Customers" value={String(report.total_customers)} />
               <KpiCard label="Principal financed" value={inr(report.total_principal)} />
               <KpiCard label="Total payable" value={inr(report.total_payable)} />
             </Box>

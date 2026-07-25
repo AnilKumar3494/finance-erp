@@ -24,6 +24,13 @@ import { fmtINR } from '@/lib/format'
 import { mapReportError, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { ReportDateRange } from './ReportDateRange'
+import {
+  EMPTY_RANGE,
+  isoOrUndefined,
+  rangeError,
+  type DateRangeValue,
+} from '../dateRange'
 
 const PAGE_SIZE = 50
 
@@ -49,7 +56,18 @@ export function CustomersReportTab() {
     setSort((s) => toggleSort(s, field, defaultDir))
     setPage(1)
   }
-  const report = useCustomerReport(page, PAGE_SIZE, true, sort)
+  const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
+  const invalidRange = rangeError(range)
+  // A narrower window has fewer pages, so stay on page 1 rather than stranding
+  // the pager past the end of the new result set.
+  const onRange = (next: DateRangeValue) => {
+    setRange(next)
+    setPage(1)
+  }
+  const report = useCustomerReport(page, PAGE_SIZE, !invalidRange, sort, {
+    date1: isoOrUndefined(range.from),
+    date2: isoOrUndefined(range.to),
+  })
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -81,6 +99,16 @@ export function CustomersReportTab() {
 
   return (
     <Stack spacing={3}>
+      <ReportDateRange
+        idPrefix="custrep"
+        value={range}
+        onChange={onRange}
+        fromLabel="Financed from"
+        toLabel="Financed to"
+      />
+
+      {invalidRange && <ErrorBanner message={invalidRange} />}
+
       <Stack
         direction="row"
         spacing={2}

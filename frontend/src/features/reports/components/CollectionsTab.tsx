@@ -11,13 +11,20 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 
 import { useCollectionReport, type CollectionEntry } from '@/api/queries/reports'
-import { Card, Input } from '@/components/primitives'
+import { Card, ErrorBanner, Input } from '@/components/primitives'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { fmtMonthShort, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { ReportDateRange } from './ReportDateRange'
+import {
+  EMPTY_RANGE,
+  isoOrUndefined,
+  rangeError,
+  type DateRangeValue,
+} from '../dateRange'
 
 type Period = 'daily' | 'monthly'
 
@@ -44,7 +51,15 @@ const WINDOW_OPTIONS = [
 export function CollectionsTab() {
   const [period, setPeriod] = useState<Period>('daily')
   const [days, setDays] = useState<number>(30)
-  const report = useCollectionReport(period, days)
+  const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
+  const invalidRange = rangeError(range)
+  // An explicit window supersedes the rolling day count on the server, so the
+  // dropdown is disabled rather than left showing a figure that isn't in play.
+  const hasRange = Boolean(range.from || range.to)
+  const report = useCollectionReport(period, days, !invalidRange, {
+    date1: isoOrUndefined(range.from),
+    date2: isoOrUndefined(range.to),
+  })
 
   const [sort, setSort] = useState<SortState<CollField>>({ sort_by: 'date', sort_order: 'desc' })
   const onSort = (field: CollField, defaultDir: 'asc' | 'desc') =>
@@ -73,8 +88,9 @@ export function CollectionsTab() {
           <Input
             select
             id="coll-window"
-            label="Window"
+            label={hasRange ? 'Window (using dates)' : 'Window'}
             value={String(days)}
+            disabled={hasRange}
             onChange={(e) => setDays(Number(e.target.value))}
           >
             {WINDOW_OPTIONS.map((w) => (
@@ -85,6 +101,10 @@ export function CollectionsTab() {
           </Input>
         </Box>
       </Stack>
+
+      <ReportDateRange idPrefix="coll" value={range} onChange={setRange} />
+
+      {invalidRange && <ErrorBanner message={invalidRange} />}
 
       <AsyncSection isLoading={report.isLoading} isError={report.isError} error={report.error}>
         {report.data && (

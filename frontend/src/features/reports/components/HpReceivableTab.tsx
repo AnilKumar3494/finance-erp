@@ -13,7 +13,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpReceivable, type HpReceivableRow } from '@/api/queries/reports'
-import { Btn, Card, Input } from '@/components/primitives'
+import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtINR } from '@/lib/format'
@@ -21,6 +21,13 @@ import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
+import { ReportDateRange } from './ReportDateRange'
+import {
+  EMPTY_RANGE,
+  isoOrUndefined,
+  rangeError,
+  type DateRangeValue,
+} from '../dateRange'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -38,7 +45,12 @@ const ACCESSORS: Partial<Record<Field, (r: HpReceivableRow) => string | number |
  * flat-rate interest share applied to its outstanding balance.
  */
 export function HpReceivableTab() {
-  const query = useHpReceivable()
+  const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
+  const invalidRange = rangeError(range)
+  const query = useHpReceivable(!invalidRange, {
+    date1: isoOrUndefined(range.from),
+    date2: isoOrUndefined(range.to),
+  })
   const report = query.data
   const navigate = useNavigate()
 
@@ -115,11 +127,22 @@ export function HpReceivableTab() {
 
   return (
     <Stack spacing={3}>
+      <ReportDateRange
+        idPrefix="hprecv"
+        value={range}
+        onChange={setRange}
+        fromLabel="Approved from"
+        toLabel="Approved to"
+      />
+
+      {invalidRange && <ErrorBanner message={invalidRange} />}
+
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
         {report && (
           <>
             <Box sx={KPI_GRID_SX}>
               <KpiCard label="Open finances" value={String(report.total_loans)} />
+              <KpiCard label="Customers" value={String(report.total_customers)} />
               <KpiCard
                 label="Outstanding"
                 value={inr(report.total_outstanding)}
