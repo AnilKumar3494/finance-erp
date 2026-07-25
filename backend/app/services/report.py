@@ -281,9 +281,18 @@ def get_loan_portfolio(db: Session) -> dict:
 # --------------------------------------------------
 # COLLECTIONS REPORT
 # --------------------------------------------------
-def get_collection_report(db: Session, period: str = "daily", days: int = 30) -> dict:
+def get_collection_report(
+    db: Session,
+    period: str = "daily",
+    days: int = 30,
+    date1: Optional[date] = None,
+    date2: Optional[date] = None,
+) -> dict:
     """
     Collection report grouped by day or month.
+
+    An explicit [date1, date2] window takes precedence over the rolling `days`
+    lookback; `days` stays the default so existing callers are unaffected.
 
     Grouped by Transaction.effective_payment_date (the business date the
     admin attests as the true date of payment), NOT created_at — so a cash
@@ -298,7 +307,7 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
     a corresponding breakdown column here).
     """
 
-    since = _today() - timedelta(days=days)
+    since = date1 if date1 is not None else _today() - timedelta(days=days)
 
     if period == "daily":
         date_group = Transaction.effective_payment_date
@@ -330,27 +339,25 @@ def get_collection_report(db: Session, period: str = "daily", days: int = 30) ->
         0,
     )
 
-    results = (
-        db.query(
-            date_group.label("date"),
-            func.count(Transaction.id).label("count"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("total"),
-            _mode_sum(PaymentMethod.CASH).label("cash"),
-            _mode_sum(PaymentMethod.GPAY).label("gpay"),
-            _mode_sum(PaymentMethod.PHONEPE).label("phonepe"),
-            _mode_sum(PaymentMethod.BANK_TRANSFER).label("bank_transfer"),
-            other_sum.label("other"),
-        )
-        .filter(
-            Transaction.is_deleted == False,
-            Transaction.status == TransactionStatus.SUCCESS,
-            Transaction.transaction_type == TransactionType.REGULAR,
-            Transaction.effective_payment_date >= since,
-        )
-        .group_by(date_group)
-        .order_by(date_group.desc())
-        .all()
+    q = db.query(
+        date_group.label("date"),
+        func.count(Transaction.id).label("count"),
+        func.coalesce(func.sum(Transaction.amount), 0).label("total"),
+        _mode_sum(PaymentMethod.CASH).label("cash"),
+        _mode_sum(PaymentMethod.GPAY).label("gpay"),
+        _mode_sum(PaymentMethod.PHONEPE).label("phonepe"),
+        _mode_sum(PaymentMethod.BANK_TRANSFER).label("bank_transfer"),
+        other_sum.label("other"),
+    ).filter(
+        Transaction.is_deleted == False,
+        Transaction.status == TransactionStatus.SUCCESS,
+        Transaction.transaction_type == TransactionType.REGULAR,
+        Transaction.effective_payment_date >= since,
     )
+    if date2 is not None:
+        q = q.filter(Transaction.effective_payment_date <= date2)
+
+    results = q.group_by(date_group).order_by(date_group.desc()).all()
 
     entries = [
         {
@@ -384,6 +391,8 @@ def _customer_report_query(
     assigned_employee_id: Optional[uuid.UUID] = None,
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
+    date1: Optional[date] = None,
+    date2: Optional[date] = None,
 ):
     """
     Shared SQL composition for the customer report.
@@ -398,19 +407,28 @@ def _customer_report_query(
     When `assigned_employee_id` is provided, the result is scoped to
     customers assigned to that employee — used to enforce per-EMPLOYEE
     visibility at the report layer.
+
+    `date1`/`date2` scope every aggregate to loans approved in that window and
+    drop customers with no such loan, answering "who did we finance in this
+    period, and where do those loans stand now".
     """
-    loan_sub = (
+
+    def _cohort(q):
+        if date1 is not None:
+            q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date >= date1)
+        if date2 is not None:
+            q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date <= date2)
+        return q
+
+    loan_sub = _cohort(
         db.query(
             Loan.customer_id,
             func.count(Loan.id).label("active_loans"),
             func.coalesce(func.sum(Loan.principal), 0).label("principal"),
-        )
-        .filter(Loan.status.in_(OPEN_LOAN_STATUSES), Loan.is_deleted == False)
-        .group_by(Loan.customer_id)
-        .subquery()
-    )
+        ).filter(Loan.status.in_(OPEN_LOAN_STATUSES), Loan.is_deleted == False)
+    ).group_by(Loan.customer_id).subquery()
 
-    paid_sub = (
+    paid_sub = _cohort(
         db.query(
             Loan.customer_id,
             func.coalesce(func.sum(Transaction.amount), 0).label("paid"),
@@ -423,31 +441,31 @@ def _customer_report_query(
             Transaction.transaction_type == TransactionType.REGULAR,
             Transaction.is_deleted == False,
         )
-        .group_by(Loan.customer_id)
-        .subquery()
-    )
+    ).group_by(Loan.customer_id).subquery()
 
     outstanding_sub = (
-        db.query(
-            Loan.customer_id,
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
-        )
-        .join(DueCycle, DueCycle.loan_id == Loan.id)
-        .filter(
-            Loan.status.in_(OPEN_LOAN_STATUSES),
-            Loan.is_deleted == False,
-            DueCycle.is_deleted == False,
+        _cohort(
+            db.query(
+                Loan.customer_id,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                DueCycle.total_due > DueCycle.total_received,
+                                DueCycle.total_due - DueCycle.total_received,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("outstanding"),
+            )
+            .join(DueCycle, DueCycle.loan_id == Loan.id)
+            .filter(
+                Loan.status.in_(OPEN_LOAN_STATUSES),
+                Loan.is_deleted == False,
+                DueCycle.is_deleted == False,
+            )
         )
         .group_by(Loan.customer_id)
         .subquery()
@@ -471,6 +489,11 @@ def _customer_report_query(
 
     if assigned_employee_id is not None:
         q = q.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    # A cohort window is about the customers financed in it, so drop the ones
+    # the outer join left empty instead of listing every customer at zero.
+    if date1 is not None or date2 is not None:
+        q = q.filter(loan_sub.c.customer_id.isnot(None))
 
     # Sortable columns. The aggregate columns are coalesced to 0 (matching the
     # displayed values), so NULLs from the outer joins sort as 0 — no explicit
@@ -513,6 +536,8 @@ def get_customer_report(
     assigned_employee_id: Optional[uuid.UUID] = None,
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
+    date1: Optional[date] = None,
+    date2: Optional[date] = None,
 ) -> dict:
     """
     Per-customer roll-up. Paginated.
@@ -523,12 +548,17 @@ def get_customer_report(
 
     `assigned_employee_id`, when provided, scopes the report to that
     employee's assigned customers (used to enforce EMPLOYEE-role visibility).
+
+    `date1`/`date2` restrict to customers financed in that window; both the
+    header counts and the rows follow the same cohort.
     """
     query = _customer_report_query(
         db,
         assigned_employee_id=assigned_employee_id,
         sort_by=sort_by,
         sort_order=sort_order,
+        date1=date1,
+        date2=date2,
     )
 
     total_q = db.query(func.count(Customer.id)).filter(Customer.is_deleted == False)
@@ -546,6 +576,21 @@ def get_customer_report(
         active_q = active_q.filter(
             Customer.assigned_employee_id == assigned_employee_id
         )
+
+    if date1 is not None or date2 is not None:
+        # Within a cohort both headline counts describe the same financed set,
+        # so the "total" is a distinct-customer count over the window too.
+        cohort_q = active_q
+        if date1 is not None:
+            cohort_q = cohort_q.filter(
+                Loan.approval_date.isnot(None), Loan.approval_date >= date1
+            )
+        if date2 is not None:
+            cohort_q = cohort_q.filter(
+                Loan.approval_date.isnot(None), Loan.approval_date <= date2
+            )
+        active_q = cohort_q
+        total_q = cohort_q
 
     total = total_q.scalar() or 0
     customers_with_active_loans = active_q.scalar() or 0
@@ -594,9 +639,12 @@ def count_customers(
 # --------------------------------------------------
 # EMPLOYEE PERFORMANCE
 # --------------------------------------------------
-def get_employee_report(db: Session) -> dict:
+def get_employee_report(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> dict:
     """
-    Per-user collection performance.
+    Per-user collection performance, optionally limited to collections whose
+    effective_payment_date falls in [date1, date2]. Omitting both is all-time.
 
     Includes soft-deleted / deactivated users that still have transactions
     or assigned customers, so historical collections don't disappear when
@@ -605,6 +653,9 @@ def get_employee_report(db: Session) -> dict:
 
     Only REGULAR collections count — DOWN_PAYMENT cash handed at disbursal
     isn't a "collection".
+
+    `assigned_customers` stays a live count: customer assignment carries no
+    history, so it cannot be reconstructed for a past window.
     """
 
     assigned_sub = (
@@ -620,21 +671,21 @@ def get_employee_report(db: Session) -> dict:
         .subquery()
     )
 
-    collections_sub = (
-        db.query(
-            Transaction.collected_by_id.label("emp_id"),
-            func.coalesce(func.sum(Transaction.amount), 0).label("total_amount"),
-            func.count(Transaction.id).label("txn_count"),
-        )
-        .filter(
-            Transaction.status == TransactionStatus.SUCCESS,
-            Transaction.transaction_type == TransactionType.REGULAR,
-            Transaction.is_deleted == False,
-            Transaction.collected_by_id.isnot(None),
-        )
-        .group_by(Transaction.collected_by_id)
-        .subquery()
+    collections_q = db.query(
+        Transaction.collected_by_id.label("emp_id"),
+        func.coalesce(func.sum(Transaction.amount), 0).label("total_amount"),
+        func.count(Transaction.id).label("txn_count"),
+    ).filter(
+        Transaction.status == TransactionStatus.SUCCESS,
+        Transaction.transaction_type == TransactionType.REGULAR,
+        Transaction.is_deleted == False,
+        Transaction.collected_by_id.isnot(None),
     )
+    if date1 is not None:
+        collections_q = collections_q.filter(Transaction.effective_payment_date >= date1)
+    if date2 is not None:
+        collections_q = collections_q.filter(Transaction.effective_payment_date <= date2)
+    collections_sub = collections_q.group_by(Transaction.collected_by_id).subquery()
 
     rows = (
         db.query(
@@ -1222,7 +1273,12 @@ def get_received_interest(db: Session, date1: date, date2: date) -> dict:
 # --------------------------------------------------
 # HP OUTSTANDING / HP RECEIVABLE (as-of-now open-loan ledger)
 # --------------------------------------------------
-def _open_loan_ledger_rows(db: Session, statuses=OPEN_LOAN_STATUSES):
+def _open_loan_ledger_rows(
+    db: Session,
+    statuses=OPEN_LOAN_STATUSES,
+    date1: Optional[date] = None,
+    date2: Optional[date] = None,
+):
     """
     One row per loan in `statuses` with its due-cycle ledger totals:
     (Loan, Customer, payable, collected, outstanding).
@@ -1230,6 +1286,14 @@ def _open_loan_ledger_rows(db: Session, statuses=OPEN_LOAN_STATUSES):
     Same source of truth as the dashboard/portfolio numbers: due_cycles over
     OPEN_LOAN_STATUSES by default, outstanding floored at 0 per cycle. The
     balance sheet passes (LoanStatus.BAD_DEBT,) to size write-offs.
+
+    `date1`/`date2` narrow the loan set by approval date — the cohort of
+    finances written in that window. The ledger figures stay current: this
+    answers "of the loans we wrote then, what is owed now", NOT "what was owed
+    on that date". A true point-in-time position is not derivable — closure
+    dates are not recorded anywhere (loan_closures is empty), so loans closed
+    since a past date cannot be identified. The balance sheet therefore takes
+    no date window at all.
     """
     cycle_sub = (
         db.query(
@@ -1254,7 +1318,7 @@ def _open_loan_ledger_rows(db: Session, statuses=OPEN_LOAN_STATUSES):
         .subquery()
     )
 
-    return (
+    q = (
         db.query(
             Loan,
             Customer,
@@ -1268,16 +1332,32 @@ def _open_loan_ledger_rows(db: Session, statuses=OPEN_LOAN_STATUSES):
             Loan.is_deleted == False,
             Loan.status.in_(statuses),
         )
-        .order_by(Customer.full_name.asc(), Loan.id.asc())
-        .all()
     )
+    if date1 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date >= date1)
+    if date2 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date <= date2)
+
+    return q.order_by(Customer.full_name.asc(), Loan.id.asc()).all()
 
 
-def get_hp_outstanding(db: Session) -> dict:
-    """Per open loan: principal, payable, collected, outstanding — plus totals."""
+def get_hp_outstanding(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> dict:
+    """
+    Per open loan: principal, payable, collected, outstanding — plus totals.
+
+    `date1`/`date2` scope to loans approved in that window; figures remain
+    current. See _open_loan_ledger_rows for why this is a cohort filter rather
+    than a point-in-time position.
+    """
     results = []
+    customer_ids = set()
     totals = {"principal": _ZERO, "payable": _ZERO, "collected": _ZERO, "outstanding": _ZERO}
-    for loan, customer, payable, collected, outstanding in _open_loan_ledger_rows(db):
+    for loan, customer, payable, collected, outstanding in _open_loan_ledger_rows(
+        db, date1=date1, date2=date2
+    ):
+        customer_ids.add(customer.id)
         principal = _d(loan.principal)
         payable_d, collected_d, outstanding_d = _d(payable), _d(collected), _d(outstanding)
         totals["principal"] += principal
@@ -1302,6 +1382,7 @@ def get_hp_outstanding(db: Session) -> dict:
 
     return {
         "total_loans": len(results),
+        "total_customers": len(customer_ids),
         "total_principal": totals["principal"],
         "total_payable": totals["payable"],
         "total_collected": totals["collected"],
@@ -1310,17 +1391,25 @@ def get_hp_outstanding(db: Session) -> dict:
     }
 
 
-def get_hp_receivable(db: Session) -> dict:
+def get_hp_receivable(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> dict:
     """
     Per open loan: interest still to be earned = outstanding × the loan's
     flat-rate interest share (total_payable − principal) / total_payable —
     the receivable-side mirror of get_received_interest.
+
+    `date1`/`date2` scope to loans approved in that window.
     """
     two_places = Decimal("0.01")
     results = []
+    customer_ids = set()
     total_outstanding = _ZERO
     total_receivable = _ZERO
-    for loan, customer, _payable, _collected, outstanding in _open_loan_ledger_rows(db):
+    for loan, customer, _payable, _collected, outstanding in _open_loan_ledger_rows(
+        db, date1=date1, date2=date2
+    ):
+        customer_ids.add(customer.id)
         outstanding_d = _d(outstanding)
         receivable = _ZERO
         if loan.principal and loan.interest_rate is not None and loan.tenure:
@@ -1345,6 +1434,7 @@ def get_hp_receivable(db: Session) -> dict:
 
     return {
         "total_loans": len(results),
+        "total_customers": len(customer_ids),
         "total_outstanding": total_outstanding,
         "total_receivable_interest": total_receivable,
         "results": results,
@@ -1354,13 +1444,19 @@ def get_hp_receivable(db: Session) -> dict:
 # --------------------------------------------------
 # HP REGISTER (all executed finances)
 # --------------------------------------------------
-def get_hp_register(db: Session) -> dict:
+def get_hp_register(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> dict:
     """
     The register of executed finances: every non-deleted, non-DRAFT loan with
     its terms, vehicle, and dates. DRAFTs are excluded — a register records
     agreements, not applications in progress.
+
+    `date1`/`date2` bound the approval date; omitting both is all-time. Loans
+    with no approval_date are dropped once a bound is given — an agreement with
+    no execution date cannot be placed in a window.
     """
-    rows = (
+    q = (
         db.query(Loan, Customer, Vehicle)
         .join(Customer, Customer.id == Loan.customer_id)
         .outerjoin(Vehicle, Vehicle.id == Loan.vehicle_id)
@@ -1368,14 +1464,21 @@ def get_hp_register(db: Session) -> dict:
             Loan.is_deleted == False,
             Loan.status != LoanStatus.DRAFT,
         )
-        .order_by(Loan.approval_date.asc().nulls_last(), Loan.created_at.asc())
-        .all()
     )
+    if date1 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date >= date1)
+    if date2 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date <= date2)
+    rows = q.order_by(
+        Loan.approval_date.asc().nulls_last(), Loan.created_at.asc()
+    ).all()
 
     results = []
+    customer_ids = set()
     total_principal = _ZERO
     total_payable_sum = _ZERO
     for loan, customer, vehicle in rows:
+        customer_ids.add(customer.id)
         principal = _d(loan.principal)
         tp = _ZERO
         if loan.principal and loan.interest_rate is not None and loan.tenure:
@@ -1402,6 +1505,7 @@ def get_hp_register(db: Session) -> dict:
 
     return {
         "total_loans": len(results),
+        "total_customers": len(customer_ids),
         "total_principal": total_principal,
         "total_payable": total_payable_sum,
         "results": results,

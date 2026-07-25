@@ -2,7 +2,7 @@ import { forwardRef } from 'react'
 import Button, { type ButtonProps } from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 
-export type BtnVariant = 'primary' | 'ghost' | 'success' | 'danger'
+export type BtnVariant = 'primary' | 'outline' | 'ghost' | 'success' | 'danger'
 export type BtnSize = 'sm' | 'md'
 
 export interface BtnProps extends Omit<ButtonProps, 'variant' | 'color' | 'size'> {
@@ -16,6 +16,9 @@ const VARIANT_MAP: Record<
   { variant: ButtonProps['variant']; color: ButtonProps['color'] }
 > = {
   primary: { variant: 'contained', color: 'primary' },
+  // A secondary action that still needs to read as a button — bordered rather
+  // than filled, so it never competes with the page's primary CTA.
+  outline: { variant: 'outlined', color: 'primary' },
   ghost: { variant: 'text', color: 'primary' },
   success: { variant: 'contained', color: 'success' },
   danger: { variant: 'contained', color: 'error' },
