@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
+import dayjs from 'dayjs'
 import { getRouteApi } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
@@ -18,7 +19,11 @@ import {
   type CustomerSortField,
   type SortOrder,
 } from '@/api/queries/customers'
+import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
+import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
 import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
@@ -41,10 +46,35 @@ export function CustomersListPage() {
   const {
     page,
     search: searchTerm,
+    assigned_to,
+    date_from,
+    date_to,
     sort_by,
     sort_order,
   } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+
+  const setAssignedTo = (next: string | undefined) =>
+    navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }), replace: true })
+
+  // Created-date window, dayjs for the pickers and ISO for the API.
+  const range: DateRangeValue = {
+    from: date_from ? dayjs(date_from) : null,
+    to: date_to ? dayjs(date_to) : null,
+  }
+  const setRange = (next: DateRangeValue) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: 1,
+        date_from: isoOrUndefined(next.from),
+        date_to: isoOrUndefined(next.to),
+      }),
+      replace: true,
+    })
+  const dateError = rangeError(range)
 
   const setSort = (next: { sort_by: CustomerSortField; sort_order: SortOrder }) =>
     navigate({
@@ -90,13 +120,21 @@ export function CustomersListPage() {
     }
   }, [searchTerm])
 
-  const query = useCustomers({
-    page,
-    page_size: PAGE_SIZE,
-    search: searchTerm,
-    sort_by,
-    sort_order,
-  })
+  const query = useCustomers(
+    {
+      page,
+      page_size: PAGE_SIZE,
+      search: searchTerm,
+      assigned_employee_id: assigned_to,
+      created_after: date_from,
+      created_before: date_to,
+      sort_by,
+      sort_order,
+    },
+    // A backwards range would just return nothing, which reads as "no data"
+    // rather than "bad input" — so don't ask.
+    !dateError,
+  )
 
   const total = query.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
@@ -141,6 +179,9 @@ export function CustomersListPage() {
           spacing={1.5}
           sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'flex-end' }}
         >
+          {/* Employees are scoped to their own customers server-side, so the
+              filter would be a no-op for them — admins only, as on Finances. */}
+          {isAdmin && <AssignedToSelect value={assigned_to} onChange={setAssignedTo} />}
           <SortSelect
             options={SORT_OPTIONS}
             sort_by={sort_by}
@@ -158,6 +199,21 @@ export function CustomersListPage() {
         </Stack>
       </Stack>
 
+      <Box sx={{ mb: 3 }}>
+        <DateRangeFilter
+          idPrefix="customers"
+          value={range}
+          onChange={setRange}
+          fromLabel="Created from"
+          toLabel="Created to"
+        />
+        {dateError && (
+          <Box sx={{ mt: 1 }}>
+            <ErrorBanner message={dateError} />
+          </Box>
+        )}
+      </Box>
+
       {query.isError && (
         <Box sx={{ mb: 2 }}>
           <ErrorBanner message={mapListError(query.error)} />
@@ -171,7 +227,11 @@ export function CustomersListPage() {
       ) : (
         <>
           {rows.length === 0 ? (
-            <EmptyState searchTerm={searchTerm} onCreate={goToCreate} />
+            <EmptyState
+              searchTerm={searchTerm}
+              filtered={!!assigned_to || !!date_from || !!date_to}
+              onCreate={goToCreate}
+            />
           ) : (
             <>
               {pager('top')}
@@ -429,10 +489,27 @@ function MobileCards({ rows, page }: { rows: CustomerResponse[]; page: number })
 
 interface EmptyStateProps {
   searchTerm: string | undefined
+  // Any non-search filter (assignee, created window) is narrowing the list —
+  // without this, an over-tight filter renders "No customers yet", which is
+  // plainly wrong when the book has thousands.
+  filtered: boolean
   onCreate: () => void
 }
 
-function EmptyState({ searchTerm, onCreate }: EmptyStateProps) {
+function EmptyState({ searchTerm, filtered, onCreate }: EmptyStateProps) {
+  if (!searchTerm && filtered) {
+    return (
+      <Card>
+        <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+          <Typography variant="h3">No matches</Typography>
+          <Typography variant="body2" color="text.secondary">
+            No customers match the selected filters. Try widening the date range
+            or clearing the assignee.
+          </Typography>
+        </Stack>
+      </Card>
+    )
+  }
   if (searchTerm) {
     return (
       <Card>
