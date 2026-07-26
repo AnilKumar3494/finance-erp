@@ -17,7 +17,9 @@ import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOffOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlined'
 
-import { useChangePassword } from '@/api/queries/auth'
+import { useNavigate } from '@tanstack/react-router'
+
+import { useChangePassword, useLogout } from '@/api/queries/auth'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 
 // Mirrors backend PasswordChangeRequest + _check_password_strength. The new
@@ -62,6 +64,8 @@ function mapChangeError(error: unknown): string | null {
 
 export function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const changePassword = useChangePassword()
+  const logout = useLogout()
+  const navigate = useNavigate()
   const [showCurrent, setShowCurrent] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [done, setDone] = useState(false)
@@ -80,13 +84,31 @@ export function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose
   const pending = changePassword.isPending
   const bannerError = changePassword.isError ? mapChangeError(changePassword.error) : null
 
-  const close = () => {
-    if (pending) return
+  const clearForm = () => {
     reset()
     setShowCurrent(false)
     setShowNew(false)
     setDone(false)
     changePassword.reset()
+  }
+
+  const signOut = () => {
+    clearForm()
+    onClose()
+    logout()
+    navigate({ to: '/login' })
+  }
+
+  const close = () => {
+    if (pending) return
+    // A successful change already revoked this session's token, so dismissing
+    // the dialog — by Done, backdrop or Escape — has to sign out. Returning to
+    // the app would leave a dead token that 401s on the next request.
+    if (done) {
+      signOut()
+      return
+    }
+    clearForm()
     onClose()
   }
 
@@ -197,12 +219,13 @@ function SuccessPanel({ onDone }: { onDone: () => void }) {
       </DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary">
-          Your password has been changed. Use the new password the next time you log in.
+          Your password has been changed. For your security this signed you out
+          everywhere, including here — sign in again with your new password.
         </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Btn variant="primary" onClick={onDone}>
-          Done
+          Sign in
         </Btn>
       </DialogActions>
     </>
