@@ -61,7 +61,9 @@ export function AllDocumentsSection({
   // agreements, receipts, stability proofs, ad-hoc uploads). Customer-owned
   // KYC, vehicle and personnel documents appear in their own sections, so this
   // avoids leaking another loan's documents for the same customer.
-  const docsQuery = useDocuments({ loan_id: loan.id, page_size: 200 })
+  // 100 is the endpoint's hard cap (routes/documents.py: le=100) — asking for
+  // more 422s and the section renders empty.
+  const docsQuery = useDocuments({ loan_id: loan.id, page_size: 100 })
   const del = useDeleteDocument()
   const [showAdd, setShowAdd] = useState(false)
 
