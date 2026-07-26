@@ -40,7 +40,9 @@ export function IrrSheetPage() {
   }
 
   return (
-    <Box sx={{ width: { xs: '100%', md: '80%' }, mx: 'auto' }}>
+    // The sheet is the whole screen here, so it gets the full page width (up to
+    // a readable cap) rather than the 80% column used by detail pages.
+    <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto' }}>
       <Card>
         <Typography variant="h2" sx={{ fontSize: { xs: 18, sm: 20 }, mb: 0.5 }}>
           IRR Sheet for Testing
@@ -61,6 +63,7 @@ export function IrrSheetPage() {
             customerName: clientName.trim() || null,
           }}
           edit={edit}
+          fill
         />
       </Card>
     </Box>

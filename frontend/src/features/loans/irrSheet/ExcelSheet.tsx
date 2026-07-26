@@ -44,12 +44,24 @@ export function ExcelSheet({
   rows,
   colWidths,
   minWidth,
+  fill,
+  fontSize = 12,
 }: {
   rows: SheetRow[]
   /** px width per column; falls back to a default. */
   colWidths?: number[]
   minWidth?: number
+  /**
+   * Stretch the grid to the container instead of sitting at its natural pixel
+   * width. Column proportions are preserved (they become percentages), so the
+   * sheet still reads as the workbook — just larger. `minWidth` still applies,
+   * so narrow screens scroll rather than crush the columns.
+   */
+  fill?: boolean
+  /** Base cell type size; row height scales with it. */
+  fontSize?: number
 }) {
+  const totalCols = colWidths?.reduce((a, b) => a + b, 0) ?? 0
   return (
     <Box sx={{ overflowX: 'auto' }}>
       <Box
@@ -57,13 +69,17 @@ export function ExcelSheet({
         sx={{
           borderCollapse: 'collapse',
           tableLayout: 'fixed',
-          minWidth: minWidth ?? 'auto',
+          // The column widths were authored against 12px type, so a larger
+          // font needs a proportionally larger floor — otherwise narrow screens
+          // squeeze the columns and ellipsis-truncate the labels.
+          minWidth: minWidth ? Math.round(minWidth * (fontSize / 12)) : 'auto',
+          width: fill ? '100%' : undefined,
           fontFamily: 'Calibri, "Segoe UI", Arial, sans-serif',
-          fontSize: 12,
+          fontSize,
           color: '#1a1a1a',
           '& td': {
-            padding: '2px 6px',
-            height: 20,
+            padding: `${Math.round(fontSize / 6)}px ${Math.round(fontSize / 2)}px`,
+            height: Math.round(fontSize * 1.7),
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -74,7 +90,7 @@ export function ExcelSheet({
         {colWidths && (
           <colgroup>
             {colWidths.map((w, i) => (
-              <col key={i} style={{ width: w }} />
+              <col key={i} style={{ width: fill && totalCols ? `${(w / totalCols) * 100}%` : w }} />
             ))}
           </colgroup>
         )}
@@ -89,7 +105,11 @@ export function ExcelSheet({
                   fontStyle: cell.italic ? 'italic' : undefined,
                   background: cell.fill ? FILL[cell.fill] : undefined,
                   color: cell.color,
-                  fontSize: cell.size,
+                  // Cells carry their own absolute sizes (the workbook's 10/11/
+                  // 13px hierarchy), so they have to be scaled by the same
+                  // factor as the base — otherwise raising `fontSize` moves
+                  // only the handful of cells that don't set one.
+                  fontSize: cell.size ? Math.round(cell.size * (fontSize / 12)) : undefined,
                   fontVariantNumeric: 'tabular-nums',
                 }
                 // Assign the borders only when they apply. Setting

@@ -52,10 +52,25 @@ function emptyModel(input: IrrSheetInput): IrrSheetModel {
 // valid loan (a DRAFT with no terms, a 0%-interest loan) so callers can drop it
 // in unconditionally. With `edit`, the workbook's blue input cells become live
 // fields (the IRR Sheet calculator page) and the sheet always renders.
-export function IrrSheetView({ input, edit }: { input: IrrSheetInput; edit?: InputSheetEdit }) {
+export function IrrSheetView({
+  input,
+  edit,
+  fill,
+}: {
+  input: IrrSheetInput
+  edit?: InputSheetEdit
+  // Full-width mode for the standalone IRR Sheet page, where the sheet is the
+  // whole point of the screen. Embedded uses (loan detail, wizard) stay at the
+  // workbook's natural size so they don't dominate the card they sit in.
+  fill?: boolean
+}) {
   const [tab, setTab] = useState(0)
   const model = buildIrrSheetModel(input) ?? (edit ? emptyModel(input) : null)
   if (!model) return null
+  // The workbook's own 12px is spreadsheet-dense; on the full-page calculator
+  // there is width to spare, so the type goes up to comfortable reading size.
+  // Padding, row height and the min-width floor all derive from this.
+  const sheet = { fill, fontSize: fill ? 18 : undefined }
 
   return (
     <Box>
@@ -77,17 +92,32 @@ export function IrrSheetView({ input, edit }: { input: IrrSheetInput; edit?: Inp
           the workbook's grey canvas; the others are white. */}
       {tab === 0 && (
         <Box sx={{ background: '#d9d9d9', p: 1.5, borderRadius: 1, overflowX: 'auto' }}>
-          <ExcelSheet rows={inputSheetRows(model, edit)} colWidths={INPUT_COLS} minWidth={452} />
+          <ExcelSheet
+            rows={inputSheetRows(model, edit)}
+            colWidths={INPUT_COLS}
+            minWidth={452}
+            {...sheet}
+          />
         </Box>
       )}
       {tab === 1 && (
         <Box sx={{ background: '#fff', p: 1.5, borderRadius: 1, overflowX: 'auto' }}>
-          <ExcelSheet rows={amortSheetRows(model)} colWidths={AMORT_COLS} minWidth={620} />
+          <ExcelSheet
+            rows={amortSheetRows(model)}
+            colWidths={AMORT_COLS}
+            minWidth={620}
+            {...sheet}
+          />
         </Box>
       )}
       {tab === 2 && (
         <Box sx={{ background: '#fff', p: 1.5, borderRadius: 1, overflowX: 'auto' }}>
-          <ExcelSheet rows={dvSheetRows(model)} colWidths={DV_COLS} minWidth={560} />
+          <ExcelSheet
+            rows={dvSheetRows(model)}
+            colWidths={DV_COLS}
+            minWidth={560}
+            {...sheet}
+          />
         </Box>
       )}
 
