@@ -41,6 +41,11 @@ def get_current_user(
         # User was deactivated/deleted after the token was issued.
         raise credentials_exc
 
+    # Token-version mismatch → the password was changed/reset after this token
+    # was issued, so it's revoked.
+    if token_data.token_version != user.token_version:
+        raise credentials_exc
+
     return user
 
 

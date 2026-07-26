@@ -103,9 +103,11 @@ export function useLogout() {
   }, [qc])
 }
 
-// POST /auth/me/password — self-service change. Returns 204 (no body). Nothing
-// to invalidate: /me doesn't change shape, and the token stays valid (JWTs are
-// stateless, so the current session is unaffected).
+// POST /auth/me/password — self-service change. Returns 204 (no body) and does
+// NOT re-issue a token. The server bumps the user's token_version, which
+// revokes every JWT they hold INCLUDING the one that made this call, so a
+// successful change leaves no usable session. Callers must sign the user out
+// (see ChangePasswordDialog) rather than let the next request 401.
 export function useChangePassword() {
   return useMutation({
     mutationFn: async (payload: ChangePasswordPayload) => {
