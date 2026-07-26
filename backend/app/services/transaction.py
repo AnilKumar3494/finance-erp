@@ -117,6 +117,8 @@ def list_pending_confirmations(
     db: Session,
     *,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    paid_after: Optional[date] = None,
+    paid_before: Optional[date] = None,
     page: int = 1,
     page_size: int = 20,
     sort_by: Optional[str] = None,
@@ -128,6 +130,10 @@ def list_pending_confirmations(
     Joins each pending transaction to its loan + customer (and left-joins the
     allocated due-cycle) so the Collections & Actions surface can render the
     row without N+1 lookups. EMPLOYEE scope limits to their assigned customers.
+
+    `paid_after` / `paid_before` window on effective_payment_date — the date the
+    money actually changed hands, which is what a collector filtering "what came
+    in last week" means. Both bounds are inclusive and optional.
 
     Returns (rows, total, total_pending_amount) where each row is a
     (Transaction, Loan, Customer, DueCycle|None) tuple. Oldest-waiting first so
@@ -148,6 +154,12 @@ def list_pending_confirmations(
 
     if assigned_employee_id is not None:
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    if paid_after is not None:
+        query = query.filter(Transaction.effective_payment_date >= paid_after)
+
+    if paid_before is not None:
+        query = query.filter(Transaction.effective_payment_date <= paid_before)
 
     total = query.count()
     total_amount = (

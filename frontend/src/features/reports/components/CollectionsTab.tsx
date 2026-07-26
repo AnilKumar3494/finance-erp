@@ -18,13 +18,13 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { fmtMonthShort, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
-import { ReportDateRange } from './ReportDateRange'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
 import {
   EMPTY_RANGE,
   isoOrUndefined,
   rangeError,
   type DateRangeValue,
-} from '../dateRange'
+} from '@/lib/dateRange'
 
 type Period = 'daily' | 'monthly'
 
@@ -102,7 +102,7 @@ export function CollectionsTab() {
         </Box>
       </Stack>
 
-      <ReportDateRange idPrefix="coll" value={range} onChange={setRange} />
+      <DateRangeFilter idPrefix="coll" value={range} onChange={setRange} />
 
       {invalidRange && <ErrorBanner message={invalidRange} />}
 

@@ -253,17 +253,21 @@ def list_cycles_worklist(
 
     total = query.count()
 
-    # Sortable columns. Shortfall/days_overdue are derived in Python (not SQL
-    # columns) so they aren't sort keys here; due_date order already mirrors
-    # days_overdue. Unknown/absent sort_by keeps the default (due_date asc =
-    # most overdue first). A stable secondary key (cycle id) keeps pagination
-    # consistent when many rows share a sort value.
+    # Sortable columns. days_overdue is derived in Python (not a SQL column) so
+    # it isn't a sort key here; due_date order already mirrors it. Shortfall IS
+    # sortable — the serialized value clamps at zero, but every worklist view is
+    # unpaid-only, so on these rows total_due - total_received is always the
+    # positive shortfall and the SQL expression matches what the table shows.
+    # Unknown/absent sort_by keeps the default (due_date asc = most overdue
+    # first). A stable secondary key (cycle id) keeps pagination consistent when
+    # many rows share a sort value.
     sortable = {
         "due_date": DueCycle.due_date,
         "cycle_number": DueCycle.cycle_number,
         "cycle_status": DueCycle.cycle_status,
         "customer_name": Customer.full_name,
         "loan": Loan.hp_number,
+        "shortfall": DueCycle.total_due - DueCycle.total_received,
     }
     column = sortable.get(sort_by or "due_date", DueCycle.due_date)
     descending = (sort_order or "asc").lower() == "desc"

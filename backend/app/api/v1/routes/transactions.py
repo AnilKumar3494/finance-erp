@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -147,6 +148,12 @@ def pending_confirmations(
             "callers, who are always scoped to themselves."
         ),
     ),
+    paid_after: Optional[date] = Query(
+        None, description="Only payments made on or after this date (inclusive)."
+    ),
+    paid_before: Optional[date] = Query(
+        None, description="Only payments made on or before this date (inclusive)."
+    ),
     sort_by: Optional[str] = Query(
         None,
         description="Sort column: amount | effective_payment_date | created_at | customer_name | loan",
@@ -163,6 +170,8 @@ def pending_confirmations(
     rows, total, total_amount = list_pending_confirmations(
         db,
         assigned_employee_id=scope,
+        paid_after=paid_after,
+        paid_before=paid_before,
         page=page,
         page_size=page_size,
         sort_by=sort_by,
