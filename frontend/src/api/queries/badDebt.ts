@@ -54,8 +54,28 @@ export interface BadDebtSort {
 export const badDebtKeys = {
   all: ['badDebtProposals'] as const,
   open: (loanId: string) => [...badDebtKeys.all, 'open', loanId] as const,
-  worklist: (page: number, status: BadDebtProposalStatus, sort?: BadDebtSort) =>
-    [...badDebtKeys.all, 'worklist', status, page, sort?.sort_by ?? null, sort?.sort_order ?? null] as const,
+  worklist: (
+    page: number,
+    status: BadDebtProposalStatus,
+    sort?: BadDebtSort,
+    window?: ProposalWindow,
+  ) =>
+    [
+      ...badDebtKeys.all,
+      'worklist',
+      status,
+      page,
+      sort?.sort_by ?? null,
+      sort?.sort_order ?? null,
+      window?.proposed_after ?? null,
+      window?.proposed_before ?? null,
+    ] as const,
+}
+
+// Inclusive window on when the proposal was raised.
+export interface ProposalWindow {
+  proposed_after?: string
+  proposed_before?: string
 }
 
 // Cross-loan bad-debt review queue (Collections → Bad debt lens, admin-only).
@@ -65,14 +85,14 @@ export function useBadDebtProposals(
   status: BadDebtProposalStatus = 'PROPOSED',
   enabled = true,
   sort?: BadDebtSort,
+  window?: ProposalWindow,
 ) {
   return useQuery({
-    queryKey: badDebtKeys.worklist(page, status, sort),
+    queryKey: badDebtKeys.worklist(page, status, sort, window),
     queryFn: async () => {
-      const { data } = await apiClient.get<BadDebtProposalListResponse>(
-        '/bad-debt-proposals/',
-        { params: { status, page, page_size: 20, ...sort } },
-      )
+      const { data } = await apiClient.get<BadDebtProposalListResponse>('/bad-debt-proposals/', {
+        params: { status, page, page_size: 20, ...window, ...sort },
+      })
       return data
     },
     enabled,
@@ -89,15 +109,10 @@ export function useOpenBadDebtProposal(loanId: string, enabled: boolean) {
   return useQuery({
     queryKey: badDebtKeys.open(loanId),
     queryFn: async () => {
-      const { data } = await apiClient.get<BadDebtProposalListResponse>(
-        '/bad-debt-proposals/',
-        { params: { page_size: 200 } },
-      )
-      return (
-        data.results.find(
-          (p) => p.loan_id === loanId && p.status !== 'REJECTED',
-        ) ?? null
-      )
+      const { data } = await apiClient.get<BadDebtProposalListResponse>('/bad-debt-proposals/', {
+        params: { page_size: 200 },
+      })
+      return data.results.find((p) => p.loan_id === loanId && p.status !== 'REJECTED') ?? null
     },
     enabled,
   })

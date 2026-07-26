@@ -107,6 +107,9 @@ export interface CustomerListParams {
   page_size?: number
   search?: string
   assigned_employee_id?: string
+  // Inclusive window on created_at (the list's Created column).
+  created_after?: string
+  created_before?: string
   sort_by?: CustomerSortField
   sort_order?: SortOrder
 }
@@ -128,7 +131,7 @@ export const customerKeys = {
 // Hooks
 // --------------------------------------------------
 
-export function useCustomers(params: CustomerListParams) {
+export function useCustomers(params: CustomerListParams, enabled = true) {
   return useQuery({
     queryKey: customerKeys.list(params),
     queryFn: async () => {
@@ -137,6 +140,7 @@ export function useCustomers(params: CustomerListParams) {
       })
       return data
     },
+    enabled,
     placeholderData: (prev) => prev,
   })
 }

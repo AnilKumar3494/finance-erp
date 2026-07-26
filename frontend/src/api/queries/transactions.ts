@@ -112,12 +112,21 @@ export type PendingSortField =
   | 'customer_name'
   | 'loan'
 
+// Inclusive window on effective_payment_date — when the money actually changed
+// hands, which is the date a collector means by "what came in last week".
+export interface PendingConfirmationsWindow {
+  paid_after?: string
+  paid_before?: string
+}
+
 export function usePendingConfirmations(
   page: number,
   pageSize = 20,
   sort?: { sort_by?: PendingSortField; sort_order?: 'asc' | 'desc' },
   // Admin-only server param; the backend ignores it for EMPLOYEE callers.
   assignedEmployeeId?: string,
+  window?: PendingConfirmationsWindow,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: [
@@ -127,6 +136,8 @@ export function usePendingConfirmations(
       sort?.sort_by ?? null,
       sort?.sort_order ?? null,
       assignedEmployeeId ?? null,
+      window?.paid_after ?? null,
+      window?.paid_before ?? null,
     ] as const,
     queryFn: async () => {
       const { data } = await apiClient.get<PendingConfirmationListResponse>(
@@ -136,12 +147,14 @@ export function usePendingConfirmations(
             page,
             page_size: pageSize,
             assigned_employee_id: assignedEmployeeId,
+            ...window,
             ...sort,
           },
         },
       )
       return data
     },
+    enabled,
     placeholderData: (prev) => prev,
   })
 }
@@ -181,10 +194,7 @@ export interface TransactionCreate {
 
 // Confirming/failing changes cycle totals and possibly loan status, so refresh
 // the loan detail, schedule, and summary alongside the transaction list.
-function invalidateLoanLedger(
-  qc: ReturnType<typeof useQueryClient>,
-  loanId: string,
-) {
+function invalidateLoanLedger(qc: ReturnType<typeof useQueryClient>, loanId: string) {
   qc.invalidateQueries({ queryKey: transactionKeys.byLoan(loanId) })
   qc.invalidateQueries({ queryKey: transactionKeys.summary(loanId) })
   // The confirmations worklist (and its tab badge) lists PENDING rows.

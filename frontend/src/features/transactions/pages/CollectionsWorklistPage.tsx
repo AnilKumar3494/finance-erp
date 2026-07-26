@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
+import dayjs from 'dayjs'
 import { getRouteApi } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
@@ -27,6 +28,7 @@ import {
   type PendingConfirmationItem,
   type PendingSortField,
 } from '@/api/queries/transactions'
+import { useLoans, type LoanResponse } from '@/api/queries/loans'
 import { serverMessage } from '@/api/errors'
 import {
   useBadDebtProposals,
@@ -37,6 +39,8 @@ import type { BadDebtProposalStatus } from '@/schemas/enums'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
+import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
 import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
@@ -45,10 +49,7 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from '@/features/loans/components/CycleStatusChip'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { RecordPaymentDialog } from '@/features/loans/components/RecordPaymentDialog'
-import {
-  BadDebtReviewDialog,
-  type BadDebtDecision,
-} from '../components/BadDebtReviewDialog'
+import { BadDebtReviewDialog, type BadDebtDecision } from '../components/BadDebtReviewDialog'
 import {
   WORKLIST_VIEWS,
   WORKLIST_VIEW_LABELS,
@@ -67,28 +68,99 @@ const inr = (s: string) => fmtINR(Number(s))
 const CYCLE_SORT_OPTIONS: readonly SortOption<WorklistSortField>[] = [
   { value: 'due_date:asc', label: 'Due date (earliest)', sort_by: 'due_date', sort_order: 'asc' },
   { value: 'due_date:desc', label: 'Due date (latest)', sort_by: 'due_date', sort_order: 'desc' },
-  { value: 'customer_name:asc', label: 'Customer (A → Z)', sort_by: 'customer_name', sort_order: 'asc' },
+  {
+    value: 'shortfall:desc',
+    label: 'Shortfall (high → low)',
+    sort_by: 'shortfall',
+    sort_order: 'desc',
+  },
+  {
+    value: 'shortfall:asc',
+    label: 'Shortfall (low → high)',
+    sort_by: 'shortfall',
+    sort_order: 'asc',
+  },
+  {
+    value: 'customer_name:asc',
+    label: 'Customer (A → Z)',
+    sort_by: 'customer_name',
+    sort_order: 'asc',
+  },
   { value: 'cycle_number:asc', label: 'Cycle (1 → N)', sort_by: 'cycle_number', sort_order: 'asc' },
-  { value: 'cycle_status:asc', label: 'Status (A → Z)', sort_by: 'cycle_status', sort_order: 'asc' },
+  {
+    value: 'cycle_status:asc',
+    label: 'Status (A → Z)',
+    sort_by: 'cycle_status',
+    sort_order: 'asc',
+  },
   { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
 ]
 
 const PENDING_SORT_OPTIONS: readonly SortOption<PendingSortField>[] = [
   { value: 'created_at:asc', label: 'Recorded (oldest)', sort_by: 'created_at', sort_order: 'asc' },
-  { value: 'created_at:desc', label: 'Recorded (newest)', sort_by: 'created_at', sort_order: 'desc' },
+  {
+    value: 'created_at:desc',
+    label: 'Recorded (newest)',
+    sort_by: 'created_at',
+    sort_order: 'desc',
+  },
   { value: 'amount:desc', label: 'Amount (high → low)', sort_by: 'amount', sort_order: 'desc' },
-  { value: 'effective_payment_date:desc', label: 'Paid on (newest)', sort_by: 'effective_payment_date', sort_order: 'desc' },
-  { value: 'customer_name:asc', label: 'Customer (A → Z)', sort_by: 'customer_name', sort_order: 'asc' },
+  {
+    value: 'effective_payment_date:desc',
+    label: 'Paid on (newest)',
+    sort_by: 'effective_payment_date',
+    sort_order: 'desc',
+  },
+  {
+    value: 'customer_name:asc',
+    label: 'Customer (A → Z)',
+    sort_by: 'customer_name',
+    sort_order: 'asc',
+  },
   { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
 ]
 
 const BADDEBT_SORT_OPTIONS: readonly SortOption<BadDebtSortField>[] = [
-  { value: 'proposed_at:desc', label: 'Proposed (newest)', sort_by: 'proposed_at', sort_order: 'desc' },
-  { value: 'proposed_at:asc', label: 'Proposed (oldest)', sort_by: 'proposed_at', sort_order: 'asc' },
-  { value: 'principal:desc', label: 'Principal (high → low)', sort_by: 'principal', sort_order: 'desc' },
-  { value: 'customer_name:asc', label: 'Customer (A → Z)', sort_by: 'customer_name', sort_order: 'asc' },
+  {
+    value: 'proposed_at:desc',
+    label: 'Proposed (newest)',
+    sort_by: 'proposed_at',
+    sort_order: 'desc',
+  },
+  {
+    value: 'proposed_at:asc',
+    label: 'Proposed (oldest)',
+    sort_by: 'proposed_at',
+    sort_order: 'asc',
+  },
+  {
+    value: 'principal:desc',
+    label: 'Principal (high → low)',
+    sort_by: 'principal',
+    sort_order: 'desc',
+  },
+  {
+    value: 'customer_name:asc',
+    label: 'Customer (A → Z)',
+    sort_by: 'customer_name',
+    sort_order: 'asc',
+  },
   { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
 ]
+
+// Bad-debt sub-lenses. The first two read the proposals queue; WRITTEN_OFF
+// reads the loans list, because a loan can be in BAD_DEBT with no proposal row.
+type BadDebtTab = BadDebtProposalStatus | 'WRITTEN_OFF'
+
+// What the shared date window actually filters on, per lens — used to label the
+// pickers so "From / To" is never ambiguous.
+const DATE_FILTER_NOUN: Record<WorklistView, string> = {
+  due: 'Due',
+  upcoming: 'Due',
+  all: 'Due',
+  confirmations: 'Paid',
+  baddebt: 'Proposed',
+}
 
 function mapListError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -119,7 +191,7 @@ interface PendingQuickActions {
 }
 
 export function CollectionsWorklistPage() {
-  const { view, search: searchTerm, assigned_to, page } = routeApi.useSearch()
+  const { view, search: searchTerm, assigned_to, date_from, date_to, page } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
@@ -164,9 +236,18 @@ export function CollectionsWorklistPage() {
   // Per-lens server-side sort. Each lens has its own columns, so it keeps its
   // own sort state. Changing a sort jumps back to page 1 (URL) so the user
   // lands on the top of the new ordering.
-  const [cycleSort, setCycleSort] = useState<SortState<WorklistSortField>>({ sort_by: 'due_date', sort_order: 'asc' })
-  const [pendingSort, setPendingSort] = useState<SortState<PendingSortField>>({ sort_by: 'created_at', sort_order: 'asc' })
-  const [badDebtSort, setBadDebtSort] = useState<SortState<BadDebtSortField>>({ sort_by: 'proposed_at', sort_order: 'desc' })
+  const [cycleSort, setCycleSort] = useState<SortState<WorklistSortField>>({
+    sort_by: 'due_date',
+    sort_order: 'asc',
+  })
+  const [pendingSort, setPendingSort] = useState<SortState<PendingSortField>>({
+    sort_by: 'created_at',
+    sort_order: 'asc',
+  })
+  const [badDebtSort, setBadDebtSort] = useState<SortState<BadDebtSortField>>({
+    sort_by: 'proposed_at',
+    sort_order: 'desc',
+  })
   const resetPage = () => navigate({ search: (prev) => ({ ...prev, page: 1 }), replace: true })
   const onCycleSort = (f: WorklistSortField, d: SortOrder) => {
     setCycleSort((s) => toggleSort(s, f, d))
@@ -181,8 +262,35 @@ export function CollectionsWorklistPage() {
     resetPage()
   }
 
+  // The date window the user picked, as dayjs for the pickers and ISO for the
+  // API. One window is shared by every lens; which date it filters on differs
+  // (EMI due date / payment date / proposal date), so the pickers relabel
+  // themselves per view rather than keeping three separate windows.
+  const range: DateRangeValue = {
+    from: date_from ? dayjs(date_from) : null,
+    to: date_to ? dayjs(date_to) : null,
+  }
+  const setRange = (next: DateRangeValue) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: 1,
+        date_from: isoOrUndefined(next.from),
+        date_to: isoOrUndefined(next.to),
+      }),
+      replace: true,
+    })
+  const dateError = rangeError(range)
+  // Don't query on a backwards range — the API would just return nothing and
+  // the user would read it as "no data" rather than "bad input".
+  const rangeOk = !dateError
+
   const cycleParams: WorklistParams = {
     ...viewToParams(view),
+    // A picked window overrides the lens's own default window (e.g. Upcoming's
+    // next-7-days), which is the point of picking one.
+    ...(date_from ? { due_after: date_from } : {}),
+    ...(date_to ? { due_before: date_to } : {}),
     search: searchTerm,
     assigned_employee_id: assigned_to,
     page,
@@ -190,7 +298,7 @@ export function CollectionsWorklistPage() {
     sort_by: cycleSort.sort_by,
     sort_order: cycleSort.sort_order,
   }
-  const cycleQuery = useDueCycleWorklist(cycleParams)
+  const cycleQuery = useDueCycleWorklist(cycleParams, rangeOk)
   // Pending confirmations: fetch the active page when on that view, else page 1
   // — `total` is page-independent so the tab badge is correct either way.
   const pendingQuery = usePendingConfirmations(
@@ -198,23 +306,53 @@ export function CollectionsWorklistPage() {
     PAGE_SIZE,
     pendingSort,
     assigned_to,
+    isConfirmations ? { paid_after: date_from, paid_before: date_to } : undefined,
+    rangeOk,
   )
-  const confirmationsCount = pendingQuery.data?.total ?? 0
+  // The window scopes the visible table, but the tab badge means "you have N
+  // payments waiting" — so when a window is active it needs its own unfiltered
+  // count. Off every other time, where the table query already answers it.
+  const hasWindow = Boolean(date_from || date_to)
+  const pendingCountQuery = usePendingConfirmations(
+    1,
+    1,
+    undefined,
+    assigned_to,
+    undefined,
+    isConfirmations && hasWindow,
+  )
+  const confirmationsCount =
+    (isConfirmations && hasWindow ? pendingCountQuery.data?.total : pendingQuery.data?.total) ?? 0
   // Bad-debt proposals (admin-only). The chip badge always reflects the
   // pending (PROPOSED) count, regardless of which sub-tab is shown — so a
   // lightweight PROPOSED count query runs for any admin (deduped with the
   // table query when that's also PROPOSED page 1).
   const badDebtCountQuery = useBadDebtProposals(1, 'PROPOSED', isAdmin)
   const badDebtCount = badDebtCountQuery.data?.total ?? 0
-  // The lens itself can show either the review queue (PROPOSED) or already-
-  // approved proposals (so an admin can reopen/undo one). Local — reset to
-  // page 1 on toggle.
-  const [badDebtStatus, setBadDebtStatus] = useState<BadDebtProposalStatus>('PROPOSED')
+  // The lens shows the review queue (PROPOSED), already-approved proposals (so
+  // an admin can reopen/undo one), or the loans actually written off. Local —
+  // reset to page 1 on toggle.
+  const [badDebtTab, setBadDebtTab] = useState<BadDebtTab>('PROPOSED')
+  const isWrittenOff = isBadDebt && badDebtTab === 'WRITTEN_OFF'
   const badDebtQuery = useBadDebtProposals(
     isBadDebt ? page : 1,
-    badDebtStatus,
-    isAdmin && isBadDebt,
+    badDebtTab === 'WRITTEN_OFF' ? 'APPROVED' : badDebtTab,
+    isAdmin && isBadDebt && rangeOk && !isWrittenOff,
     badDebtSort,
+    { proposed_after: date_from, proposed_before: date_to },
+  )
+  // Written-off loans are loans, not proposals — a loan can reach BAD_DEBT
+  // without ever having a proposal row (the legacy import did exactly that), so
+  // the proposals queue can never show it. Sourced from the loans list instead.
+  const writtenOffQuery = useLoans(
+    {
+      page: isWrittenOff ? page : 1,
+      page_size: PAGE_SIZE,
+      status: 'BAD_DEBT',
+      include: 'customer,vehicle',
+      assigned_employee_id: assigned_to,
+    },
+    isAdmin && isWrittenOff,
   )
 
   // Quick confirm/fail on confirmation rows (admin-only, mirrors the loan
@@ -228,11 +366,7 @@ export function CollectionsWorklistPage() {
         acting: confirmTxn.isPending || failTxn.isPending,
       }
     : null
-  const quickError = confirmTxn.isError
-    ? confirmTxn.error
-    : failTxn.isError
-      ? failTxn.error
-      : null
+  const quickError = confirmTxn.isError ? confirmTxn.error : failTxn.isError ? failTxn.error : null
 
   const [record, setRecord] = useState<DueCycleWorklistItem | null>(null)
   const [review, setReview] = useState<{
@@ -240,17 +374,25 @@ export function CollectionsWorklistPage() {
     decision: BadDebtDecision
   } | null>(null)
 
-  const activeQuery = isBadDebt ? badDebtQuery : isConfirmations ? pendingQuery : cycleQuery
+  const activeQuery = isWrittenOff
+    ? writtenOffQuery
+    : isBadDebt
+      ? badDebtQuery
+      : isConfirmations
+        ? pendingQuery
+        : cycleQuery
   const total = activeQuery.data?.total ?? 0
   const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
   const pagerLabel = `${total} ${
-    isBadDebt
-      ? badDebtStatus === 'APPROVED'
-        ? `approved proposal${total === 1 ? '' : 's'}`
-        : `proposal${total === 1 ? '' : 's'} to review`
-      : isConfirmations
-        ? `payment${total === 1 ? '' : 's'} to confirm`
-        : `cycle${total === 1 ? '' : 's'} due`
+    isWrittenOff
+      ? `loan${total === 1 ? '' : 's'} written off`
+      : isBadDebt
+        ? badDebtTab === 'APPROVED'
+          ? `approved proposal${total === 1 ? '' : 's'}`
+          : `proposal${total === 1 ? '' : 's'} to review`
+        : isConfirmations
+          ? `payment${total === 1 ? '' : 's'} to confirm`
+          : `cycle${total === 1 ? '' : 's'} due`
   }`
   const pager = (edge: 'top' | 'bottom') =>
     total > 0 ? (
@@ -269,9 +411,10 @@ export function CollectionsWorklistPage() {
   const setAssignedTo = (next: string | undefined) =>
     navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }), replace: true })
 
-  // Switch the Bad debt sub-tab (review queue vs approved) and reset paging.
-  const setBadDebtTab = (next: BadDebtProposalStatus) => {
-    setBadDebtStatus(next)
+  // Switch the Bad debt sub-tab (review queue / approved / written off) and
+  // reset paging.
+  const onBadDebtTab = (next: BadDebtTab) => {
+    setBadDebtTab(next)
     navigate({ search: (prev) => ({ ...prev, page: 1 }), replace: true })
   }
 
@@ -348,7 +491,31 @@ export function CollectionsWorklistPage() {
         )}
       </Box>
 
-      <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
+      {/* Date window. Each lens filters a different date, so the labels say
+          which one — and only the cycle views allow future dates, since EMIs
+          are scheduled ahead while payments and proposals are always past.
+          Hidden on Written off: nothing records when a loan was written off, so
+          there is no date to filter on (see the closure-history gap). */}
+      {!isWrittenOff && (
+        <Box sx={{ mb: 2 }}>
+          <DateRangeFilter
+            idPrefix="worklist"
+            value={range}
+            onChange={setRange}
+            fromLabel={`${DATE_FILTER_NOUN[view]} from`}
+            toLabel={`${DATE_FILTER_NOUN[view]} to`}
+            maxDate={isCycleView(view) ? null : dayjs()}
+          />
+          {dateError && (
+            <Box sx={{ mt: 1 }}>
+              <ErrorBanner message={dateError} />
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {/* Written off has no server-side sort of its own, so no sort control. */}
+      <Box sx={{ display: { xs: isWrittenOff ? 'none' : 'block', md: 'none' }, mb: 2 }}>
         {isBadDebt ? (
           <SortSelect
             options={BADDEBT_SORT_OPTIONS}
@@ -397,13 +564,19 @@ export function CollectionsWorklistPage() {
         </Box>
       ) : isBadDebt ? (
         <>
-          <BadDebtSubtabs
-            status={badDebtStatus}
-            reviewCount={badDebtCount}
-            onChange={setBadDebtTab}
-          />
-          {(badDebtQuery.data?.results.length ?? 0) === 0 ? (
-            <BadDebtEmpty status={badDebtStatus} />
+          <BadDebtSubtabs tab={badDebtTab} reviewCount={badDebtCount} onChange={onBadDebtTab} />
+          {isWrittenOff ? (
+            (writtenOffQuery.data?.results.length ?? 0) === 0 ? (
+              <WrittenOffEmpty />
+            ) : (
+              <>
+                {pager('top')}
+                <WrittenOffTable rows={writtenOffQuery.data!.results} />
+                {pager('bottom')}
+              </>
+            )
+          ) : (badDebtQuery.data?.results.length ?? 0) === 0 ? (
+            <BadDebtEmpty tab={badDebtTab} />
           ) : (
             <>
               {pager('top')}
@@ -433,18 +606,28 @@ export function CollectionsWorklistPage() {
           ) : (
             <>
               {pager('top')}
-              <ConfirmationsDesktop rows={pendingQuery.data!.results} sort={pendingSort} onSort={onPendingSort} quick={quick} />
+              <ConfirmationsDesktop
+                rows={pendingQuery.data!.results}
+                sort={pendingSort}
+                onSort={onPendingSort}
+                quick={quick}
+              />
               <ConfirmationsMobile rows={pendingQuery.data!.results} quick={quick} />
               {pager('bottom')}
             </>
           )}
         </>
       ) : (cycleQuery.data?.results.length ?? 0) === 0 ? (
-        <CyclesEmpty filtered={!!searchTerm || !!assigned_to} />
+        <CyclesEmpty filtered={!!searchTerm || !!assigned_to || hasWindow} view={view} />
       ) : (
         <>
           {pager('top')}
-          <DesktopTable rows={cycleQuery.data!.results} onRecord={setRecord} sort={cycleSort} onSort={onCycleSort} />
+          <DesktopTable
+            rows={cycleQuery.data!.results}
+            onRecord={setRecord}
+            sort={cycleSort}
+            onSort={onCycleSort}
+          />
           <MobileCards rows={cycleQuery.data!.results} onRecord={setRecord} />
           {pager('bottom')}
         </>
@@ -512,16 +695,64 @@ function DesktopTable({
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+          <Table
+            size="small"
+            sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+          >
             <TableHead>
               <TableRow>
-                <SortableTh field="customer_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="loan" label="Loan" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="cycle_number" label="Cycle" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="due_date" label="Due" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <TableCell sx={{ fontWeight: 600 }} align="right">Shortfall</TableCell>
-                <SortableTh field="cycle_status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
+                <SortableTh
+                  field="customer_name"
+                  label="Customer"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="loan"
+                  label="Loan"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="cycle_number"
+                  label="Cycle"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="due_date"
+                  label="Due"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="shortfall"
+                  label="Shortfall"
+                  align="right"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="cycle_status"
+                  label="Status"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <TableCell sx={{ fontWeight: 600 }} align="right">
+                  Action
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -541,7 +772,11 @@ function DesktopTable({
                     <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {r.customer_name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontFamily: 'var(--font-mono)' }}
+                    >
                       {r.customer_mobile}
                     </Typography>
                   </TableCell>
@@ -612,10 +847,17 @@ function MobileCards({
             </Typography>
             <CycleStatusChip status={r.cycle_status} />
           </Stack>
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'var(--font-mono)' }}
+          >
             {r.customer_mobile} · {loanDisplayId(r)}
           </Typography>
-          <Stack direction="row" sx={{ mt: 1, justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <Stack
+            direction="row"
+            sx={{ mt: 1, justifyContent: 'space-between', alignItems: 'flex-end' }}
+          >
             <Box>
               <Typography variant="body2" color="text.secondary">
                 #{r.cycle_number} · due {fmtDate(r.due_date)}
@@ -649,15 +891,25 @@ function MobileCards({
   )
 }
 
-function CyclesEmpty({ filtered }: { filtered: boolean }) {
+function CyclesEmpty({ filtered, view }: { filtered: boolean; view: WorklistView }) {
+  // "Nothing due in the next 7 days" is a routine state, not a problem: EMI
+  // dates cluster on a handful of days each month, so the window regularly
+  // falls in a gap. Say so plainly instead of the generic overdue wording,
+  // which reads like something is missing.
+  const reason = filtered
+    ? 'No cycles match your filters in this view.'
+    : view === 'upcoming'
+      ? 'Nothing falls due in the next 7 days. Pick a wider date range to look further ahead.'
+      : view === 'due'
+        ? 'Nothing is due or overdue right now.'
+        : 'No unpaid cycles in this view right now.'
+
   return (
     <Card>
       <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
         <Typography variant="h3">Nothing to collect</Typography>
         <Typography variant="body2" color="text.secondary">
-          {filtered
-            ? 'No cycles match your filters in this view.'
-            : 'No due or overdue cycles in this view right now.'}
+          {reason}
         </Typography>
       </Stack>
     </Card>
@@ -690,16 +942,57 @@ function ConfirmationsDesktop({
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+          <Table
+            size="small"
+            sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+          >
             <TableHead>
               <TableRow>
-                <SortableTh field="customer_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="loan" label="Loan" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="amount" label="Amount" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                <SortableTh
+                  field="customer_name"
+                  label="Customer"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="loan"
+                  label="Loan"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="amount"
+                  label="Amount"
+                  align="right"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
                 <TableCell sx={{ fontWeight: 600 }}>Cycle</TableCell>
-                <SortableTh field="effective_payment_date" label="Paid on" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                <SortableTh field="created_at" label="Recorded" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
+                <SortableTh
+                  field="effective_payment_date"
+                  label="Paid on"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="created_at"
+                  label="Recorded"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
+                <TableCell sx={{ fontWeight: 600 }} align="right">
+                  Action
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -709,12 +1002,18 @@ function ConfirmationsDesktop({
                     <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {r.customer_name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontFamily: 'var(--font-mono)' }}
+                    >
                       {r.customer_mobile}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>{inr(r.amount)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>
+                    {inr(r.amount)}
+                  </TableCell>
                   <TableCell>{r.cycle_number != null ? `#${r.cycle_number}` : '—'}</TableCell>
                   <TableCell>{fmtDate(r.effective_payment_date)}</TableCell>
                   <TableCell>{fmtDate(r.created_at)}</TableCell>
@@ -722,7 +1021,10 @@ function ConfirmationsDesktop({
                     <Stack
                       direction="row"
                       spacing={1}
-                      sx={{ justifyContent: 'flex-end', '& .MuiButton-root': { whiteSpace: 'nowrap' } }}
+                      sx={{
+                        justifyContent: 'flex-end',
+                        '& .MuiButton-root': { whiteSpace: 'nowrap' },
+                      }}
                     >
                       {quick && (
                         <>
@@ -803,11 +1105,16 @@ function ConfirmationsMobile({
               {inr(r.amount)}
             </Typography>
           </Stack>
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'var(--font-mono)' }}
+          >
             {r.customer_mobile} · {loanDisplayId(r)}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {r.cycle_number != null ? `Cycle #${r.cycle_number} · ` : ''}paid {fmtDate(r.effective_payment_date)} · recorded {fmtDate(r.created_at)}
+            {r.cycle_number != null ? `Cycle #${r.cycle_number} · ` : ''}paid{' '}
+            {fmtDate(r.effective_payment_date)} · recorded {fmtDate(r.created_at)}
           </Typography>
           <Box sx={{ mt: 1.5 }}>
             {quick ? (
@@ -838,12 +1145,30 @@ function ConfirmationsMobile({
                     Cancel
                   </Btn>
                 </Stack>
-                <Btn variant="ghost" size="sm" fullWidth endIcon={<ArrowForwardIcon />} onClick={(e) => { e.stopPropagation(); open(r) }}>
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  fullWidth
+                  endIcon={<ArrowForwardIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    open(r)
+                  }}
+                >
                   Review
                 </Btn>
               </Stack>
             ) : (
-              <Btn variant="primary" size="sm" fullWidth endIcon={<ArrowForwardIcon />} onClick={(e) => { e.stopPropagation(); open(r) }}>
+              <Btn
+                variant="primary"
+                size="sm"
+                fullWidth
+                endIcon={<ArrowForwardIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  open(r)
+                }}
+              >
                 Review
               </Btn>
             )}
@@ -874,25 +1199,23 @@ function ConfirmationsEmpty({ filtered }: { filtered: boolean }) {
 // ones an admin can reopen (undo).
 // --------------------------------------------------
 
-type ReviewHandler = (
-  proposal: BadDebtProposalListItem,
-  decision: BadDebtDecision,
-) => void
+type ReviewHandler = (proposal: BadDebtProposalListItem, decision: BadDebtDecision) => void
 
 // Sub-tabs within the Bad debt lens: the review queue (PROPOSED) vs proposals
 // already approved (where the only action is Reopen / undo).
 function BadDebtSubtabs({
-  status,
+  tab,
   reviewCount,
   onChange,
 }: {
-  status: BadDebtProposalStatus
+  tab: BadDebtTab
   reviewCount: number
-  onChange: (s: BadDebtProposalStatus) => void
+  onChange: (t: BadDebtTab) => void
 }) {
-  const tabs: { value: BadDebtProposalStatus; label: string }[] = [
+  const tabs: { value: BadDebtTab; label: string }[] = [
     { value: 'PROPOSED', label: reviewCount > 0 ? `To review (${reviewCount})` : 'To review' },
     { value: 'APPROVED', label: 'Approved' },
+    { value: 'WRITTEN_OFF', label: 'Written off' },
   ]
   return (
     <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
@@ -902,8 +1225,8 @@ function BadDebtSubtabs({
           label={t.label}
           size="small"
           onClick={() => onChange(t.value)}
-          color={status === t.value ? 'primary' : 'default'}
-          variant={status === t.value ? 'filled' : 'outlined'}
+          color={tab === t.value ? 'primary' : 'default'}
+          variant={tab === t.value ? 'filled' : 'outlined'}
           sx={{ height: 30 }}
         />
       ))}
@@ -988,12 +1311,43 @@ function BadDebtDesktop({
           <Table size="small" sx={{ minWidth: 820 }}>
             <TableHead>
               <TableRow sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
-                <SortableTh field="customer_name" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="loan" label="Loan" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                <SortableTh field="principal" label="Principal" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
+                <SortableTh
+                  field="customer_name"
+                  label="Customer"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="loan"
+                  label="Loan"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="principal"
+                  label="Principal"
+                  align="right"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
                 <TableCell sx={{ fontWeight: 600 }}>Reason</TableCell>
-                <SortableTh field="proposed_at" label="Proposed" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
+                <SortableTh
+                  field="proposed_at"
+                  label="Proposed"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
+                <TableCell sx={{ fontWeight: 600 }} align="right">
+                  Action
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1003,21 +1357,28 @@ function BadDebtDesktop({
                     <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {r.customer_name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontFamily: 'var(--font-mono)' }}
+                    >
                       {r.customer_mobile}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                     {loanDisplayId(r)}
                   </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{inr(r.principal)}</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    {inr(r.principal)}
+                  </TableCell>
                   <TableCell sx={{ maxWidth: 280 }}>
                     <Typography
                       variant="body2"
                       sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                       title={r.proposed_reason}
                     >
-                      {r.auto_proposed ? '⚙ ' : ''}{r.proposed_reason}
+                      {r.auto_proposed ? '⚙ ' : ''}
+                      {r.proposed_reason}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(r.proposed_at)}</TableCell>
@@ -1053,11 +1414,16 @@ function BadDebtMobile({
               {inr(r.principal)}
             </Typography>
           </Stack>
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'var(--font-mono)' }}
+          >
             {r.customer_mobile} · {loanDisplayId(r)}
           </Typography>
           <Typography variant="body2" sx={{ mt: 0.75, whiteSpace: 'pre-wrap' }}>
-            {r.auto_proposed ? '⚙ ' : ''}{r.proposed_reason}
+            {r.auto_proposed ? '⚙ ' : ''}
+            {r.proposed_reason}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             Proposed {fmtDate(r.proposed_at)}
@@ -1071,8 +1437,8 @@ function BadDebtMobile({
   )
 }
 
-function BadDebtEmpty({ status }: { status: BadDebtProposalStatus }) {
-  const approved = status === 'APPROVED'
+function BadDebtEmpty({ tab }: { tab: BadDebtTab }) {
+  const approved = tab === 'APPROVED'
   return (
     <Card>
       <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
@@ -1081,10 +1447,105 @@ function BadDebtEmpty({ status }: { status: BadDebtProposalStatus }) {
         </Typography>
         <Typography variant="body2" color="text.secondary">
           {approved
-            ? 'No bad-debt proposals have been approved yet.'
+            ? 'No bad-debt proposals have been approved yet. Loans written off without going through a proposal are under Written off.'
             : 'No loans are awaiting a bad-debt decision right now.'}
         </Typography>
       </Stack>
     </Card>
+  )
+}
+
+function WrittenOffEmpty() {
+  return (
+    <Card>
+      <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+        <Typography variant="h3">Nothing written off</Typography>
+        <Typography variant="body2" color="text.secondary">
+          No loans are currently in bad debt.
+        </Typography>
+      </Stack>
+    </Card>
+  )
+}
+
+// Loans that reached BAD_DEBT — including any written off outside the
+// propose/review flow, which is why this reads the loans list rather than the
+// proposals queue. Read-only: reversing a write-off is a loan-level action, so
+// the row links through to the loan.
+function WrittenOffTable({ rows }: { rows: LoanResponse[] }) {
+  const navigate = routeApi.useNavigate()
+  const go = (loanId: string) => navigate({ to: '/finances/$loanId', params: { loanId } })
+
+  return (
+    <>
+      <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+        <Card sx={{ p: 0, overflow: 'hidden' }}>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table
+              size="small"
+              sx={{ minWidth: 720, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+            >
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Loan</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }} align="right">
+                    Principal
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Approved</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.map((l) => (
+                  <TableRow key={l.id} hover sx={{ cursor: 'pointer' }} onClick={() => go(l.id)}>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                        {l.customer?.full_name ?? '—'}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontFamily: 'var(--font-mono)' }}
+                      >
+                        {l.customer?.mobile_number ?? ''}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {loanDisplayId(l)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {l.principal ? inr(l.principal) : '—'}
+                    </TableCell>
+                    <TableCell>{l.approval_date ? fmtDate(l.approval_date) : '—'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
+      </Box>
+
+      <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
+        {rows.map((l) => (
+          <Card key={l.id} sx={{ p: 2, cursor: 'pointer' }} onClick={() => go(l.id)}>
+            <Stack spacing={0.5}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {l.customer?.full_name ?? '—'}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontFamily: 'var(--font-mono)' }}
+              >
+                {l.customer?.mobile_number ?? ''} · {loanDisplayId(l)}
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {l.principal ? inr(l.principal) : '—'}
+              </Typography>
+            </Stack>
+          </Card>
+        ))}
+      </Stack>
+    </>
   )
 }

@@ -38,17 +38,14 @@ export interface DueCycleListResponse {
 export const dueCycleKeys = {
   all: ['dueCycles'] as const,
   byLoan: (loanId: string) => [...dueCycleKeys.all, 'byLoan', loanId] as const,
-  worklist: (params: WorklistParams) =>
-    [...dueCycleKeys.all, 'worklist', params] as const,
+  worklist: (params: WorklistParams) => [...dueCycleKeys.all, 'worklist', params] as const,
 }
 
 export function useDueCycles(loanId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: dueCycleKeys.byLoan(loanId ?? ''),
     queryFn: async () => {
-      const { data } = await apiClient.get<DueCycleListResponse>(
-        `/due-cycles/loan/${loanId}`,
-      )
+      const { data } = await apiClient.get<DueCycleListResponse>(`/due-cycles/loan/${loanId}`)
       return data
     },
     enabled: !!loanId && enabled,
@@ -97,6 +94,7 @@ export type WorklistSortField =
   | 'cycle_status'
   | 'customer_name'
   | 'loan'
+  | 'shortfall'
 
 export interface WorklistParams {
   status?: CycleStatus
@@ -113,7 +111,7 @@ export interface WorklistParams {
   sort_order?: 'asc' | 'desc'
 }
 
-export function useDueCycleWorklist(params: WorklistParams) {
+export function useDueCycleWorklist(params: WorklistParams, enabled = true) {
   return useQuery({
     queryKey: dueCycleKeys.worklist(params),
     queryFn: async () => {
@@ -122,6 +120,7 @@ export function useDueCycleWorklist(params: WorklistParams) {
       })
       return data
     },
+    enabled,
     placeholderData: (prev) => prev,
   })
 }
