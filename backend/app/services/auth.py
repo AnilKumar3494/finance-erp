@@ -66,15 +66,23 @@ _DUMMY_HASH = pwd_context.hash(_bcrypt_safe("timing-equalizer-not-a-real-pw"))
 # JWT TOKENS
 # --------------------------------------------------
 def create_access_token(
-    user_id: uuid.UUID, role: str, expires_delta: Optional[timedelta] = None
+    user_id: uuid.UUID,
+    role: str,
+    token_version: int = 0,
+    expires_delta: Optional[timedelta] = None,
 ) -> str:
-    """Sign a JWT containing user_id + role. Expiry honored by jose on decode."""
+    """
+    Sign a JWT containing user_id + role + token_version. Expiry honored by
+    jose on decode. The `tv` claim lets the auth guard revoke tokens issued
+    before a password change (see `get_current_user`).
+    """
     expire = utcnow() + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     payload = {
         "sub": str(user_id),
         "role": role,
+        "tv": token_version,
         "exp": expire,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -113,7 +121,13 @@ def decode_access_token(token: str) -> Optional[TokenData]:
         except ValueError:
             return None
 
-    return TokenData(user_id=user_id, role=role_enum)
+    # `tv` is absent on tokens issued before token-versioning shipped; those
+    # decode as 0, which matches the default column value so they stay valid.
+    tv = payload.get("tv", 0)
+    if not isinstance(tv, int):
+        return None
+
+    return TokenData(user_id=user_id, role=role_enum, token_version=tv)
 
 
 # --------------------------------------------------
@@ -310,10 +324,8 @@ def change_password(
     security trail mirrors the login flow. Password material is never
     written to the audit payload.
 
-    NOTE: JWTs are stateless and this system has no token-revocation store,
-    so changing the password does NOT invalidate already-issued tokens —
-    the caller's session (and any other active one) stays valid until it
-    expires. Revoking on change would require a token-version column.
+    Bumps `token_version`, which revokes every JWT issued before this change
+    (including other active sessions). The caller must re-authenticate.
     """
     if not verify_password(current_password, user.password_hash):
         write_audit(
@@ -329,6 +341,7 @@ def change_password(
         raise ValueError("Current password is incorrect")
 
     user.password_hash = hash_password(new_password)
+    user.token_version = (user.token_version or 0) + 1
     user.updated_by_id = user.id
 
     write_audit(
@@ -366,10 +379,12 @@ def admin_reset_password(
     actor may reset which target) is enforced by the route before this runs.
     Password material is never written to the audit payload.
 
-    Same stateless-JWT caveat as `change_password`: existing tokens for
-    `target` are not revoked.
+    Bumps the target's `token_version`, revoking every JWT they still hold —
+    an admin reset assumes the old credential is compromised, so any live
+    session must not survive it.
     """
     target.password_hash = hash_password(new_password)
+    target.token_version = (target.token_version or 0) + 1
     target.failed_login_attempts = 0
     target.locked_until = None
     target.updated_by_id = actor_id

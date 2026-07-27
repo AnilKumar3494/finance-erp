@@ -24,13 +24,13 @@ import { fmtINR } from '@/lib/format'
 import { mapReportError, money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
-import { ReportDateRange } from './ReportDateRange'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
 import {
   EMPTY_RANGE,
   isoOrUndefined,
   rangeError,
   type DateRangeValue,
-} from '../dateRange'
+} from '@/lib/dateRange'
 
 const PAGE_SIZE = 50
 
@@ -99,7 +99,7 @@ export function CustomersReportTab() {
 
   return (
     <Stack spacing={3}>
-      <ReportDateRange
+      <DateRangeFilter
         idPrefix="custrep"
         value={range}
         onChange={onRange}

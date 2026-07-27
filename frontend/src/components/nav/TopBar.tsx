@@ -74,7 +74,7 @@ export function TopBar() {
         backgroundImage: 'linear-gradient(var(--surface), var(--surface))',
         borderBottom: '1px solid',
         borderColor: 'divider',
-        height: 64,
+        height: 'var(--topbar-h)',
         px: 3,
         display: 'flex',
         alignItems: 'center',

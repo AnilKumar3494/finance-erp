@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from fastapi import Request
@@ -6,6 +7,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
+from app.core.config import settings
 from app.models.customer import Customer
 from app.models.loan import Loan, LoanStatus
 from app.models.user import User, UserRole
@@ -13,7 +15,7 @@ from app.models.vehicle import Vehicle
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
-from app.utils.time import utcnow
+from app.utils.time import local_midnight, utcnow
 
 _IDEMPOTENCY_COMPARE_FIELDS = (
     "full_name",
@@ -156,6 +158,8 @@ def list_customers(
     db: Session,
     search: Optional[str] = None,
     assigned_employee_id: Optional[uuid.UUID] = None,
+    created_after: Optional[date] = None,
+    created_before: Optional[date] = None,
     page: int = 1,
     page_size: int = 20,
     sort_by: Optional[str] = None,
@@ -213,6 +217,17 @@ def list_customers(
 
     if assigned_employee_id:
         query = query.filter(Customer.assigned_employee_id == assigned_employee_id)
+
+    # created_at is timestamptz, so bound it by local midnights rather than a
+    # bare date (which Postgres reads as UTC midnight, losing the IST offset
+    # window). `created_before` includes its whole day, hence `<` next midnight.
+    tz = settings.REPORTS_TIMEZONE
+    if created_after is not None:
+        query = query.filter(Customer.created_at >= local_midnight(created_after, tz))
+    if created_before is not None:
+        query = query.filter(
+            Customer.created_at < local_midnight(created_before + timedelta(days=1), tz)
+        )
 
     # Sort. Unknown sort_by falls back to created_at desc so the response
     # is deterministic. Null placement is intentionally NOT pinned —

@@ -151,6 +151,8 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     user_id: Optional[uuid.UUID] = None
     role: Optional[UserRole] = None
+    # Absent on tokens issued before token-versioning shipped → treated as 0.
+    token_version: int = 0
 
 
 # --------------------------------------------------

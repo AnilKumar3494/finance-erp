@@ -20,13 +20,13 @@ import { fmtINR } from '@/lib/format'
 import { money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
-import { ReportDateRange } from './ReportDateRange'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
 import {
   EMPTY_RANGE,
   isoOrUndefined,
   rangeError,
   type DateRangeValue,
-} from '../dateRange'
+} from '@/lib/dateRange'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   SUPER_ADMIN: 'Super admin',
@@ -58,7 +58,7 @@ export function EmployeesTab() {
 
   return (
     <Stack spacing={3}>
-      <ReportDateRange
+      <DateRangeFilter
         idPrefix="emp"
         value={range}
         onChange={setRange}

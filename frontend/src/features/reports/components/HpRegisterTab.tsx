@@ -21,13 +21,13 @@ import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
-import { ReportDateRange } from './ReportDateRange'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
 import {
   EMPTY_RANGE,
   isoOrUndefined,
   rangeError,
   type DateRangeValue,
-} from '../dateRange'
+} from '@/lib/dateRange'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -161,7 +161,7 @@ export function HpRegisterTab() {
 
   return (
     <Stack spacing={3}>
-      <ReportDateRange
+      <DateRangeFilter
         idPrefix="hpreg"
         value={range}
         onChange={setRange}

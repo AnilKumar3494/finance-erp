@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -153,6 +154,12 @@ def list_all(
         None, description="Search by customer name, mobile, or employee name"
     ),
     assigned_employee_id: Optional[uuid.UUID] = Query(None),
+    created_after: Optional[date] = Query(
+        None, description="Only customers created on or after this date (inclusive)."
+    ),
+    created_before: Optional[date] = Query(
+        None, description="Only customers created on or before this date (inclusive)."
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     sort_by: Optional[str] = Query(
@@ -175,6 +182,8 @@ def list_all(
         db=db,
         search=search,
         assigned_employee_id=assigned_employee_id,
+        created_after=created_after,
+        created_before=created_before,
         page=page,
         page_size=page_size,
         sort_by=sort_by,

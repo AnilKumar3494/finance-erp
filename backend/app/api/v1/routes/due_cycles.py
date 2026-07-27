@@ -102,7 +102,10 @@ def worklist(
     page_size: int = Query(20, ge=1, le=100),
     sort_by: Optional[str] = Query(
         None,
-        description="Sort column: due_date | cycle_number | cycle_status | customer_name | loan",
+        description=(
+            "Sort column: due_date | cycle_number | cycle_status | "
+            "customer_name | loan | shortfall"
+        ),
     ),
     sort_order: Optional[str] = Query(None, description="asc | desc"),
     db: Session = Depends(get_db),

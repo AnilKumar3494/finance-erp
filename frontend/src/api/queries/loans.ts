@@ -182,13 +182,14 @@ const DETAIL_INCLUDE = 'customer,vehicle,created_by,updated_by'
 // Hooks
 // --------------------------------------------------
 
-export function useLoans(params: LoanListParams) {
+export function useLoans(params: LoanListParams, enabled = true) {
   return useQuery({
     queryKey: loanKeys.list(params),
     queryFn: async () => {
       const { data } = await apiClient.get<LoanListResponse>('/loans/', { params })
       return data
     },
+    enabled,
     placeholderData: (prev) => prev,
   })
 }

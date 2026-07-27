@@ -79,7 +79,9 @@ function AdminKpis() {
           <StatTile
             label="Awaiting closure"
             value={String(summary.data.total_awaiting_closure_loans)}
-            onClick={() => navigate({ to: '/finances', search: { page: 1, status: 'AWAITING_CLOSURE' } })}
+            onClick={() =>
+              navigate({ to: '/finances', search: { page: 1, status: 'AWAITING_CLOSURE' } })
+            }
           />
           <StatTile
             label="Bad debt"
@@ -88,8 +90,22 @@ function AdminKpis() {
             )}
             hint={`${summary.data.total_bad_debt_proposed_loans} proposed`}
             accent="warning.main"
+            // The tile counts both stages but the list filters on one status,
+            // so send the click to the stage that actually has rows: proposals
+            // first (they need a decision), else the already-written-off loans.
+            // Landing on an empty list when the tile reads 1 is worse than
+            // landing on the less urgent of the two.
             onClick={() =>
-              navigate({ to: '/finances', search: { page: 1, status: 'BAD_DEBT_PROPOSED' } })
+              navigate({
+                to: '/finances',
+                search: {
+                  page: 1,
+                  status:
+                    summary.data.total_bad_debt_proposed_loans > 0
+                      ? 'BAD_DEBT_PROPOSED'
+                      : 'BAD_DEBT',
+                },
+              })
             }
           />
           <StatTile

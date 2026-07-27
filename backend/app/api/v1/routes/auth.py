@@ -135,7 +135,9 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(user_id=user.id, role=user.role.value)
+    access_token = create_access_token(
+        user_id=user.id, role=user.role.value, token_version=user.token_version
+    )
     return Token(access_token=access_token)
 
 

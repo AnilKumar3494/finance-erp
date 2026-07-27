@@ -123,8 +123,15 @@ assert employee is not None, (
 print(f"admin    = {admin.username} ({admin.id})")
 print(f"employee = {employee.username} ({employee.id})")
 
-AH = {"Authorization": f"Bearer {create_access_token(admin.id, admin.role.value)}"}
-EH = {"Authorization": f"Bearer {create_access_token(employee.id, employee.role.value)}"}
+# token_version must match the row, or the auth guard treats the token as
+# revoked — it defaults to 0, which is wrong for anyone who has ever changed
+# their password.
+AH = {
+    "Authorization": f"Bearer {create_access_token(admin.id, admin.role.value, admin.token_version)}"
+}
+EH = {
+    "Authorization": f"Bearer {create_access_token(employee.id, employee.role.value, employee.token_version)}"
+}
 
 # Tracked mutations for clean rollback
 inserted_txn_ids: list[uuid.UUID] = []

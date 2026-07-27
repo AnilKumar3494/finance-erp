@@ -1,9 +1,11 @@
 import uuid
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.dependencies.auth import get_current_user, require_admin
 from app.models.bad_debt_proposal import BadDebtProposal, BadDebtProposalStatus
@@ -24,6 +26,7 @@ from app.services.bad_debt import (
     review_proposal,
 )
 from app.utils.audit import write_audit
+from app.utils.time import local_midnight
 
 # Two routers — one under /loans/{id}/bad-debt for create, one under
 # /bad-debt-proposals for list/get/review.
@@ -153,6 +156,12 @@ def reopen_route(
 )
 def list_proposals(
     status_filter: Optional[BadDebtProposalStatus] = Query(None, alias="status"),
+    proposed_after: Optional[date] = Query(
+        None, description="Only proposals raised on or after this date (inclusive)."
+    ),
+    proposed_before: Optional[date] = Query(
+        None, description="Only proposals raised on or before this date (inclusive)."
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     sort_by: Optional[str] = Query(
@@ -178,6 +187,20 @@ def list_proposals(
     )
     if status_filter:
         q = q.filter(BadDebtProposal.status == status_filter)
+
+    # proposed_at is timestamptz, so bound it by local midnights rather than
+    # comparing against a bare date (which would be read as UTC midnight and
+    # drop the IST/UTC offset gap). `proposed_before` is inclusive of its whole
+    # day, hence the strict `<` against the following midnight.
+    tz = settings.REPORTS_TIMEZONE
+    if proposed_after is not None:
+        q = q.filter(BadDebtProposal.proposed_at >= local_midnight(proposed_after, tz))
+    if proposed_before is not None:
+        q = q.filter(
+            BadDebtProposal.proposed_at
+            < local_midnight(proposed_before + timedelta(days=1), tz)
+        )
+
     total = q.count()
 
     # Sortable columns. Default is proposed_at desc (newest proposals first),
