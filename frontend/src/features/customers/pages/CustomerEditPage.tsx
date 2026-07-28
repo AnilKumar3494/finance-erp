@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
@@ -21,6 +21,7 @@ import { useEmployees, type EmployeeResponse } from '@/api/queries/employees'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { BranchPointPicker } from '@/features/customers/components/BranchPointPicker'
+import { DuplicateMobileWarning } from '@/features/customers/components/DuplicateMobileWarning'
 import { EmployeePicker } from '@/features/customers/components/EmployeePicker'
 import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
 
@@ -234,6 +235,10 @@ function EditForm({ customer, onCancel, onSaved }: EditFormProps) {
     defaultValues: defaultsFromCustomer(customer) ?? EMPTY_DEFAULTS,
   })
 
+  // Advisory only — a reused number is allowed (migration 022). Excludes this
+  // customer so an unchanged number never warns about itself.
+  const mobileValue = useWatch({ control, name: 'mobile_number' })
+
   const [noChanges, setNoChanges] = useState(false)
 
   const onSubmit = (values: FormValues) => {
@@ -316,6 +321,8 @@ function EditForm({ customer, onCancel, onSaved }: EditFormProps) {
                 error={errors.alt_mobile_number?.message}
               />
             </TwoColumn>
+
+            <DuplicateMobileWarning mobile={mobileValue} excludeCustomerId={customer.id} />
             <TwoColumn>
               <Controller
                 control={control}

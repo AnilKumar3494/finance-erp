@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
@@ -19,6 +19,7 @@ import type { EmployeeResponse } from '@/api/queries/employees'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 import { BranchPointPicker } from '@/features/customers/components/BranchPointPicker'
+import { DuplicateMobileWarning } from '@/features/customers/components/DuplicateMobileWarning'
 import { EmployeePicker } from '@/features/customers/components/EmployeePicker'
 import {
   AADHAAR_RE,
@@ -136,6 +137,9 @@ export function CustomerCreatePage() {
     defaultValues: DEFAULTS,
   })
 
+  // Advisory only — a reused number is allowed (migration 022).
+  const mobileValue = useWatch({ control, name: 'mobile_number' })
+
   const submitError = createMutation.isError
     ? mapCreateError(createMutation.error)
     : null
@@ -220,6 +224,8 @@ export function CustomerCreatePage() {
                 error={errors.alt_mobile_number?.message}
               />
             </TwoColumn>
+
+            <DuplicateMobileWarning mobile={mobileValue} />
 
             <TwoColumn>
               <Controller

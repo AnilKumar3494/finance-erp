@@ -122,7 +122,22 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
     mandal_village: !customer.mandal_village,
     pincode: !customer.pincode,
   }
-  const nothingMissing = !Object.values(missing).some(Boolean)
+
+  // Identity is satisfied by EITHER Aadhaar or PAN — matching what approval
+  // actually gates on (see approvalReadiness.ts). Both inputs are still
+  // offered when neither is on file, but filling one is enough to continue.
+  const hasIdentityOnFile = !missing.aadhaar || !missing.pan
+  const needsIdentity = !hasIdentityOnFile
+
+  const nothingMissing = !(
+    missing.full_name ||
+    missing.mobile ||
+    needsIdentity ||
+    missing.dob ||
+    missing.address ||
+    missing.mandal_village ||
+    missing.pincode
+  )
 
   const schema = useMemo(
     () =>
@@ -144,11 +159,26 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
           if (missing.mobile && !MOBILE_RE.test(v.mobile_number.trim())) {
             ctx.addIssue({ code: 'custom', path: ['mobile_number'], message: 'Enter a 10-digit mobile number starting with 6, 7, 8, or 9' })
           }
-          if (missing.aadhaar && !AADHAAR_RE.test(v.aadhaar.trim())) {
+          // Aadhaar / PAN: at least one, not both. Whatever IS typed still has
+          // to be well-formed, so a typo never slips through as "the other one
+          // will cover it".
+          const aadhaarTyped = v.aadhaar.trim()
+          const panTyped = v.pan.trim().toUpperCase()
+          const aadhaarOk = AADHAAR_RE.test(aadhaarTyped)
+          const panOk = PAN_RE.test(panTyped)
+
+          if (missing.aadhaar && aadhaarTyped !== '' && !aadhaarOk) {
             ctx.addIssue({ code: 'custom', path: ['aadhaar'], message: 'Aadhaar must be exactly 12 digits' })
           }
-          if (missing.pan && !PAN_RE.test(v.pan.trim().toUpperCase())) {
+          if (missing.pan && panTyped !== '' && !panOk) {
             ctx.addIssue({ code: 'custom', path: ['pan'], message: 'PAN must be in the format AAAAA9999A' })
+          }
+          if (needsIdentity && !aadhaarOk && !panOk) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['aadhaar'],
+              message: 'Enter either an Aadhaar number or a PAN — at least one is required',
+            })
           }
           if (missing.dob && (v.date_of_birth == null || !v.date_of_birth.isValid())) {
             ctx.addIssue({ code: 'custom', path: ['date_of_birth'], message: 'Date of birth is required' })
@@ -168,6 +198,7 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
       missing.mobile,
       missing.aadhaar,
       missing.pan,
+      needsIdentity,
       missing.dob,
       missing.address,
       missing.mandal_village,
@@ -202,8 +233,10 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
     const payload: CustomerUpdate = {}
     if (missing.full_name) payload.full_name = v.full_name.trim()
     if (missing.mobile) payload.mobile_number = v.mobile_number.trim()
-    if (missing.aadhaar) payload.aadhaar_number = v.aadhaar.trim()
-    if (missing.pan) payload.pan_number = v.pan.trim().toUpperCase()
+    // Only send the identity field that was actually filled — an empty string
+    // would fail the backend's 12-char / 10-char length validation.
+    if (missing.aadhaar && v.aadhaar.trim() !== '') payload.aadhaar_number = v.aadhaar.trim()
+    if (missing.pan && v.pan.trim() !== '') payload.pan_number = v.pan.trim().toUpperCase()
     if (missing.dob && v.date_of_birth) payload.date_of_birth = v.date_of_birth.format('YYYY-MM-DD')
     if (missing.address) payload.address_line_1 = v.address_line_1.trim()
     if (missing.mandal_village) payload.mandal_village = v.mandal_village.trim()
@@ -259,13 +292,22 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
                 error={errors.mobile_number?.message}
               />
             )}
+            {needsIdentity && (
+              <Typography variant="body2" color="text.secondary">
+                Provide <strong>either</strong> an Aadhaar number or a PAN — one is enough. Adding
+                both is fine but not required.
+              </Typography>
+            )}
+            {/* No per-field asterisk: the requirement is on the PAIR, not on
+                either input, so marking both "required" would restate exactly
+                the confusion this change removes. */}
             {missing.aadhaar && (
               <Input
                 id="kyc_aadhaar"
                 label="Aadhaar number"
-                required
                 inputMode="numeric"
                 placeholder="12 digits"
+                hint={needsIdentity ? 'Enter this or a PAN below' : 'Optional'}
                 {...register('aadhaar')}
                 error={errors.aadhaar?.message}
               />
@@ -274,8 +316,8 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
               <Input
                 id="kyc_pan"
                 label="PAN"
-                required
                 placeholder="AAAAA9999A"
+                hint={needsIdentity ? 'Enter this or the Aadhaar number above' : 'Optional'}
                 {...register('pan')}
                 error={errors.pan?.message}
               />
