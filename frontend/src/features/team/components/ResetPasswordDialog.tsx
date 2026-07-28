@@ -9,17 +9,13 @@ import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
-import IconButton from '@mui/material/IconButton'
-import InputAdornment from '@mui/material/InputAdornment'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOffOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlined'
 import AutorenewIcon from '@mui/icons-material/AutorenewOutlined'
 
 import { useResetUserPassword, type UserAccount } from '@/api/queries/users'
-import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
+import { Btn, ErrorBanner, FieldLabel, Input, PasswordReveal } from '@/components/primitives'
 import { generatePassword } from '../generatePassword'
 import { CopyField } from './CopyField'
 
@@ -124,20 +120,10 @@ export function ResetPasswordDialog({
                   slotProps={{
                     input: {
                       endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton
-                            aria-label={showPassword ? 'Hide password' : 'Show password'}
-                            onClick={() => setShowPassword((s) => !s)}
-                            edge="end"
-                            size="small"
-                          >
-                            {showPassword ? (
-                              <VisibilityOffIcon fontSize="small" />
-                            ) : (
-                              <VisibilityIcon fontSize="small" />
-                            )}
-                          </IconButton>
-                        </InputAdornment>
+                        <PasswordReveal
+                          shown={showPassword}
+                          onToggle={() => setShowPassword((s) => !s)}
+                        />
                       ),
                     },
                   }}

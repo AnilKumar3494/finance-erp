@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
@@ -9,7 +10,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
 import { useLogin } from '@/api/queries/auth'
-import { Btn, ErrorBanner, Input } from '@/components/primitives'
+import { Btn, ErrorBanner, Input, PasswordReveal } from '@/components/primitives'
 import { sanitizeRedirect } from '@/features/auth/redirect'
 
 const LoginSchema = z.object({
@@ -44,6 +45,7 @@ export function LoginPage({ redirectAfterLogin }: LoginPageProps = {}) {
   const navigate = useNavigate()
   const loginMutation = useLogin()
   const target = sanitizeRedirect(redirectAfterLogin)
+  const [showPassword, setShowPassword] = useState(false)
 
   const submitError = loginMutation.isError ? mapLoginError(loginMutation.error) : null
 
@@ -99,11 +101,21 @@ export function LoginPage({ redirectAfterLogin }: LoginPageProps = {}) {
                 id="password"
                 label="Password"
                 required
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 placeholder="••••••••"
                 {...register('password')}
                 error={errors.password?.message}
+                slotProps={{
+                  input: {
+                    endAdornment: (
+                      <PasswordReveal
+                        shown={showPassword}
+                        onToggle={() => setShowPassword((v) => !v)}
+                      />
+                    ),
+                  },
+                }}
               />
               <Btn
                 type="submit"

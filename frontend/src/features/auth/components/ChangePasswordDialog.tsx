@@ -9,18 +9,14 @@ import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
-import IconButton from '@mui/material/IconButton'
-import InputAdornment from '@mui/material/InputAdornment'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOffOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlined'
 
 import { useNavigate } from '@tanstack/react-router'
 
 import { useChangePassword, useLogout } from '@/api/queries/auth'
-import { Btn, ErrorBanner, Input } from '@/components/primitives'
+import { Btn, ErrorBanner, Input, PasswordReveal } from '@/components/primitives'
 
 // Mirrors backend PasswordChangeRequest + _check_password_strength. The new
 // password must differ from the current one and from the confirmation must
@@ -148,7 +144,10 @@ export function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose
                 slotProps={{
                   input: {
                     endAdornment: (
-                      <RevealToggle shown={showCurrent} onToggle={() => setShowCurrent((v) => !v)} />
+                      <PasswordReveal
+                        shown={showCurrent}
+                        onToggle={() => setShowCurrent((v) => !v)}
+                      />
                     ),
                   },
                 }}
@@ -165,7 +164,7 @@ export function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose
                 slotProps={{
                   input: {
                     endAdornment: (
-                      <RevealToggle shown={showNew} onToggle={() => setShowNew((v) => !v)} />
+                      <PasswordReveal shown={showNew} onToggle={() => setShowNew((v) => !v)} />
                     ),
                   },
                 }}
@@ -192,21 +191,6 @@ export function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose
         </Box>
       )}
     </Dialog>
-  )
-}
-
-function RevealToggle({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
-  return (
-    <InputAdornment position="end">
-      <IconButton
-        aria-label={shown ? 'Hide password' : 'Show password'}
-        onClick={onToggle}
-        edge="end"
-        size="small"
-      >
-        {shown ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-      </IconButton>
-    </InputAdornment>
   )
 }
 
