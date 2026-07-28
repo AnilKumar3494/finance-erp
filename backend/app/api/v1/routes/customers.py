@@ -36,11 +36,16 @@ router = APIRouter(prefix="/customers", tags=["Customers"])
 # needs a multi-role check.
 #
 # C3: removed the redundant `get_customer_by_mobile` pre-check on create.
-# The DB enforces mobile uniqueness via `customers_mobile_number_key`,
-# and the service translates the resulting IntegrityError via
-# `safe_integrity_message` into a 409. The pre-check did not close any
-# race (another request could insert between the SELECT and the INSERT),
-# it just added a round-trip and an inconsistent error message.
+# Uniqueness is enforced by the DB, and the service translates the resulting
+# IntegrityError via `safe_integrity_message` into a 409. The pre-check did
+# not close any race (another request could insert between the SELECT and the
+# INSERT), it just added a round-trip and an inconsistent error message.
+#
+# NOTE (migration 022): mobile_number is NO LONGER unique — a shared household
+# handset may back several active customers, so a duplicate mobile inserts
+# cleanly and never raises 409. The UI warns before submit but lets the user
+# proceed. aadhaar_number and pan_number ARE still uniquely indexed, so 409
+# on create now means a duplicate Aadhaar/PAN, not a duplicate phone.
 
 
 # --------------------------------------------------
