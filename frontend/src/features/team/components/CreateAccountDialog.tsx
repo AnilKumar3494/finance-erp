@@ -9,13 +9,9 @@ import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
-import IconButton from '@mui/material/IconButton'
-import InputAdornment from '@mui/material/InputAdornment'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOffOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlined'
 import AutorenewIcon from '@mui/icons-material/AutorenewOutlined'
 
@@ -25,7 +21,7 @@ import {
   type AccountCreate,
   type UserAccount,
 } from '@/api/queries/users'
-import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
+import { Btn, ErrorBanner, FieldLabel, Input, PasswordReveal } from '@/components/primitives'
 import type { UserRole } from '@/schemas/enums'
 import { USER_ROLE_META } from '../userRoleMeta'
 import { generatePassword } from '../generatePassword'
@@ -189,20 +185,10 @@ export function CreateAccountDialog({ open, onClose }: { open: boolean; onClose:
                   slotProps={{
                     input: {
                       endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton
-                            aria-label={showPassword ? 'Hide password' : 'Show password'}
-                            onClick={() => setShowPassword((v) => !v)}
-                            edge="end"
-                            size="small"
-                          >
-                            {showPassword ? (
-                              <VisibilityOffIcon fontSize="small" />
-                            ) : (
-                              <VisibilityIcon fontSize="small" />
-                            )}
-                          </IconButton>
-                        </InputAdornment>
+                        <PasswordReveal
+                          shown={showPassword}
+                          onToggle={() => setShowPassword((v) => !v)}
+                        />
                       ),
                     },
                   }}
