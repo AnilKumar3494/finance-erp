@@ -27,6 +27,12 @@ _CONSTRAINT_MESSAGES: dict[str, str] = {
     # Vehicles
     "vehicles_chassis_number_key": "A vehicle with this chassis number already exists.",
     "uq_vehicles_plate_number_active": "A vehicle with this plate number already exists.",
+    # Documents — migration 023 re-keyed the duplicate check to include
+    # doc_type. The pre-check in services/document.py normally reports this
+    # first; this covers the race where two uploads land together.
+    "uq_documents_customer_type_hash_active": (
+        "This exact file has already been uploaded for this document type."
+    ),
 }
 
 

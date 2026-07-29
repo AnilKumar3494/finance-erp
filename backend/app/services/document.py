@@ -46,10 +46,9 @@ _LOAN_LINKED = frozenset(
     {DocCategory.LOAN_AGREEMENT, DocCategory.STABILITY_DOC}
 )
 
-# doc_types that must be UNLINKED to loan/transaction/vehicle.
-_UNLINKED = frozenset(
-    {DocCategory.KYC, DocCategory.IDENTITY_PROOF, DocCategory.ARCHIVE}
-)
+# doc_types that must be UNLINKED to loan/transaction/vehicle. These are
+# customer-owned records, not artefacts of one finance.
+_UNLINKED = frozenset({DocCategory.KYC, DocCategory.IDENTITY_PROOF})
 
 
 # --------------------------------------------------
@@ -171,13 +170,42 @@ def _validate_links(
             )
         return
 
-    # --- KYC / IDENTITY_PROOF / ARCHIVE: must not link to anything.
+    # --- KYC / IDENTITY_PROOF: must not link to anything.
     if doc_type in _UNLINKED:
         if loan_id or transaction_id or vehicle_id:
             raise ValueError(
                 f"{doc_type.value} documents must not have "
                 "loan_id, transaction_id, or vehicle_id"
             )
+        return
+
+    # --- ARCHIVE: the catch-all bucket. A loan link is OPTIONAL — an ad-hoc
+    # document may be filed against one finance ("Add other document" on the
+    # finance detail page) or held at customer level with no link at all.
+    # This used to forbid every link, which made that button unusable: it
+    # sends loan_id, and the upload 400'd every time. Note the DB CHECK
+    # `ck_documents_type_link_consistency` has always permitted this — its
+    # ARCHIVE clause is unconditional — so no schema change is involved,
+    # this validator was simply stricter than the constraint it mirrors.
+    if doc_type == DocCategory.ARCHIVE:
+        if transaction_id or vehicle_id:
+            raise ValueError(
+                "ARCHIVE documents must not have transaction_id or vehicle_id"
+            )
+        if loan_id:
+            loan = (
+                db.query(Loan)
+                .filter(
+                    Loan.id == loan_id,
+                    Loan.customer_id == customer_id,
+                    Loan.is_deleted == False,  # noqa: E712
+                )
+                .first()
+            )
+            if not loan:
+                raise ValueError(
+                    "Loan not found or does not belong to this customer"
+                )
         return
 
     # Safety net: any future enum value will land here loudly instead of
@@ -326,6 +354,27 @@ def upload_document(
     )
 
     file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    # Check for a same-purpose duplicate BEFORE the S3 PutObject. The partial
+    # unique index (migration 023) is still the authority, but reaching it
+    # means we have already paid for an upload we then have to delete, and
+    # the IntegrityError only yields a generic message. Catching it here is
+    # cheaper and lets us say exactly what collided.
+    duplicate = (
+        db.query(Document)
+        .filter(
+            Document.customer_id == customer_id,
+            Document.doc_type == doc_type,
+            Document.file_hash == file_hash,
+            Document.is_deleted == False,  # noqa: E712
+        )
+        .first()
+    )
+    if duplicate:
+        raise ValueError(
+            "This exact file has already been uploaded for this document "
+            "type. Upload a different file, or delete the existing one first."
+        )
 
     # fallback if name is all special chars
     safe_name = customer.full_name.replace(" ", "_").lower()
