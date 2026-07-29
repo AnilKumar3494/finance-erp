@@ -17,6 +17,7 @@ import { LoanIdentityCard } from '../components/LoanIdentityCard'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
+import { DocScoreCard } from '../components/DocScoreCard'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
@@ -122,6 +123,8 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
   return (
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
+
+      <DocScoreCard loan={loan} />
 
       {isDraft && <LoanActions loan={loan} onGuideSection={goToSection} />}
 

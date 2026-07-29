@@ -27,6 +27,7 @@ import { PaymentMethod } from '@/schemas/enums'
 import { fmtDateTime } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
+import { DocScoreSummary } from './DocScoreSummary'
 import { CloseAction } from './CloseLoanAction'
 
 function mapActionError(error: unknown): string {
@@ -255,17 +256,40 @@ function ApproveAction({
       <Dialog
         open={open}
         onClose={approve.isPending ? undefined : closeDialog}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
       >
         <DialogTitle>Approve this loan?</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: requireMode ? 2 : 0 }}>
+          <Typography variant="body2" color="text.secondary">
             This sets the approval date, generates the repayment schedule
             {loan.tenure != null ? ` (${loan.tenure} cycles)` : ''}, and
             {requireMode ? ' records the down payment. ' : ' '}
             cannot be undone. The action is audited.
           </Typography>
+
+          {/* Advisory context at the moment of decision. It renders its own
+              loading state and must never gate the Approve button — the hard
+              gate is `gaps` above and stays entirely separate. */}
+          <Box
+            sx={{
+              mt: 2,
+              mb: requireMode ? 2 : 0,
+              p: 1.5,
+              borderRadius: 'var(--radius-md)',
+              bgcolor: 'var(--surface-alt)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+              Documentation Completeness
+            </Typography>
+            <DocScoreSummary loan={loan} maxGaps={3} />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Advisory only — this does not affect approval.
+            </Typography>
+          </Box>
+
           {requireMode && (
             <Input
               select
