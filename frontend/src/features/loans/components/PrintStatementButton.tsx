@@ -62,7 +62,7 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
           '&:hover': { boxShadow: 'none' },
         }}
       >
-        Print Customer PDF
+        Share to Customer PDF
       </Btn>
     </Stack>
   )
