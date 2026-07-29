@@ -6,7 +6,7 @@ import type { ChipProps } from '@mui/material/Chip'
 // note the token is `--danger` while the palette key is `error` (mui-theme.ts
 // bridges them).
 export interface DocScoreBand {
-  key: 'strong' | 'adequate' | 'thin'
+  key: 'strong' | 'moderate' | 'weak'
   label: string
   chipColor: NonNullable<ChipProps['color']>
   fillVar: string
@@ -15,23 +15,23 @@ export interface DocScoreBand {
 
 const STRONG: DocScoreBand = {
   key: 'strong',
-  label: 'Strong file',
+  label: 'Strong',
   chipColor: 'success',
   fillVar: 'var(--success)',
   textColor: 'success.main',
 }
 
-const ADEQUATE: DocScoreBand = {
-  key: 'adequate',
-  label: 'Adequate',
+const MODERATE: DocScoreBand = {
+  key: 'moderate',
+  label: 'Moderate',
   chipColor: 'warning',
   fillVar: 'var(--warning)',
   textColor: 'warning.main',
 }
 
-const THIN: DocScoreBand = {
-  key: 'thin',
-  label: 'Thin file',
+const WEAK: DocScoreBand = {
+  key: 'weak',
+  label: 'Weak',
   chipColor: 'error',
   fillVar: 'var(--danger)',
   textColor: 'error.main',
@@ -39,6 +39,6 @@ const THIN: DocScoreBand = {
 
 export function docScoreBand(score: number): DocScoreBand {
   if (score >= 85) return STRONG
-  if (score >= 60) return ADEQUATE
-  return THIN
+  if (score >= 60) return MODERATE
+  return WEAK
 }
