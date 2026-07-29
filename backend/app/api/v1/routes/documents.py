@@ -18,7 +18,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import DOCUMENT_TYPE_RULES, settings
 from app.core.db import get_db
 from app.core.rate_limit import limiter
 from app.dependencies.auth import get_current_user, require_admin
@@ -52,9 +52,6 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 # concurrent uploads. 2 MB covers most receipts/RC-copies inline; larger
 # files (Aadhaar PDFs, signed loan agreements) spill to a temp file.
 _UPLOAD_SPOOL_MAX_SIZE = 2 * 1024 * 1024  # 2 MB
-
-# Magic-byte detection only needs the file head; reading more is wasted I/O.
-_MAGIC_SNIFF_BYTES = 2048
 
 
 def _read_upload_bounded(
@@ -120,8 +117,14 @@ def upload(
         )
 
     # Cheap extension check first (rejects obvious junk before reading).
+    # Both conditions matter: the settings list is env-overridable, the rules
+    # map is what the content check below needs, and an extension missing
+    # from either one is not uploadable.
     ext = Path(file.filename).suffix.lower()
-    if ext not in settings.ALLOWED_DOCUMENT_EXTENSIONS:
+    if (
+        ext not in settings.ALLOWED_DOCUMENT_EXTENSIONS
+        or ext not in DOCUMENT_TYPE_RULES
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -133,12 +136,23 @@ def upload(
     # Stream + size-cap into a spooled temp file.
     file_bytes = _read_upload_bounded(file, settings.MAX_DOCUMENT_UPLOAD_BYTES)
 
-    # Trust magic-byte detection over the client-supplied content_type.
-    detected_mime = magic.from_buffer(file_bytes[:_MAGIC_SNIFF_BYTES], mime=True)
-    if detected_mime not in settings.ALLOWED_DOCUMENT_MIME_TYPES:
+    # Trust magic-byte detection over the client-supplied content_type, and
+    # sniff the WHOLE buffer rather than a 2 KB head: libmagic can only name
+    # a Word document once it has read the OLE2 container's sector table, so
+    # a head-only sniff reported "application/x-ole-storage" and every legacy
+    # .doc was rejected. The bytes are already in memory — no extra I/O.
+    detected_mime = magic.from_buffer(file_bytes, mime=True)
+
+    # Check the sniffed type against what this extension is allowed to be,
+    # not against one flat set — that is what catches a PDF renamed .png.
+    canonical_mime, accepted_mimes = DOCUMENT_TYPE_RULES[ext]
+    if detected_mime not in (accepted_mimes & settings.ALLOWED_DOCUMENT_MIME_TYPES):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid file content (detected: {detected_mime})",
+            detail=(
+                f"File contents are not a valid {ext} file "
+                f"(detected: {detected_mime})"
+            ),
         )
 
     # AKTODO: hand file_bytes to AV scanner (e.g. ClamAV) before persisting.
@@ -154,7 +168,11 @@ def upload(
             vehicle_id=vehicle_id,
             file_bytes=file_bytes,
             file_name=file.filename,
-            content_type=detected_mime,
+            # Store the canonical type for the extension, not the raw sniff:
+            # a .txt full of commas sniffs as text/csv and a .doc as a bare
+            # OLE2 container, and neither is what the file should be served
+            # back as.
+            content_type=canonical_mime,
             created_by=current_user.id,
             request=request,
         )

@@ -5,6 +5,73 @@ from pydantic import Field, computed_field, field_validator
 from functools import lru_cache
 
 
+# --------------------------------------------------
+# DOCUMENT UPLOAD RULES
+# --------------------------------------------------
+# extension -> (MIME we store on the object, MIME values libmagic may report
+# for a genuine file of that kind).
+#
+# Why one map instead of two independent allow-lists: the extension list and
+# the MIME list used to be maintained separately and drifted apart, so ".doc"
+# and several ordinary ".txt" files were advertised as supported but could
+# never actually be uploaded. Deriving both from this map makes that drift
+# impossible, and checking the sniffed type against *the declared extension*
+# (rather than against one flat set) also rejects a file whose bytes disagree
+# with its name — a PDF renamed to .png used to be accepted and then stored
+# under the misleading name.
+DOCUMENT_TYPE_RULES: dict[str, tuple[str, frozenset[str]]] = {
+    ".pdf": ("application/pdf", frozenset({"application/pdf"})),
+    ".png": ("image/png", frozenset({"image/png"})),
+    ".jpg": ("image/jpeg", frozenset({"image/jpeg"})),
+    ".jpeg": ("image/jpeg", frozenset({"image/jpeg"})),
+    ".webp": ("image/webp", frozenset({"image/webp"})),
+    # Legacy Word is an OLE2 compound file. libmagic only names the specific
+    # member of that family once it has read the container's sector table,
+    # and reports several spellings depending on build, so accept the family
+    # and store the canonical Word type.
+    ".doc": (
+        "application/msword",
+        frozenset(
+            {
+                "application/msword",
+                "application/x-ole-storage",
+                "application/CDFV2",
+                "application/vnd.ms-office",
+            }
+        ),
+    ),
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        frozenset(
+            {
+                "application/vnd.openxmlformats-officedocument"
+                ".wordprocessingml.document",
+                # An OOXML package written by an older tool sniffs as a
+                # plain zip when it carries no recognisable part ordering.
+                "application/zip",
+            }
+        ),
+    ),
+    # Plain text is whatever libmagic decides the prose looks like: commas
+    # make it text/csv, angle brackets text/html, braces application/json.
+    # They are all plain text to us. Storing them as text/plain regardless
+    # means S3 can never serve one of them back as a renderable document.
+    ".txt": (
+        "text/plain",
+        frozenset(
+            {
+                "application/csv",
+                "application/json",
+                "text/csv",
+                "text/html",
+                "text/plain",
+                "text/xml",
+            }
+        ),
+    ),
+}
+
+
 class Settings(BaseSettings):
     # --------------------------------------------------
     # DATABASE
@@ -61,25 +128,21 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     MAX_DOCUMENT_UPLOAD_BYTES: int = 10 * 1024 * 1024  # 10 MB
     PRESIGNED_URL_TTL_SECONDS: int = 480  # 8 minutes
-    ALLOWED_DOCUMENT_EXTENSIONS: set[str] = {
-        ".pdf",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".doc",
-        ".docx",
-        ".txt",
-        ".webp",
-    }
-    ALLOWED_DOCUMENT_MIME_TYPES: set[str] = {
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/webp",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "text/plain",
-    }
+    # Both derived from DOCUMENT_TYPE_RULES so they can never disagree with
+    # each other. Still overridable by env for an operator who wants to
+    # narrow what this deployment accepts — the upload route intersects the
+    # per-extension rule with the MIME list, so removing an entry here takes
+    # effect even though the rules map is a code-level constant.
+    ALLOWED_DOCUMENT_EXTENSIONS: set[str] = Field(
+        default_factory=lambda: set(DOCUMENT_TYPE_RULES)
+    )
+    ALLOWED_DOCUMENT_MIME_TYPES: set[str] = Field(
+        default_factory=lambda: {
+            mime
+            for _, accepted in DOCUMENT_TYPE_RULES.values()
+            for mime in accepted
+        }
+    )
 
     # --------------------------------------------------
     # CORS
