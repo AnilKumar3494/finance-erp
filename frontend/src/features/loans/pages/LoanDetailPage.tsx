@@ -17,6 +17,7 @@ import { LoanIdentityCard } from '../components/LoanIdentityCard'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
+import { DocScoreCard } from '../components/DocScoreCard'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { useFinancePermissions } from '../financePermissions'
@@ -145,6 +146,10 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
       />
       <PersonnelInfoSection loan={loan} perm={perms.personnel} />
       <AllDocumentsSection loan={loan} perm={perms.documents} />
+
+      {/* Summarises the four document sections above it. Deliberately below the
+          approve CTA — an advisory number sitting above it reads like a gate. */}
+      <DocScoreCard loan={loan} />
 
       <LoanSubResources loan={loan} />
 
