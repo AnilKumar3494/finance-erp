@@ -23,6 +23,7 @@ import type { CustomerResponse } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
 import { QuickAddCustomerDialog } from '@/features/loans/components/QuickAddCustomerDialog'
+import { DocScoreSummary } from '@/features/loans/components/DocScoreSummary'
 import { CustomerKycSection } from '@/features/loans/wizard/CustomerKycSection'
 import { VehicleSection } from '@/features/loans/wizard/VehicleSection'
 import { PersonnelSection } from '@/features/loans/wizard/PersonnelSection'
@@ -321,6 +322,17 @@ function WizardBody({
 
   return (
     <>
+      {/* Running total, so gaps show up during data entry rather than at
+          approval. On the early steps there is no vehicle or guarantor yet, so
+          the score legitimately caps at 60 — DocScoreSummary renders the
+          "not added yet" notes that explain it. */}
+      <Card sx={{ mb: 3 }}>
+        <Typography variant="h3" sx={{ mb: 1 }}>
+          Documentation completeness
+        </Typography>
+        <DocScoreSummary loan={loan} maxGaps={3} />
+      </Card>
+
       {step === 1 && <CustomerKycSection financeId={loan.id} customerId={customerId} />}
       {step === 2 && <PersonnelSection financeId={loan.id} customerId={customerId} />}
       {step === 3 && <VehicleSection financeId={loan.id} customerId={customerId} />}
