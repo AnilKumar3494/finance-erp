@@ -282,7 +282,7 @@ function ApproveAction({
             }}
           >
             <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-              Documentation completeness
+              Documentation Completeness
             </Typography>
             <DocScoreSummary loan={loan} maxGaps={3} />
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>

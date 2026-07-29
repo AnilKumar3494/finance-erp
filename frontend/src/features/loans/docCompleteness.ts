@@ -188,7 +188,7 @@ function scoreCustomerId(
 
   return {
     key: 'customer_id',
-    title: 'Customer ID proofs',
+    title: 'Customer ID Proofs',
     points: items.reduce((s, i) => s + i.points, 0),
     max: CATEGORY_MAX.customer_id,
     items,
@@ -244,7 +244,7 @@ function scoreStability(docs: StabilityDocumentResponse[]): DocScoreCategory {
 
   return {
     key: 'stability',
-    title: 'Stability proof',
+    title: 'Stability Proof',
     points,
     max: CATEGORY_MAX.stability,
     items: [
@@ -292,7 +292,7 @@ function scoreVehicle(docs: DocumentResponse[], hasVehicle: boolean): DocScoreCa
 
   return {
     key: 'vehicle',
-    title: 'Vehicle documents',
+    title: 'Vehicle Documents',
     points: items.reduce((s, i) => s + i.points, 0),
     max: CATEGORY_MAX.vehicle,
     items,

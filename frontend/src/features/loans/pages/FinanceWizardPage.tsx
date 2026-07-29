@@ -328,7 +328,7 @@ function WizardBody({
           "not added yet" notes that explain it. */}
       <Card sx={{ mb: 3 }}>
         <Typography variant="h3" sx={{ mb: 1 }}>
-          Documentation completeness
+          Documentation Completeness
         </Typography>
         <DocScoreSummary loan={loan} maxGaps={3} />
       </Card>

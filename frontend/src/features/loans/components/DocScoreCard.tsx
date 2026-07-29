@@ -39,7 +39,7 @@ export function DocScoreCard({ loan }: { loan: LoanResponse }) {
     )
 
   return (
-    <CollapsibleCard title="Documentation completeness" subtitle={subtitle}>
+    <CollapsibleCard title="Documentation Completeness" subtitle={subtitle}>
       {isLoading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
           <Spinner size={22} />

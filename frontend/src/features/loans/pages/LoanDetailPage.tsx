@@ -124,6 +124,8 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
     <Stack spacing={3}>
       <HeaderCard loan={loan} />
 
+      <DocScoreCard loan={loan} />
+
       {isDraft && <LoanActions loan={loan} onGuideSection={goToSection} />}
 
       <VehicleInfoSection
@@ -146,10 +148,6 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
       />
       <PersonnelInfoSection loan={loan} perm={perms.personnel} />
       <AllDocumentsSection loan={loan} perm={perms.documents} />
-
-      {/* Summarises the four document sections above it. Deliberately below the
-          approve CTA — an advisory number sitting above it reads like a gate. */}
-      <DocScoreCard loan={loan} />
 
       <LoanSubResources loan={loan} />
 
