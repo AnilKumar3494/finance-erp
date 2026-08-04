@@ -197,6 +197,11 @@ export function useUpdateCustomer(id: string) {
     onSuccess: (updated) => {
       qc.setQueryData(customerKeys.detail(id), updated)
       qc.invalidateQueries({ queryKey: customerKeys.lists() })
+      // assigned_employee_name is not a column — the API resolves it by join on
+      // read, so a PATCH that reassigns comes back carrying the PREVIOUS
+      // employee's name against the new id. Refetch so in-place editors (the
+      // finance page's Customer section) don't keep painting the stale name.
+      qc.invalidateQueries({ queryKey: customerKeys.detail(id) })
     },
   })
 }
