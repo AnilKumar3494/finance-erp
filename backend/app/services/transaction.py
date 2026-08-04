@@ -223,8 +223,19 @@ def get_loan_transaction_summary(db: Session, loan: Loan) -> dict:
     # Local import keeps the loan ↔ penalty ↔ transaction module load order safe.
     from app.services.penalty import sum_active_penalties_for_loan
 
-    base_total_payable = calc_total_payable(
-        loan.principal, loan.interest_rate, loan.tenure
+    # A DRAFT loan has no schedule yet: principal, interest_rate and tenure
+    # are all NULL until it is approved. calc_total_payable raises TypeError
+    # on Decimal(None), which surfaced as a 500 on every draft's detail and
+    # edit page. No schedule means nothing is payable yet.
+    has_schedule = (
+        loan.principal is not None
+        and loan.interest_rate is not None
+        and loan.tenure is not None
+    )
+    base_total_payable = (
+        calc_total_payable(loan.principal, loan.interest_rate, loan.tenure)
+        if has_schedule
+        else Decimal("0.00")
     )
     active_penalty = sum_active_penalties_for_loan(db, loan.id)
     total_payable = (base_total_payable + active_penalty).quantize(Decimal("0.01"))
@@ -232,7 +243,9 @@ def get_loan_transaction_summary(db: Session, loan: Loan) -> dict:
 
     return {
         "loan_id": loan.id,
-        "principal": loan.principal,
+        # LoanTransactionSummary.principal is a required Decimal — a draft's
+        # NULL would fail response validation and 500 just as loudly.
+        "principal": loan.principal if loan.principal is not None else Decimal("0.00"),
         "total_payable": total_payable,
         "total_paid": total_paid,
         "total_pending": total_pending,

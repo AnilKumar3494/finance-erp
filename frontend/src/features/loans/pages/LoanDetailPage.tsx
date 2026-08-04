@@ -250,10 +250,11 @@ function AuditCard({ loan }: { loan: LoanResponse }) {
         Audit
       </Typography>
       <FieldGrid>
-        <FieldRow
-          label="Approved at"
-          value={fmtDate(loan.approval_date) || fmtDateTime(loan.created_at)}
-        />
+        {/* No fallback to created_at: an unapproved loan has no approval
+            date, and showing when the draft was created in its place reads
+            as a real approval that never happened. */}
+        <FieldRow label="Approved at" value={fmtDate(loan.approval_date)} />
+        <FieldRow label="Created at" value={fmtDateTime(loan.created_at)} />
         <FieldRow label="Last updated" value={fmtDateTime(loan.updated_at)} />
         <FieldRow label="Created by" value={actor(loan.created_by, loan.created_by_id)} />
         <FieldRow label="Updated by" value={actor(loan.updated_by, loan.updated_by_id)} />

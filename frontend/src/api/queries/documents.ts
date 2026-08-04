@@ -118,6 +118,24 @@ export function useDeleteDocument() {
   })
 }
 
+// Un-archives a soft-deleted document (POST /documents/{id}/restore). Backs the
+// short undo window offered right after a delete — the record and its S3 object
+// are still there, so this is a pure metadata flip.
+export function useRestoreDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (documentId: string) => {
+      const { data } = await apiClient.post<DocumentResponse>(
+        `/documents/${documentId}/restore`,
+      )
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: documentKeys.lists() })
+    },
+  })
+}
+
 // Fetches a short-lived presigned URL; caller opens it. Mutation (not query)
 // because each call is an explicit user action and the URL expires.
 export function useDocumentDownloadUrl() {
