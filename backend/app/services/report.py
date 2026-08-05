@@ -1513,6 +1513,89 @@ def get_hp_register(
 
 
 # --------------------------------------------------
+# FEES COLLECTED
+# --------------------------------------------------
+def get_fee_report(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> dict:
+    """
+    The four one-off charges recorded on each executed finance — processing,
+    documentation, DSC, and RTO — per loan and in total.
+
+    These are agreed at the financials step and stored on `loans`, so this
+    reports what was CHARGED on the agreement, not what has been received in
+    cash. There is no per-fee receipt anywhere in the schema to reconcile
+    against.
+
+    Windowing and the DRAFT exclusion match `get_hp_register`: `date1`/`date2`
+    bound the approval date, omitting both is all-time, and a loan with no
+    approval date drops out once either bound is given.
+    """
+    q = (
+        db.query(Loan, Customer)
+        .join(Customer, Customer.id == Loan.customer_id)
+        .filter(
+            Loan.is_deleted == False,  # noqa: E712
+            Loan.status != LoanStatus.DRAFT,
+        )
+    )
+    if date1 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date >= date1)
+    if date2 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date <= date2)
+    rows = q.order_by(
+        Loan.approval_date.asc().nulls_last(), Loan.created_at.asc()
+    ).all()
+
+    results = []
+    customer_ids = set()
+    totals = {
+        "processing": _ZERO,
+        "documentation": _ZERO,
+        "dsc": _ZERO,
+        "rto": _ZERO,
+    }
+    for loan, customer in rows:
+        customer_ids.add(customer.id)
+        processing = _d(loan.processing_fee)
+        documentation = _d(loan.documentation_fee)
+        dsc = _d(loan.dsc_fee)
+        rto = _d(loan.rto_fee)
+        totals["processing"] += processing
+        totals["documentation"] += documentation
+        totals["dsc"] += dsc
+        totals["rto"] += rto
+        results.append(
+            {
+                "loan_id": loan.id,
+                "loan_number": loan.loan_number,
+                "hp_number": loan.hp_number,
+                "customer_id": customer.id,
+                "customer_name": customer.full_name,
+                "customer_mobile": customer.mobile_number,
+                "approval_date": loan.approval_date,
+                "status": loan.status,
+                "processing_fee": processing,
+                "documentation_fee": documentation,
+                "dsc_fee": dsc,
+                "rto_fee": rto,
+                "total_fee": processing + documentation + dsc + rto,
+            }
+        )
+
+    return {
+        "total_loans": len(results),
+        "total_customers": len(customer_ids),
+        "total_processing_fee": totals["processing"],
+        "total_documentation_fee": totals["documentation"],
+        "total_dsc_fee": totals["dsc"],
+        "total_rto_fee": totals["rto"],
+        "total_fees": sum(totals.values(), _ZERO),
+        "results": results,
+    }
+
+
+# --------------------------------------------------
 # PROFIT & LOSS / BALANCE SHEET
 # --------------------------------------------------
 def _interest_received_total(

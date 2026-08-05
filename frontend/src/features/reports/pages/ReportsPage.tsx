@@ -7,6 +7,7 @@ import TodayOutlined from '@mui/icons-material/TodayOutlined'
 import DateRangeOutlined from '@mui/icons-material/DateRangeOutlined'
 import PaymentsOutlined from '@mui/icons-material/PaymentsOutlined'
 import PercentOutlined from '@mui/icons-material/PercentOutlined'
+import RequestQuoteOutlined from '@mui/icons-material/RequestQuoteOutlined'
 import InsightsOutlined from '@mui/icons-material/InsightsOutlined'
 import PeopleOutlined from '@mui/icons-material/PeopleOutlined'
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
@@ -32,6 +33,7 @@ import { ReceivedInterestTab } from '../components/ReceivedInterestTab'
 import { HpOutstandingTab } from '../components/HpOutstandingTab'
 import { HpReceivableTab } from '../components/HpReceivableTab'
 import { HpRegisterTab } from '../components/HpRegisterTab'
+import { FeesTab } from '../components/FeesTab'
 import { CapitalExpensesTab } from '../components/CapitalExpensesTab'
 import { PnlTab } from '../components/PnlTab'
 import { BalanceSheetTab } from '../components/BalanceSheetTab'
@@ -110,6 +112,13 @@ const REPORT_SECTIONS: ReportSection[] = [
         icon: HourglassBottomOutlined,
       },
       {
+        tab: 'fees',
+        label: 'Fees',
+        description:
+          'Processing, documentation, DSC and RTO charges per finance, with totals.',
+        icon: RequestQuoteOutlined,
+      },
+      {
         tab: 'pnl',
         label: 'Profit & Loss',
         description: 'Interest and other income against expenses for a period.',
@@ -177,6 +186,7 @@ const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.React
   outstanding: { title: 'HP Outstanding', render: () => <HpOutstandingTab /> },
   receivable: { title: 'Receivable Interest', render: () => <HpReceivableTab /> },
   register: { title: 'HP Register', render: () => <HpRegisterTab /> },
+  fees: { title: 'Fees', render: () => <FeesTab /> },
   cashbook: { title: 'Capital & Expenses', render: () => <CapitalExpensesTab /> },
   pnl: { title: 'Profit & Loss', render: () => <PnlTab /> },
   balancesheet: { title: 'Balance Sheet', render: () => <BalanceSheetTab /> },
