@@ -36,7 +36,7 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
 import { fmtDate } from '@/lib/format'
-import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
+import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE, optionalDate } from '@/schemas/primitives'
 import { IdentityProofType, type PersonnelRole } from '@/schemas/enums'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import { Collapsible } from '../components/Collapsible'
@@ -399,7 +399,7 @@ function PersonnelEditForm({
         alt_mobile_number: z
           .string()
           .refine((v) => v.trim() === '' || MOBILE_RE.test(v.trim()), 'Enter a valid 10-digit mobile'),
-        date_of_birth: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+        date_of_birth: optionalDate,
         aadhaar_number: z
           .string()
           .refine((v) => v.trim() === '' || AADHAAR_RE.test(v.trim()), 'Aadhaar must be exactly 12 digits'),
