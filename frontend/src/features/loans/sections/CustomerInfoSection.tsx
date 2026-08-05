@@ -32,7 +32,7 @@ import { FileUpload } from '@/components/FileUpload'
 import { BranchPointPicker } from '@/features/customers/components/BranchPointPicker'
 import { EmployeePicker } from '@/features/customers/components/EmployeePicker'
 import { fmtDate } from '@/lib/format'
-import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
+import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE, optionalDate } from '@/schemas/primitives'
 import { IdentityProofType } from '@/schemas/enums'
 import { EditableSection } from '../components/EditableSection'
 import { Collapsible } from '../components/Collapsible'
@@ -194,7 +194,7 @@ function CustomerEditForm({
           alt_mobile_number: z
             .string()
             .refine((v) => v.trim() === '' || MOBILE_RE.test(v.trim()), 'Enter a valid 10-digit mobile'),
-          date_of_birth: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+          date_of_birth: optionalDate,
           // Empty = keep current (values arrive masked); only validated when the
           // admin actually types a replacement.
           aadhaar_number: z

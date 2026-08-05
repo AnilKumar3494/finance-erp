@@ -10,6 +10,7 @@ import { useDayReport } from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { DayLedgerTable, PositionNote } from './DayLedgerTable'
@@ -50,7 +51,7 @@ export function MultiDayReportTab() {
           <FieldLabel htmlFor="mdr-from">From</FieldLabel>
           <DatePicker
             value={from}
-            onChange={(d) => d && setFrom(d)}
+            onChange={onlyValidDate(setFrom)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{ textField: { id: 'mdr-from', size: 'small', fullWidth: true } }}
@@ -60,7 +61,7 @@ export function MultiDayReportTab() {
           <FieldLabel htmlFor="mdr-to">To</FieldLabel>
           <DatePicker
             value={to}
-            onChange={(d) => d && setTo(d)}
+            onChange={onlyValidDate(setTo)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{ textField: { id: 'mdr-to', size: 'small', fullWidth: true } }}

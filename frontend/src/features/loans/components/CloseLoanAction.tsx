@@ -24,6 +24,7 @@ import { useLoanSummary } from '@/api/queries/transactions'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import type { ClosureType } from '@/schemas/enums'
 import { fmtINR } from '@/lib/format'
+import { optionalDate } from '@/schemas/primitives'
 
 const CLOSURE_TYPE_LABELS: Record<ClosureType, string> = {
   NORMAL_TENURE: 'Normal (tenure completed)',
@@ -174,7 +175,7 @@ function CloseForm({ loan, outstanding, totalPaid, onCancel, onDone }: CloseForm
           refund_status: z.string(),
           noc_issued: z.boolean(),
           noc_reference: z.string(),
-          closure_date: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+          closure_date: optionalDate,
           closure_remarks: z.string(),
         })
         .superRefine((v, ctx) => {
@@ -460,6 +461,14 @@ function CloseForm({ loan, outstanding, totalPaid, onCancel, onDone }: CloseForm
                       },
                     }}
                   />
+                  {fieldState.error?.message && (
+                    <Typography
+                      role="alert"
+                      sx={{ mt: 0.5, fontSize: 11, fontWeight: 500, color: 'error.main' }}
+                    >
+                      {fieldState.error.message}
+                    </Typography>
+                  )}
                 </Box>
               )}
             />
