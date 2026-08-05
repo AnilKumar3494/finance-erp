@@ -322,6 +322,36 @@ class HpRegisterReport(BaseModel):
 
 
 # --------------------------------------------------
+# FEES COLLECTED (processing / documentation / DSC / RTO)
+# --------------------------------------------------
+class FeeRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+    approval_date: date_type | None
+    status: str
+    processing_fee: Decimal
+    documentation_fee: Decimal
+    dsc_fee: Decimal
+    rto_fee: Decimal
+    total_fee: Decimal
+
+
+class FeeReport(BaseModel):
+    total_loans: int
+    total_customers: int = 0
+    total_processing_fee: Decimal
+    total_documentation_fee: Decimal
+    total_dsc_fee: Decimal
+    total_rto_fee: Decimal
+    total_fees: Decimal
+    results: list[FeeRow]
+
+
+# --------------------------------------------------
 # PROFIT & LOSS / BALANCE SHEET
 # --------------------------------------------------
 class PnlExpenseCategory(BaseModel):

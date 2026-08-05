@@ -271,6 +271,33 @@ export interface HpRegisterReport {
   results: HpRegisterRow[]
 }
 
+export interface FeeRow {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+  approval_date: string | null
+  status: string
+  processing_fee: string
+  documentation_fee: string
+  dsc_fee: string
+  rto_fee: string
+  total_fee: string
+}
+
+export interface FeeReport {
+  total_loans: number
+  total_customers: number
+  total_processing_fee: string
+  total_documentation_fee: string
+  total_dsc_fee: string
+  total_rto_fee: string
+  total_fees: string
+  results: FeeRow[]
+}
+
 export interface PnlExpenseCategory {
   category: string | null
   amount: string
@@ -373,6 +400,7 @@ export const reportKeys = {
   hpReceivable: (w?: DateWindow) =>
     [...reportKeys.all, 'hpReceivable', ...win(w)] as const,
   hpRegister: (w?: DateWindow) => [...reportKeys.all, 'hpRegister', ...win(w)] as const,
+  fees: (w?: DateWindow) => [...reportKeys.all, 'fees', ...win(w)] as const,
   pnl: (date1: string, date2: string) => [...reportKeys.all, 'pnl', date1, date2] as const,
   balanceSheet: () => [...reportKeys.all, 'balanceSheet'] as const,
   collectionsByCollector: (date1: string, date2: string) =>
@@ -587,6 +615,21 @@ export function useHpRegister(enabled = true, window?: DateWindow) {
     queryKey: reportKeys.hpRegister(window),
     queryFn: async () => {
       const { data } = await apiClient.get<HpRegisterReport>('/reports/hp-register', {
+        params: { ...window },
+      })
+      return data
+    },
+    enabled,
+    staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useFeeReport(enabled = true, window?: DateWindow) {
+  return useQuery({
+    queryKey: reportKeys.fees(window),
+    queryFn: async () => {
+      const { data } = await apiClient.get<FeeReport>('/reports/fees', {
         params: { ...window },
       })
       return data

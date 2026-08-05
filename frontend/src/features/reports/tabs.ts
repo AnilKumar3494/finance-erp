@@ -10,6 +10,7 @@ export const REPORT_TABS = [
   'day',
   'multiday',
   'interest',
+  'fees',
   'outstanding',
   'receivable',
   'register',
