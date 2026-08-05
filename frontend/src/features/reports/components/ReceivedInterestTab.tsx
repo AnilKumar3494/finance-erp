@@ -20,6 +20,7 @@ import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
@@ -124,7 +125,7 @@ export function ReceivedInterestTab() {
           <FieldLabel htmlFor="ri-from">From</FieldLabel>
           <DatePicker
             value={from}
-            onChange={(d) => d && setFrom(d)}
+            onChange={onlyValidDate(setFrom)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{ textField: { id: 'ri-from', size: 'small', fullWidth: true } }}
@@ -134,7 +135,7 @@ export function ReceivedInterestTab() {
           <FieldLabel htmlFor="ri-to">To</FieldLabel>
           <DatePicker
             value={to}
-            onChange={(d) => d && setTo(d)}
+            onChange={onlyValidDate(setTo)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{ textField: { id: 'ri-to', size: 'small', fullWidth: true } }}

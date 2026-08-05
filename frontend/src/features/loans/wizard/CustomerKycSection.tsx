@@ -29,7 +29,7 @@ import {
 } from '@/api/queries/stabilityDocs'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
-import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
+import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE, optionalDate } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { IdentityProofType, StabilityDocType } from '@/schemas/enums'
 
@@ -147,7 +147,7 @@ function CustomerInfoCard({ customer }: { customer: CustomerResponse }) {
           mobile_number: z.string(),
           aadhaar: z.string(),
           pan: z.string(),
-          date_of_birth: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+          date_of_birth: optionalDate,
           address_line_1: z.string(),
           mandal_village: z.string(),
           pincode: z.string(),

@@ -7,6 +7,7 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
@@ -20,6 +21,7 @@ import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 import { PaymentMethod } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { optionalDate } from '@/schemas/primitives'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 
 function mapErr(error: unknown): string {
@@ -58,7 +60,7 @@ const Schema = z.object({
     return Number.isFinite(n) && n >= 0
   }, 'Enter a valid TA amount (0 or more)'),
   payment_mode: PaymentMethod,
-  effective_payment_date: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+  effective_payment_date: optionalDate,
   due_cycle_id: z
     .string()
     .min(1, 'Pick a cycle to apply this payment to'),
@@ -277,6 +279,14 @@ export function RecordPaymentDialog({
                       },
                     }}
                   />
+                  {fieldState.error?.message && (
+                    <Typography
+                      role="alert"
+                      sx={{ mt: 0.5, fontSize: 11, fontWeight: 500, color: 'error.main' }}
+                    >
+                      {fieldState.error.message}
+                    </Typography>
+                  )}
                 </Box>
               )}
             />

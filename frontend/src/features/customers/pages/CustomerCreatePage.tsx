@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
 import { serverMessage } from '@/api/errors'
-import dayjs, { type Dayjs } from 'dayjs'
+import dayjs from 'dayjs'
 import { z } from 'zod'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
@@ -26,6 +26,7 @@ import {
   MOBILE_RE,
   PAN_RE,
   PIN_RE,
+  optionalDate,
 } from '@/schemas/primitives'
 
 // --------------------------------------------------
@@ -59,13 +60,10 @@ const Schema = z.object({
     .refine((v) => v === '' || PAN_RE.test(v), {
       message: 'PAN must be in the format AAAAA9999A',
     }),
-  date_of_birth: z
-    .custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v), 'Invalid date')
-    .nullable()
-    .refine(
-      (v) => v === null || (v.isValid() && v.isBefore(dayjs().add(1, 'day'))),
-      'Date of birth cannot be in the future',
-    ),
+  date_of_birth: optionalDate.refine(
+    (v) => v === null || v.isBefore(dayjs().add(1, 'day')),
+    'Date of birth cannot be in the future',
+  ),
   address_line_1: z.string().max(500, 'Address must be 500 characters or fewer'),
   address_line_2: z.string().max(500, 'Address must be 500 characters or fewer'),
   mandal_village: z.string().max(100, 'Must be 100 characters or fewer'),

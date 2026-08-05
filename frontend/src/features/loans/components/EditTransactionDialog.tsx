@@ -5,6 +5,7 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
@@ -21,6 +22,7 @@ import { useDueCycles } from '@/api/queries/dueCycles'
 import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 import { PaymentMethod } from '@/schemas/enums'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { optionalDate } from '@/schemas/primitives'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 
 // Edit any field of an existing transaction — cycle, amount, payment mode,
@@ -48,7 +50,7 @@ const Schema = z.object({
     return s.trim() !== '' && Number.isFinite(n) && n > 0
   }, 'Enter a valid amount greater than 0'),
   payment_mode: PaymentMethod,
-  effective_payment_date: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+  effective_payment_date: optionalDate,
   // A legacy NULL-cycle transaction shows here as an empty default. Saving
   // without picking a cycle is allowed — the form just won't include
   // due_cycle_id in the diff, so the existing (NULL) value stays. The dialog
@@ -223,6 +225,14 @@ export function EditTransactionDialog({
                       },
                     }}
                   />
+                  {fieldState.error?.message && (
+                    <Typography
+                      role="alert"
+                      sx={{ mt: 0.5, fontSize: 11, fontWeight: 500, color: 'error.main' }}
+                    >
+                      {fieldState.error.message}
+                    </Typography>
+                  )}
                 </Box>
               )}
             />

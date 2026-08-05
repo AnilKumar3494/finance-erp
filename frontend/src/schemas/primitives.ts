@@ -1,3 +1,4 @@
+import dayjs, { type Dayjs } from 'dayjs'
 import { z } from 'zod'
 
 // Indian PII and business-field validators. Patterns are locked — change only
@@ -71,6 +72,16 @@ export const vehiclePlate = z
     VEHICLE_PLATE_RE,
     'Enter a valid Indian vehicle plate (e.g. TN09AB1234 or 22BH1234AA)',
   )
+
+// A date-picker value, optional. `dayjs.isDayjs` alone is not enough: a picker
+// emits a half-built Dayjs on every keystroke while a date is TYPED rather than
+// picked, and an invalid one is still a non-null Dayjs that formats to the
+// literal string "Invalid Date" — which the API rejects with a 422. Requiring
+// isValid() turns that into a field error the user can act on instead.
+export const optionalDate = z.custom<Dayjs | null>(
+  (v) => v === null || (dayjs.isDayjs(v) && v.isValid()),
+  'Enter a complete date',
+)
 
 export const principal = z
   .number()
