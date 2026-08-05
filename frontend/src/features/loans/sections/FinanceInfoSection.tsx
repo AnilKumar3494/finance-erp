@@ -310,6 +310,7 @@ function FinanceEditForm({
           id="fin_hp_number"
           label="HP number"
           required
+          highlight={highlight?.has('hp_number')}
           placeholder="e.g. SAFTNK0401"
           hint="Hire-purchase number — shown as this finance's ID."
           {...register('hp_number')}

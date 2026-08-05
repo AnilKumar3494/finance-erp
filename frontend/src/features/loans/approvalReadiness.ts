@@ -40,6 +40,13 @@ export function computeApprovalGaps(
   if (vehicle.length) gaps.push({ key: 'vehicle', title: 'Vehicle Information', missing: vehicle })
 
   const finance: ApprovalMissingField[] = []
+  // HP number is the finance's customer-facing ID and the backend's approve_loan
+  // rejects a DRAFT without one, so the frontend gate must require it too — else
+  // the admin clicks Approve and only then gets a 400. Blank/whitespace counts
+  // as missing (the API stores blank as null).
+  if (!loan.hp_number || loan.hp_number.trim() === '') {
+    finance.push({ field: 'hp_number', label: 'HP number' })
+  }
   if (loan.principal == null) finance.push({ field: 'principal', label: 'Principal' })
   if (loan.interest_rate == null) finance.push({ field: 'interest_rate', label: 'Interest rate' })
   if (loan.tenure == null) finance.push({ field: 'tenure', label: 'Tenure' })
