@@ -10,6 +10,7 @@ import { useDayReport } from '@/api/queries/reports'
 import { Btn, Card } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtINR } from '@/lib/format'
+import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { DayLedgerTable, PositionNote } from './DayLedgerTable'
@@ -39,7 +40,7 @@ export function DayReportTab() {
           <FieldLabel htmlFor="day-report-date">Date</FieldLabel>
           <DatePicker
             value={day}
-            onChange={(d) => d && setDay(d)}
+            onChange={onlyValidDate(setDay)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{

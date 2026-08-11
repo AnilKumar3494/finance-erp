@@ -581,10 +581,15 @@ function ClassifyCycleDialog({
     onClose()
   }
 
-  const lateNeedsDate = status === 'LATE_PAYMENT' && (asOf == null || !asOf.isValid())
+  // LATE_PAYMENT requires an as-of date at all. Separately, ANY status must
+  // reject a half-typed one: the picker hands back a non-null invalid Dayjs
+  // mid-keystroke, which would post the string "Invalid Date".
+  const asOfInvalid = asOf !== null && !asOf.isValid()
+  const lateNeedsDate = status === 'LATE_PAYMENT' && (asOf == null || asOfInvalid)
+  const dateBlocked = lateNeedsDate || asOfInvalid
 
   const submit = () => {
-    if (!cycle || lateNeedsDate) return
+    if (!cycle || dateBlocked) return
     mutation.mutate(
       {
         cycleId: cycle.id,
@@ -638,7 +643,7 @@ function ClassifyCycleDialog({
                   id: 'cls_asof',
                   size: 'small',
                   fullWidth: true,
-                  error: lateNeedsDate,
+                  error: dateBlocked,
                 },
               }}
             />
@@ -674,7 +679,7 @@ function ClassifyCycleDialog({
         <Btn variant="ghost" onClick={close} disabled={mutation.isPending}>
           Cancel
         </Btn>
-        <Btn variant="primary" onClick={submit} loading={mutation.isPending} disabled={lateNeedsDate}>
+        <Btn variant="primary" onClick={submit} loading={mutation.isPending} disabled={dateBlocked}>
           {mode === 'classify' ? 'Classify' : 'Reclassify'}
         </Btn>
       </DialogActions>

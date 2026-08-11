@@ -29,6 +29,7 @@ import { serverMessage } from '@/api/errors'
 import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 
@@ -69,7 +70,7 @@ export function CapitalExpensesTab() {
           <FieldLabel htmlFor="ce-from">From</FieldLabel>
           <DatePicker
             value={from}
-            onChange={(d) => d && setFrom(d)}
+            onChange={onlyValidDate(setFrom)}
             format="DD MMM YYYY"
             slotProps={{ textField: { id: 'ce-from', size: 'small', fullWidth: true } }}
           />
@@ -78,7 +79,7 @@ export function CapitalExpensesTab() {
           <FieldLabel htmlFor="ce-to">To</FieldLabel>
           <DatePicker
             value={to}
-            onChange={(d) => d && setTo(d)}
+            onChange={onlyValidDate(setTo)}
             format="DD MMM YYYY"
             slotProps={{ textField: { id: 'ce-to', size: 'small', fullWidth: true } }}
           />
@@ -319,7 +320,7 @@ function AddEntryDialog({ open, onClose }: { open: boolean; onClose: () => void 
             <FieldLabel htmlFor="ce-add-date">Date</FieldLabel>
             <DatePicker
               value={entryDate}
-              onChange={(d) => d && setEntryDate(d)}
+              onChange={onlyValidDate(setEntryDate)}
               format="DD MMM YYYY"
               maxDate={dayjs()}
               slotProps={{ textField: { id: 'ce-add-date', size: 'small', fullWidth: true } }}

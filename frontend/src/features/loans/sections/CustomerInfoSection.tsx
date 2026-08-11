@@ -25,11 +25,14 @@ import {
   type IdentityProofResponse,
 } from '@/api/queries/identityProofs'
 import { useDocumentDownloadUrl } from '@/api/queries/documents'
+import { type EmployeeResponse } from '@/api/queries/employees'
 import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { FileUpload } from '@/components/FileUpload'
+import { BranchPointPicker } from '@/features/customers/components/BranchPointPicker'
+import { EmployeePicker } from '@/features/customers/components/EmployeePicker'
 import { fmtDate } from '@/lib/format'
-import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE } from '@/schemas/primitives'
+import { AADHAAR_RE, MOBILE_RE, PAN_RE, PIN_RE, optionalDate } from '@/schemas/primitives'
 import { IdentityProofType } from '@/schemas/enums'
 import { EditableSection } from '../components/EditableSection'
 import { Collapsible } from '../components/Collapsible'
@@ -125,6 +128,7 @@ function CustomerView({ customer }: { customer: CustomerResponse }) {
       <FieldRow label="Mandal / village" value={customer.mandal_village} />
       <FieldRow label="PIN code" value={customer.pincode} mono />
       <FieldRow label="Assigned employee" value={customer.assigned_employee_name} />
+      <FieldRow label="Branch point" value={customer.branch_point} />
       <FieldRow label="Remarks" value={customer.remarks} />
     </FieldGrid>
   )
@@ -146,6 +150,7 @@ interface FormValues {
   address_line_2: string
   mandal_village: string
   pincode: string
+  branch_point: string
   remarks: string
 }
 
@@ -163,6 +168,23 @@ function CustomerEditForm({
   const update = useUpdateCustomer(customer.id)
   const unmask = useUnmaskCustomerPII()
 
+  // Seeded straight from the customer rather than hydrated from /auth/employees:
+  // the picker only needs an id and a label, and a synchronous seed means there
+  // is no window where an unrelated save could compute a null assignee and
+  // silently unassign the customer.
+  const [assignee, setAssignee] = useState<EmployeeResponse | null>(
+    customer.assigned_employee_id
+      ? {
+          id: customer.assigned_employee_id,
+          username: customer.assigned_employee_name ?? '',
+          email: '',
+          full_name: customer.assigned_employee_name,
+          role: 'EMPLOYEE',
+          is_active: true,
+        }
+      : null,
+  )
+
   const schema = useMemo(
     () =>
       z
@@ -172,7 +194,7 @@ function CustomerEditForm({
           alt_mobile_number: z
             .string()
             .refine((v) => v.trim() === '' || MOBILE_RE.test(v.trim()), 'Enter a valid 10-digit mobile'),
-          date_of_birth: z.custom<Dayjs | null>((v) => v === null || dayjs.isDayjs(v)),
+          date_of_birth: optionalDate,
           // Empty = keep current (values arrive masked); only validated when the
           // admin actually types a replacement.
           aadhaar_number: z
@@ -187,6 +209,7 @@ function CustomerEditForm({
           pincode: z
             .string()
             .refine((v) => v.trim() === '' || PIN_RE.test(v.trim()), 'PIN code must be 6 digits and cannot start with 0'),
+          branch_point: z.string().max(100, 'Must be 100 characters or fewer'),
           remarks: z.string().max(1000),
         }),
     [],
@@ -210,12 +233,13 @@ function CustomerEditForm({
       address_line_2: customer.address_line_2 ?? '',
       mandal_village: customer.mandal_village ?? '',
       pincode: customer.pincode ?? '',
+      branch_point: customer.branch_point ?? '',
       remarks: customer.remarks ?? '',
     },
   })
 
   const onSubmit = (v: FormValues) => {
-    const payload = buildDiff(v, customer, isAdmin)
+    const payload = buildDiff(v, customer, isAdmin, assignee)
     if (Object.keys(payload).length === 0) {
       onDone()
       return
@@ -324,6 +348,29 @@ function CustomerEditForm({
             error={errors.pincode?.message}
           />
         </TwoCol>
+        {isAdmin && (
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              The collector and branch point are recorded on the customer, so a change here
+              applies to every finance they hold. Clear the picker to unassign.
+            </Typography>
+            <TwoCol>
+              <EmployeePicker value={assignee} onChange={setAssignee} />
+              <Controller
+                control={control}
+                name="branch_point"
+                render={({ field }) => (
+                  <BranchPointPicker
+                    id="cust_branch_point"
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.branch_point?.message}
+                  />
+                )}
+              />
+            </TwoCol>
+          </Box>
+        )}
         <Input
           id="cust_remarks"
           label="Remarks"
@@ -348,7 +395,12 @@ function CustomerEditForm({
   )
 }
 
-function buildDiff(v: FormValues, customer: CustomerResponse, isAdmin: boolean): CustomerUpdate {
+function buildDiff(
+  v: FormValues,
+  customer: CustomerResponse,
+  isAdmin: boolean,
+  assignee: EmployeeResponse | null,
+): CustomerUpdate {
   const p: CustomerUpdate = {}
   const orNull = (s: string) => (s.trim() === '' ? null : s.trim())
   const dob = v.date_of_birth ? v.date_of_birth.format('YYYY-MM-DD') : null
@@ -369,6 +421,14 @@ function buildDiff(v: FormValues, customer: CustomerResponse, isAdmin: boolean):
   if (orNull(v.mandal_village) !== customer.mandal_village) p.mandal_village = orNull(v.mandal_village)
   if (orNull(v.pincode) !== customer.pincode) p.pincode = orNull(v.pincode)
   if (orNull(v.remarks) !== customer.remarks) p.remarks = orNull(v.remarks)
+
+  // Assignment is admin-only, matching the customer edit page and the backend
+  // guard that rejects an employee reassigning a customer.
+  if (isAdmin) {
+    if (orNull(v.branch_point) !== customer.branch_point) p.branch_point = orNull(v.branch_point)
+    const nextAssignee = assignee?.id ?? null
+    if (nextAssignee !== customer.assigned_employee_id) p.assigned_employee_id = nextAssignee
+  }
 
   return p
 }

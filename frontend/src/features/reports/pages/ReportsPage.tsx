@@ -7,6 +7,7 @@ import TodayOutlined from '@mui/icons-material/TodayOutlined'
 import DateRangeOutlined from '@mui/icons-material/DateRangeOutlined'
 import PaymentsOutlined from '@mui/icons-material/PaymentsOutlined'
 import PercentOutlined from '@mui/icons-material/PercentOutlined'
+import RequestQuoteOutlined from '@mui/icons-material/RequestQuoteOutlined'
 import InsightsOutlined from '@mui/icons-material/InsightsOutlined'
 import PeopleOutlined from '@mui/icons-material/PeopleOutlined'
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined'
@@ -16,6 +17,7 @@ import MenuBookOutlined from '@mui/icons-material/MenuBookOutlined'
 import SavingsOutlined from '@mui/icons-material/SavingsOutlined'
 import TrendingUpOutlined from '@mui/icons-material/TrendingUpOutlined'
 import BalanceOutlined from '@mui/icons-material/BalanceOutlined'
+import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 import { useAuth } from '@/app/auth-context'
@@ -32,9 +34,11 @@ import { ReceivedInterestTab } from '../components/ReceivedInterestTab'
 import { HpOutstandingTab } from '../components/HpOutstandingTab'
 import { HpReceivableTab } from '../components/HpReceivableTab'
 import { HpRegisterTab } from '../components/HpRegisterTab'
+import { FeesTab } from '../components/FeesTab'
 import { CapitalExpensesTab } from '../components/CapitalExpensesTab'
 import { PnlTab } from '../components/PnlTab'
 import { BalanceSheetTab } from '../components/BalanceSheetTab'
+import { VehiclesReportTab } from '../components/VehiclesReportTab'
 
 const routeApi = getRouteApi('/_authed/reports')
 
@@ -110,6 +114,13 @@ const REPORT_SECTIONS: ReportSection[] = [
         icon: HourglassBottomOutlined,
       },
       {
+        tab: 'fees',
+        label: 'Fees',
+        description:
+          'Processing, documentation, DSC and RTO charges per finance, with totals.',
+        icon: RequestQuoteOutlined,
+      },
+      {
         tab: 'pnl',
         label: 'Profit & Loss',
         description: 'Interest and other income against expenses for a period.',
@@ -137,6 +148,12 @@ const REPORT_SECTIONS: ReportSection[] = [
         label: 'HP Register',
         description: 'The full register of executed finances with terms and vehicles.',
         icon: MenuBookOutlined,
+      },
+      {
+        tab: 'vehicles',
+        label: 'Vehicle Register',
+        description: 'Collateral and inventory valuation, with the finance each vehicle backs.',
+        icon: DirectionsCarOutlined,
       },
     ],
   },
@@ -177,6 +194,8 @@ const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.React
   outstanding: { title: 'HP Outstanding', render: () => <HpOutstandingTab /> },
   receivable: { title: 'Receivable Interest', render: () => <HpReceivableTab /> },
   register: { title: 'HP Register', render: () => <HpRegisterTab /> },
+  vehicles: { title: 'Vehicle Register', render: () => <VehiclesReportTab /> },
+  fees: { title: 'Fees', render: () => <FeesTab /> },
   cashbook: { title: 'Capital & Expenses', render: () => <CapitalExpensesTab /> },
   pnl: { title: 'Profit & Loss', render: () => <PnlTab /> },
   balancesheet: { title: 'Balance Sheet', render: () => <BalanceSheetTab /> },

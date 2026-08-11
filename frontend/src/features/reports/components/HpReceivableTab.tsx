@@ -2,23 +2,17 @@ import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpReceivable, type HpReceivableRow } from '@/api/queries/reports'
-import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
-import { SortableTh } from '@/components/sort/SortableTh'
+import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { VirtualReportTable, type VirtualColumn } from './VirtualReportTable'
 import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
@@ -86,6 +80,46 @@ export function HpReceivableTab() {
       ),
     [rows],
   )
+
+  const columns: VirtualColumn<HpReceivableRow, Field>[] = [
+    {
+      field: 'hp',
+      label: 'HP No',
+      width: '18%',
+      cellSx: { fontFamily: 'var(--font-mono)' },
+      renderCell: (r) => r.hp_number ?? r.loan_number,
+    },
+    {
+      field: 'customer',
+      label: 'Customer',
+      width: '42%',
+      renderCell: (r) => (
+        <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {r.customer_name}
+        </Typography>
+      ),
+    },
+    {
+      field: 'outstanding',
+      label: 'Outstanding',
+      align: 'right',
+      width: '20%',
+      defaultDir: 'desc',
+      renderCell: (r) => inr(r.outstanding),
+      footer: fmtINR(sums.outstanding),
+    },
+    {
+      field: 'receivable',
+      label: 'Receivable interest',
+      align: 'right',
+      width: '20%',
+      defaultDir: 'desc',
+      cellSx: { fontWeight: 600, color: 'success.main' },
+      renderCell: (r) => inr(r.receivable_interest),
+      footer: fmtINR(sums.receivable),
+      footerSx: { color: 'success.main' },
+    },
+  ]
 
   const exportCsv = () =>
     downloadCsv(
@@ -182,58 +216,18 @@ export function HpReceivableTab() {
                 No open finances match this filter.
               </Typography>
             ) : (
-              <Card sx={{ p: 0, overflow: 'hidden' }}>
-                <TableContainer sx={{ overflowX: 'auto' }}>
-                  <Table
-                    size="small"
-                    sx={{ minWidth: 640, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
-                  >
-                    <TableHead>
-                      <TableRow>
-                        <SortableTh field="hp" label="HP No" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                        <SortableTh field="customer" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                        <SortableTh field="outstanding" label="Outstanding" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                        <SortableTh field="receivable" label="Receivable interest" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {rows.map((r) => (
-                        <TableRow
-                          key={r.loan_id}
-                          hover
-                          sx={{ cursor: 'pointer' }}
-                          onClick={() =>
-                            navigate({ to: '/finances/$loanId', params: { loanId: r.loan_id } })
-                          }
-                        >
-                          <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                            {r.hp_number ?? r.loan_number}
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                              {r.customer_name}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">{inr(r.outstanding)}</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 600, color: 'success.main' }}>
-                            {inr(r.receivable_interest)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      <TableRow sx={{ bgcolor: 'action.hover' }}>
-                        <TableCell sx={{ fontWeight: 700 }}>TOTAL</TableCell>
-                        <TableCell />
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          {fmtINR(sums.outstanding)}
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>
-                          {fmtINR(sums.receivable)}
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Card>
+              <VirtualReportTable
+                columns={columns}
+                rows={rows}
+                getRowKey={(r) => r.loan_id}
+                onRowClick={(r) =>
+                  navigate({ to: '/finances/$loanId', params: { loanId: r.loan_id } })
+                }
+                sort={sort}
+                onSort={onSort}
+                minWidth={640}
+                estimateRowHeight={40}
+              />
             )}
           </>
         )}

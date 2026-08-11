@@ -18,6 +18,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForwardOutlined'
 import {
   useDueCycleWorklist,
   type DueCycleWorklistItem,
+  type DueCycleWorklistResponse,
   type WorklistParams,
   type WorklistSortField,
 } from '@/api/queries/dueCycles'
@@ -47,6 +48,7 @@ import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { CycleStatusChip } from '@/features/loans/components/CycleStatusChip'
+import { KPI_GRID_SX, KpiCard } from '@/features/reports/components/KpiCard'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { RecordPaymentDialog } from '@/features/loans/components/RecordPaymentDialog'
 import { BadDebtReviewDialog, type BadDebtDecision } from '../components/BadDebtReviewDialog'
@@ -514,6 +516,11 @@ export function CollectionsWorklistPage() {
         </Box>
       )}
 
+      {/* Portfolio KPIs — cycle views only (the aggregates come from the
+          due-cycle query; the confirmations / bad-debt lenses source their own
+          data and show their counts on the chips instead). */}
+      {isCycleView(view) && cycleQuery.data && <CollectionsKpis data={cycleQuery.data} />}
+
       {/* Written off has no server-side sort of its own, so no sort control. */}
       <Box sx={{ display: { xs: isWrittenOff ? 'none' : 'block', md: 'none' }, mb: 2 }}>
         {isBadDebt ? (
@@ -648,6 +655,27 @@ export function CollectionsWorklistPage() {
         decision={review?.decision ?? 'APPROVE'}
         onClose={() => setReview(null)}
       />
+    </Box>
+  )
+}
+
+// Portfolio KPIs for the cycle worklist. The figures are server aggregates over
+// the whole filtered set (not just the visible page), so they show the whole
+// portfolio by default and narrow as the filters (search, date window,
+// assigned-to, active lens) change.
+function CollectionsKpis({ data }: { data: DueCycleWorklistResponse }) {
+  return (
+    <Box sx={{ ...KPI_GRID_SX, mb: 2 }}>
+      <KpiCard label="Finances" value={String(data.total_loans)} />
+      <KpiCard label="Customers" value={String(data.total_customers)} />
+      <KpiCard label="Cycles due" value={String(data.total_cycles)} />
+      <KpiCard
+        label="Overdue"
+        value={String(data.overdue_cycles)}
+        accent="error.main"
+        hint={`${inr(data.overdue_shortfall)} overdue`}
+      />
+      <KpiCard label="Total shortfall" value={inr(data.total_shortfall)} />
     </Box>
   )
 }

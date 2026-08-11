@@ -16,6 +16,7 @@ import { usePnl } from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
+import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 import { downloadCsv } from '../csvExport'
@@ -111,7 +112,7 @@ export function PnlTab() {
           <FieldLabel htmlFor="pnl-from">From</FieldLabel>
           <DatePicker
             value={from}
-            onChange={(d) => d && setFrom(d)}
+            onChange={onlyValidDate(setFrom)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{ textField: { id: 'pnl-from', size: 'small', fullWidth: true } }}
@@ -121,7 +122,7 @@ export function PnlTab() {
           <FieldLabel htmlFor="pnl-to">To</FieldLabel>
           <DatePicker
             value={to}
-            onChange={(d) => d && setTo(d)}
+            onChange={onlyValidDate(setTo)}
             format="DD MMM YYYY"
             maxDate={dayjs()}
             slotProps={{ textField: { id: 'pnl-to', size: 'small', fullWidth: true } }}

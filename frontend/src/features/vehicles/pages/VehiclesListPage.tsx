@@ -15,6 +15,7 @@ import AddIcon from '@mui/icons-material/Add'
 
 import {
   useVehicles,
+  type VehicleListResponse,
   type VehicleResponse,
   type VehicleSortField,
   type SortOrder,
@@ -23,7 +24,11 @@ import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
+import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
+import { KPI_GRID_SX, KpiCard } from '@/features/reports/components/KpiCard'
 import { fmtINR } from '@/lib/format'
+import dayjs from 'dayjs'
 import type { AssetStatus, AssetType } from '@/schemas/enums'
 import { AssetType as AssetTypeEnum } from '@/schemas/enums'
 import {
@@ -87,8 +92,27 @@ const money = (v: string | null | undefined) =>
   v != null && v !== '' ? fmtINR(Number(v)) : '—'
 
 export function VehiclesListPage() {
-  const { page, status, type, search: searchTerm, sort_by, sort_order } = routeApi.useSearch()
+  const { page, status, type, search: searchTerm, date_from, date_to, sort_by, sort_order } =
+    routeApi.useSearch()
   const navigate = routeApi.useNavigate()
+
+  // Registration-date window (scopes the list + KPIs). Backwards ranges don't
+  // query — the API would just return nothing, read as "no vehicles".
+  const range: DateRangeValue = {
+    from: date_from ? dayjs(date_from) : null,
+    to: date_to ? dayjs(date_to) : null,
+  }
+  const setRange = (next: DateRangeValue) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: 1,
+        date_from: isoOrUndefined(next.from),
+        date_to: isoOrUndefined(next.to),
+      }),
+      replace: true,
+    })
+  const invalidRange = rangeError(range)
 
   const setSort = (next: { sort_by: VehicleSortField; sort_order: SortOrder }) =>
     navigate({
@@ -127,6 +151,8 @@ export function VehiclesListPage() {
     search: searchTerm,
     status,
     type,
+    created_after: invalidRange ? undefined : isoOrUndefined(range.from),
+    created_before: invalidRange ? undefined : isoOrUndefined(range.to),
     sort_by,
     sort_order,
   })
@@ -244,6 +270,23 @@ export function VehiclesListPage() {
         </Box>
       </Box>
 
+      <Box sx={{ mb: 2 }}>
+        <DateRangeFilter
+          idPrefix="vehicles"
+          value={range}
+          onChange={setRange}
+          fromLabel="Registered from"
+          toLabel="Registered to"
+        />
+        {invalidRange && (
+          <Box sx={{ mt: 1 }}>
+            <ErrorBanner message={invalidRange} />
+          </Box>
+        )}
+      </Box>
+
+      {query.data && <VehiclesKpis data={query.data} />}
+
       {query.isError && (
         <Box sx={{ mb: 2 }}>
           <ErrorBanner message={mapListError(query.error)} />
@@ -277,6 +320,22 @@ export function VehiclesListPage() {
           )}
         </>
       )}
+    </Box>
+  )
+}
+
+// Portfolio KPIs over the whole filtered set (server aggregates, not just the
+// page), so they show every vehicle by default and narrow with the search,
+// status/type chips, and registration-date window.
+function VehiclesKpis({ data }: { data: VehicleListResponse }) {
+  const c = data.status_counts
+  return (
+    <Box sx={{ ...KPI_GRID_SX, mb: 2 }}>
+      <KpiCard label="Vehicles" value={String(data.total_vehicles)} />
+      <KpiCard label="In yard" value={String(c?.IN_YARD ?? 0)} />
+      <KpiCard label="With customer" value={String(c?.WITH_CUSTOMER ?? 0)} />
+      <KpiCard label="Market value" value={money(data.total_market_value)} />
+      <KpiCard label="Purchase cost" value={money(data.total_purchase_cost)} />
     </Box>
   )
 }

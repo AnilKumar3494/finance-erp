@@ -123,6 +123,7 @@ function ApproveAction({
   const [gapsOpen, setGapsOpen] = useState(false)
   const [mode, setMode] = useState('')
   const [modeError, setModeError] = useState<string>()
+  const [dateError, setDateError] = useState<string>()
   // Optional backdating to the real iFinance origination date. Empty = today.
   const [approvalDate, setApprovalDate] = useState<Dayjs | null>(null)
   const [firstEmiDate, setFirstEmiDate] = useState<Dayjs | null>(null)
@@ -175,6 +176,16 @@ function ApproveAction({
       setModeError('Select how the down payment was received')
       return
     }
+    // A picker hands back a non-null but invalid Dayjs while a date is being
+    // typed; formatting one would post the string "Invalid Date".
+    const badDate =
+      (approvalDate !== null && !approvalDate.isValid()) ||
+      (firstEmiDate !== null && !firstEmiDate.isValid())
+    if (badDate) {
+      setDateError('Enter a complete date, or clear the field')
+      return
+    }
+    setDateError(undefined)
     approve.mutate(
       {
         down_payment_mode: requireMode ? (mode as PaymentMethod) : undefined,
@@ -347,6 +358,14 @@ function ApproveAction({
                 />
               </Box>
             </Stack>
+            {dateError && (
+              <Typography
+                role="alert"
+                sx={{ mt: 0.75, fontSize: 11, fontWeight: 500, color: 'error.main' }}
+              >
+                {dateError}
+              </Typography>
+            )}
           </Box>
 
           {approve.isError && (

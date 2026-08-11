@@ -19,6 +19,7 @@ from app.schemas.report import (
     DashboardSummary,
     DayReport,
     EmployeeReport,
+    FeeReport,
     HpOutstandingReport,
     HpReceivableReport,
     HpRegisterReport,
@@ -26,6 +27,7 @@ from app.schemas.report import (
     MonthlyTrends,
     PnlReport,
     ReceivedInterestReport,
+    VehicleRegisterReport,
 )
 from app.services.report import (
     count_customers,
@@ -37,6 +39,7 @@ from app.services.report import (
     get_dashboard_summary,
     get_day_report,
     get_employee_report,
+    get_fee_report,
     get_hp_outstanding,
     get_hp_receivable,
     get_hp_register,
@@ -44,6 +47,7 @@ from app.services.report import (
     get_monthly_trends,
     get_pnl,
     get_received_interest,
+    get_vehicle_register,
     iter_customer_report_rows,
 )
 from app.utils.audit import write_audit
@@ -251,6 +255,42 @@ def hp_register(
 ):
     d1, d2 = _optional_range(date1, date2)
     return get_hp_register(db, d1, d2)
+
+
+# --------------------------------------------------
+# FEES COLLECTED
+# --------------------------------------------------
+@router.get(
+    "/fees",
+    response_model=FeeReport,
+    summary="Processing, documentation, DSC and RTO fees per finance",
+)
+def fee_report(
+    date1: Optional[date] = Query(None, description="Earliest approval date"),
+    date2: Optional[date] = Query(None, description="Latest approval date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    d1, d2 = _optional_range(date1, date2)
+    return get_fee_report(db, d1, d2)
+
+
+# --------------------------------------------------
+# VEHICLE REGISTER (collateral & inventory valuation)
+# --------------------------------------------------
+@router.get(
+    "/vehicles",
+    response_model=VehicleRegisterReport,
+    summary="Register of vehicles with valuation and pledged finance",
+)
+def vehicle_register(
+    date1: Optional[date] = Query(None, description="Earliest registration date"),
+    date2: Optional[date] = Query(None, description="Latest registration date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    d1, d2 = _optional_range(date1, date2)
+    return get_vehicle_register(db, d1, d2)
 
 
 # --------------------------------------------------

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -28,6 +29,7 @@ from app.services.vehicle import (
     restore_vehicle,
     soft_delete_vehicle,
     update_vehicle,
+    vehicle_stats,
     get_vehicle_by_plate,
     get_vehicle_by_chassis,
 )
@@ -87,6 +89,12 @@ def list_all(
     search: Optional[str] = Query(None, description="Search by plate number"),
     status: Optional[AssetStatus] = Query(None),
     type: Optional[AssetType] = Query(None),
+    created_after: Optional[date] = Query(
+        None, description="Earliest registration (created_at) date, inclusive"
+    ),
+    created_before: Optional[date] = Query(
+        None, description="Latest registration (created_at) date, inclusive"
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     sort_by: Optional[str] = Query(
@@ -109,9 +117,20 @@ def list_all(
         page_size=page_size,
         sort_by=sort_by,
         sort_order=sort_order,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    # KPIs over the whole filtered set (same filters, not just this page).
+    stats = vehicle_stats(
+        db,
+        search=search,
+        status=status,
+        type=type,
+        created_after=created_after,
+        created_before=created_before,
     )
     return VehicleListResponse(
-        total=total, page=page, page_size=page_size, results=results
+        total=total, page=page, page_size=page_size, results=results, **stats
     )
 
 

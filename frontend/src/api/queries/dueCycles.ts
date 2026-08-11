@@ -86,6 +86,14 @@ export interface DueCycleWorklistResponse {
   page: number
   page_size: number
   results: DueCycleWorklistItem[]
+  // Portfolio KPIs over the whole filtered set (not just this page). Money
+  // fields are strings. total_cycles === total.
+  total_cycles: number
+  total_loans: number
+  total_customers: number
+  total_shortfall: string
+  overdue_cycles: number
+  overdue_shortfall: string
 }
 
 export type WorklistSortField =

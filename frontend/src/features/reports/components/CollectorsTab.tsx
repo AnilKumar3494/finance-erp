@@ -15,6 +15,7 @@ import { useCollectionsByCollector } from '@/api/queries/reports'
 import { Card } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtINR } from '@/lib/format'
+import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
 
@@ -42,7 +43,7 @@ export function CollectorsTab() {
           <FieldLabel htmlFor="collectors-from">From</FieldLabel>
           <DatePicker
             value={from}
-            onChange={(d) => d && setFrom(d)}
+            onChange={onlyValidDate(setFrom)}
             format="DD MMM YYYY"
             maxDate={to}
             slotProps={{
@@ -54,7 +55,7 @@ export function CollectorsTab() {
           <FieldLabel htmlFor="collectors-to">To</FieldLabel>
           <DatePicker
             value={to}
-            onChange={(d) => d && setTo(d)}
+            onChange={onlyValidDate(setTo)}
             format="DD MMM YYYY"
             minDate={from}
             maxDate={dayjs()}

@@ -322,6 +322,64 @@ class HpRegisterReport(BaseModel):
 
 
 # --------------------------------------------------
+# FEES COLLECTED (processing / documentation / DSC / RTO)
+# --------------------------------------------------
+class FeeRow(BaseModel):
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: str | None
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+    approval_date: date_type | None
+    status: str
+    processing_fee: Decimal
+    documentation_fee: Decimal
+    dsc_fee: Decimal
+    rto_fee: Decimal
+    total_fee: Decimal
+
+
+class FeeReport(BaseModel):
+    total_loans: int
+    total_customers: int = 0
+    total_processing_fee: Decimal
+    total_documentation_fee: Decimal
+    total_dsc_fee: Decimal
+    total_rto_fee: Decimal
+    total_fees: Decimal
+    results: list[FeeRow]
+
+
+# --------------------------------------------------
+# VEHICLE REGISTER (collateral & inventory valuation)
+# --------------------------------------------------
+class VehicleRegisterRow(BaseModel):
+    vehicle_id: uuid.UUID
+    plate_number: str
+    make: str | None
+    model: str | None
+    year: int | None
+    type: str
+    status: str
+    market_value: Decimal
+    purchase_cost: Decimal
+    # The finance this vehicle is pledged against, if any (latest linked loan).
+    hp_number: str | None
+    loan_id: uuid.UUID | None
+    customer_name: str | None
+
+
+class VehicleRegisterReport(BaseModel):
+    total_vehicles: int
+    total_market_value: Decimal
+    total_purchase_cost: Decimal
+    # Keyed by AssetStatus value, zero-filled for every status.
+    status_counts: dict[str, int]
+    results: list[VehicleRegisterRow]
+
+
+# --------------------------------------------------
 # PROFIT & LOSS / BALANCE SHEET
 # --------------------------------------------------
 class PnlExpenseCategory(BaseModel):
