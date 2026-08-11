@@ -14,6 +14,7 @@ export const REPORT_TABS = [
   'outstanding',
   'receivable',
   'register',
+  'vehicles',
   'cashbook',
   'pnl',
   'balancesheet',

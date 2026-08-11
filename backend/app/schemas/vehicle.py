@@ -225,3 +225,11 @@ class VehicleListResponse(BaseModel):
     page: int
     page_size: int
     results: list[VehicleResponse]
+
+    # Portfolio KPIs over the whole filtered set (not just this page), for the
+    # Vehicles list summary cards. total_vehicles == total. status_counts is
+    # keyed by AssetStatus value, zero-filled for every status.
+    total_vehicles: int = 0
+    total_market_value: Decimal = Decimal("0.00")
+    total_purchase_cost: Decimal = Decimal("0.00")
+    status_counts: dict[str, int] = Field(default_factory=dict)
