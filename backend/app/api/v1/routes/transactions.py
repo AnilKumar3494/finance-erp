@@ -27,8 +27,10 @@ from app.services.transaction import (
     fail_transaction,
     get_loan_transaction_summary,
     get_transaction,
+    get_transaction_including_deleted,
     list_pending_confirmations,
     list_transactions,
+    restore_transaction,
     soft_delete_transaction,
     update_transaction,
 )
@@ -58,6 +60,21 @@ def _assert_transaction_in_user_scope(
     db: Session, transaction: Transaction, current_user: User
 ) -> None:
     _assert_loan_in_user_scope(db, transaction.loan_id, current_user)
+
+
+def _assert_can_mutate_confirmed(transaction: Transaction, current_user: User) -> None:
+    """Deleting or restoring a SUCCESS (confirmed) transaction moves money in
+    the cycle ledger, so it is locked to admins — the same gate editing a
+    confirmed transaction uses. PENDING/FAILED rows stay editable by any user
+    in scope of the loan."""
+    if transaction.status == TransactionStatus.SUCCESS and current_user.role not in (
+        UserRole.ADMIN,
+        UserRole.SUPER_ADMIN,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an admin can delete or restore a confirmed transaction.",
+        )
 
 
 # --------------------------------------------------
@@ -357,29 +374,72 @@ def update_transaction_route(
 
 
 # --------------------------------------------------
-# SOFT DELETE (Admin only)
+# SOFT DELETE
 # --------------------------------------------------
+# Any user in scope of the loan can delete a transaction of any status, with
+# one guard: deleting a SUCCESS (confirmed) row is admin-only, mirroring the
+# edit rule — it moves money in the cycle ledger. A soft delete is reversible
+# via /restore within the client's undo window (and by an admin afterwards).
 @router.delete(
     "/{transaction_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Soft delete a transaction (FAILED only)",
+    summary="Soft delete a transaction",
 )
 def delete_transaction_route(
     request: Request,
     transaction_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     transaction = get_transaction(db, transaction_id)
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
         )
+    _assert_transaction_in_user_scope(db, transaction, current_user)
+    _assert_can_mutate_confirmed(transaction, current_user)
     try:
         soft_delete_transaction(
             db=db,
             transaction=transaction,
             deleted_by=current_user.id,
+            request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# --------------------------------------------------
+# RESTORE (undo a soft delete)
+# --------------------------------------------------
+@router.post(
+    "/{transaction_id}/restore",
+    response_model=TransactionResponse,
+    summary="Restore a soft-deleted transaction",
+)
+def restore_transaction_route(
+    request: Request,
+    transaction_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    transaction = get_transaction_including_deleted(db, transaction_id)
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found"
+        )
+    if not transaction.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transaction is not deleted",
+        )
+    _assert_transaction_in_user_scope(db, transaction, current_user)
+    _assert_can_mutate_confirmed(transaction, current_user)
+    try:
+        return restore_transaction(
+            db=db,
+            transaction=transaction,
+            restored_by=current_user.id,
             request=request,
         )
     except ValueError as e:

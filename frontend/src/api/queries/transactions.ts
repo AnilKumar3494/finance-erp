@@ -297,14 +297,32 @@ export function useUpdateTransaction(loanId: string) {
   })
 }
 
-// Soft-delete a transaction (admin). Backend allows this for FAILED
-// transactions only (400 otherwise); a wrong PENDING/SUCCESS txn must be
-// failed first. Returns 204 — no body.
+// Soft-delete a transaction. Allowed for any status and for any user in scope
+// of the loan, with one guard: deleting a SUCCESS (confirmed) row is admin-only
+// (server-gated) since it moves money in the cycle ledger. Reversible via
+// useRestoreTransaction within the client's undo window (and by an admin
+// afterwards). Returns 204 — no body.
 export function useDeleteTransaction(loanId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (transactionId: string) => {
       await apiClient.delete(`/transactions/${transactionId}`)
+    },
+    onSuccess: () => invalidateLoanLedger(qc, loanId),
+  })
+}
+
+// Restore (undo) a soft-deleted transaction. Same in-scope/admin gate as
+// delete. Recomputes the cycle ledger server-side when the restored row is a
+// SUCCESS payment. Returns the restored transaction.
+export function useRestoreTransaction(loanId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      const { data } = await apiClient.post<TransactionResponse>(
+        `/transactions/${transactionId}/restore`,
+      )
+      return data
     },
     onSuccess: () => invalidateLoanLedger(qc, loanId),
   })
