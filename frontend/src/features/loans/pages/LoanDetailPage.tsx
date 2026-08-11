@@ -11,9 +11,11 @@ import { useLoan, type LoanResponse } from '@/api/queries/loans'
 import type { LoanStatus } from '@/schemas/enums'
 import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
+import { useLoanSummary } from '@/api/queries/transactions'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
+import { LoanTermsCard } from '../components/LoanTermsCard'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
@@ -165,70 +167,40 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 // --------------------------------------------------
 
 function HeaderCard({ loan }: { loan: LoanResponse }) {
-  // Due cycles only exist after approval; the next UPCOMING one is the EMI to
-  // collect next.
-  const cyclesQuery = useDueCycles(loan.id, loan.status !== 'DRAFT')
-  const nextEmi =
-    (cyclesQuery.data?.results ?? [])
+  const isDraft = loan.status === 'DRAFT'
+  // Due cycles + balances only exist after approval; the next UPCOMING cycle is
+  // the EMI to collect next, and the summary carries Outstanding / Total paid.
+  const cyclesQuery = useDueCycles(loan.id, !isDraft)
+  const summaryQuery = useLoanSummary(loan.id, !isDraft)
+  const cycles = cyclesQuery.data?.results ?? []
+  const upcoming =
+    cycles
       .filter((c) => c.cycle_status === 'UPCOMING')
       .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null
+  const nextEmi = upcoming
+    ? {
+        // The actual amount due that month (base EMI + any penalty add-on
+        // spread from an earlier late cycle), not the sticker EMI.
+        value: fmtINR(Number(upcoming.total_due)),
+        hint:
+          Number(upcoming.addon_from_penalties) > 0
+            ? `due ${fmtDate(upcoming.due_date)} · ${fmtINR(Number(upcoming.base_emi))} + ${fmtINR(Number(upcoming.addon_from_penalties))} penalty`
+            : `due ${fmtDate(upcoming.due_date)}`,
+      }
+    : undefined
+  const penaltiesTotal = cycles.reduce((a, c) => a + Number(c.penalty_amount), 0)
 
   return (
     <>
       <LoanIdentityCard loan={loan} eyebrow="Finance" showLmsNumber />
-      <Card>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' },
-            gap: { xs: 1.5, sm: 2.5 },
-          }}
-        >
-          <HeaderStat
-            label="Principal"
-            value={loan.principal != null ? fmtINR(Number(loan.principal)) : '—'}
-          />
-          {nextEmi && (
-            <HeaderStat
-              label="Next EMI"
-              // Show the actual amount due that month (base EMI + any penalty
-              // add-on spread from an earlier late cycle), not the sticker EMI.
-              value={fmtINR(Number(nextEmi.total_due))}
-              hint={
-                Number(nextEmi.addon_from_penalties) > 0
-                  ? `due ${fmtDate(nextEmi.due_date)} · ${fmtINR(Number(nextEmi.base_emi))} + ${fmtINR(Number(nextEmi.addon_from_penalties))} penalty`
-                  : `due ${fmtDate(nextEmi.due_date)}`
-              }
-            />
-          )}
-          {loan.tenure != null && <HeaderStat label="Tenure" value={`${loan.tenure} months`} />}
-          {loan.interest_rate != null && (
-            <HeaderStat label="Interest rate" value={`${loan.interest_rate}% p.a.`} />
-          )}
-          {loan.total_payable != null && (
-            <HeaderStat label="Total payable" value={fmtINR(Number(loan.total_payable))} />
-          )}
-        </Box>
-      </Card>
+      <LoanTermsCard
+        loan={loan}
+        summary={summaryQuery.data}
+        nextEmi={nextEmi}
+        penaltiesTotal={penaltiesTotal}
+        showMoney={!isDraft}
+      />
     </>
-  )
-}
-
-function HeaderStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h3" sx={{ fontSize: { xs: 16, sm: 18 } }}>
-        {value}
-      </Typography>
-      {hint && (
-        <Typography variant="caption" color="text.secondary">
-          {hint}
-        </Typography>
-      )}
-    </Box>
   )
 }
 

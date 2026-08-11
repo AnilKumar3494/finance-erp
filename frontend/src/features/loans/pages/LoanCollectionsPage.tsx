@@ -19,6 +19,7 @@ import {
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
+import { LoanTermsCard, HeaderStat } from '../components/LoanTermsCard'
 import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
 import { LoanActions } from '../components/LoanActions'
@@ -243,94 +244,29 @@ function HeaderCard({
   onRecord,
   onStatusClick,
 }: HeaderCardProps) {
-  // Nominal monthly instalment (base EMI) — total payable spread over tenure.
-  const nextEmi =
-    loan.total_payable != null && loan.tenure ? Number(loan.total_payable) / loan.tenure : null
-
   return (
     <>
       <LoanIdentityCard loan={loan} eyebrow="Collections workspace" onStatusClick={onStatusClick} />
-      <Card>
-        <Stack spacing={1.5}>
-          {/* Loan terms — the fixed contract figures. */}
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              Loan Terms
-            </Typography>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)', md: 'repeat(5, 1fr)' },
-                gap: { xs: 1.5, sm: 2.5 },
-                mt: 0.5,
-              }}
-            >
-              <HeaderStat label="Principal" value={fmtINR(Number(loan.principal))} />
-              <HeaderStat
-                label="Interest rate"
-                value={loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : '—'}
-              />
-              <HeaderStat
-                label="Tenure"
-                value={loan.tenure != null ? `${loan.tenure} months` : '—'}
-              />
-              <HeaderStat
-                label="Total payable"
-                value={loan.total_payable != null ? fmtINR(Number(loan.total_payable)) : '—'}
-              />
-              <HeaderStat
-                label="Next EMI"
-                // The actual amount due on the next collectible cycle (base EMI +
-                // any penalty add-on), with the breakdown — not the sticker EMI.
-                value={
-                  focusCycle
-                    ? fmtINR(Number(focusCycle.total_due))
-                    : nextEmi != null
-                      ? fmtINR(nextEmi)
-                      : '—'
-                }
-                hint={
-                  focusCycle
-                    ? Number(focusCycle.addon_from_penalties) > 0
-                      ? `due ${fmtDate(focusCycle.due_date)} · ${fmtINR(Number(focusCycle.base_emi))} + ${fmtINR(Number(focusCycle.addon_from_penalties))} penalty`
-                      : `due ${fmtDate(focusCycle.due_date)}`
-                    : undefined
-                }
-              />
-            </Box>
-          </Box>
-
-          <Divider />
-
-          {/* Money — live balances. */}
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
-              gap: { xs: 1.5, sm: 2.5 },
-            }}
-          >
-            <HeaderStat
-              label="Outstanding"
-              value={summary ? fmtINR(Number(summary.outstanding)) : '—'}
-            />
-            <HeaderStat
-              label="Total paid"
-              value={summary ? fmtINR(Number(summary.total_paid)) : '—'}
-            />
-            <HeaderStat
-              label="Penalties"
-              value={penaltiesTotal > 0 ? fmtINR(penaltiesTotal) : '—'}
-              tone={penaltiesTotal > 0 ? 'warning' : undefined}
-            />
-            <HeaderStat
-              label="Pending confirmations"
-              value={pendingCount > 0 ? `${pendingCount}` : '—'}
-              hint={pendingCount > 0 ? fmtINR(pendingTotal) : undefined}
-              tone={pendingCount > 0 ? 'warning' : undefined}
-            />
-          </Box>
-
+      <LoanTermsCard
+        loan={loan}
+        summary={summary}
+        nextEmi={
+          focusCycle
+            ? {
+                // The actual amount due on the next collectible cycle (base EMI
+                // + any penalty add-on), with the breakdown — not the sticker EMI.
+                value: fmtINR(Number(focusCycle.total_due)),
+                hint:
+                  Number(focusCycle.addon_from_penalties) > 0
+                    ? `due ${fmtDate(focusCycle.due_date)} · ${fmtINR(Number(focusCycle.base_emi))} + ${fmtINR(Number(focusCycle.addon_from_penalties))} penalty`
+                    : `due ${fmtDate(focusCycle.due_date)}`,
+              }
+            : undefined
+        }
+        penaltiesTotal={penaltiesTotal}
+        pendingCount={pendingCount}
+        pendingTotal={pendingTotal}
+      >
           {focusCycle && (
             <>
               <Divider />
@@ -373,37 +309,7 @@ function HeaderCard({
               </Btn>
             </Stack>
           )}
-        </Stack>
-      </Card>
+      </LoanTermsCard>
     </>
-  )
-}
-
-function HeaderStat({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: 'warning'
-}) {
-  const color = tone === 'warning' ? 'warning.main' : undefined
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h3" sx={{ fontSize: { xs: 16, sm: 18 }, color }}>
-        {value}
-      </Typography>
-      {hint && (
-        <Typography variant="caption" color="text.secondary">
-          {hint}
-        </Typography>
-      )}
-    </Box>
   )
 }
