@@ -14,6 +14,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 
 import { usePnl } from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
+import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { onlyValidDate } from '@/lib/dateRange'
@@ -38,6 +39,7 @@ const MAX_RANGE_DAYS = 366
 export function PnlTab() {
   const [from, setFrom] = useState<Dayjs>(() => dayjs().startOf('month'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
+  const isDefault = from.isSame(dayjs().startOf('month'), 'day') && to.isSame(dayjs(), 'day')
   // Recognise fee / penalty income by default; the switches let a viewer drop
   // either line to see the pure interest-on-collections view.
   const [showFees, setShowFees] = useState(true)
@@ -52,12 +54,11 @@ export function PnlTab() {
   const query = usePnl(iso(from), iso(to), !rangeError)
   const report = query.data
 
-  // Widen to the maximum allowed window (a P&L needs a bounded period, so
-  // "full period" is the cap, not all-time).
-  const fullPeriod = () => {
-    const end = dayjs()
-    setTo(end)
-    setFrom(end.subtract(MAX_RANGE_DAYS, 'day'))
+  // A P&L needs a bounded period, so "clear" resets to the default window
+  // (this month) rather than blanking the fields the way the list filters do.
+  const resetWindow = () => {
+    setFrom(dayjs().startOf('month'))
+    setTo(dayjs())
   }
 
   // Income recomputed from components so the totals honour the toggles.
@@ -161,9 +162,9 @@ export function PnlTab() {
             slotProps={{ textField: { id: 'pnl-to', size: 'small', fullWidth: true } }}
           />
         </Box>
-        <Btn variant="ghost" onClick={fullPeriod}>
-          Full period
-        </Btn>
+        {!isDefault && (
+          <ClearDatesButton onClick={resetWindow} title="Reset to the default period" />
+        )}
         <Btn
           variant="ghost"
           startIcon={<FileDownloadOutlinedIcon />}

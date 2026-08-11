@@ -8,6 +8,7 @@ import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 
 import { useDayReport } from '@/api/queries/reports'
 import { Btn, Card } from '@/components/primitives'
+import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtINR } from '@/lib/format'
 import { onlyValidDate } from '@/lib/dateRange'
@@ -25,6 +26,7 @@ const iso = (d: Dayjs) => d.format('YYYY-MM-DD')
  */
 export function DayReportTab() {
   const [day, setDay] = useState<Dayjs>(() => dayjs())
+  const isDefault = day.isSame(dayjs(), 'day')
   const query = useDayReport(iso(day), iso(day))
   const report = query.data
   const section = report?.days[0]
@@ -48,6 +50,9 @@ export function DayReportTab() {
             }}
           />
         </Box>
+        {!isDefault && (
+          <ClearDatesButton onClick={() => setDay(dayjs())} title="Reset to today" />
+        )}
         <Btn
           variant="ghost"
           startIcon={<PrintOutlinedIcon />}
