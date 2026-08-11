@@ -34,7 +34,7 @@ from app.models.transaction import (
 )
 from app.models.cash_entry import CASH_IN_TYPES, CashEntryType
 from app.models.user import User
-from app.models.vehicle import Vehicle
+from app.models.vehicle import AssetStatus, Vehicle
 from app.services.cash_entry import (
     cash_entries_in_range,
     cash_entry_net_before,
@@ -1515,6 +1515,87 @@ def get_hp_register(
 # --------------------------------------------------
 # FEES COLLECTED
 # --------------------------------------------------
+def get_vehicle_register(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> dict:
+    """
+    The collateral & inventory register: every non-deleted vehicle with its
+    valuation (market value, purchase cost) and, for a pledged vehicle, the
+    finance it backs (latest linked loan's HP number + customer).
+
+    `date1`/`date2` bound the registration date (created_at) inclusively;
+    omitting both is all-time. Totals and a per-status count summarise the
+    selected set. Unlike the loan reports there is no DRAFT concept here — a
+    vehicle is inventory the moment it is registered.
+    """
+    q = db.query(Vehicle).filter(Vehicle.is_deleted == False)  # noqa: E712
+    if date1 is not None:
+        q = q.filter(Vehicle.created_at >= datetime.combine(date1, time.min))
+    if date2 is not None:
+        q = q.filter(
+            Vehicle.created_at < datetime.combine(date2 + timedelta(days=1), time.min)
+        )
+    vehicles = q.order_by(Vehicle.created_at.desc(), Vehicle.id.asc()).all()
+
+    # Latest linked loan per vehicle (one grouped query, not a join, so a
+    # vehicle backing several loans never multiplies its register row). Newest
+    # loan wins — that is the finance the vehicle is currently pledged against.
+    loan_by_vehicle: dict = {}
+    vehicle_ids = [v.id for v in vehicles]
+    if vehicle_ids:
+        loan_rows = (
+            db.query(Loan, Customer)
+            .join(Customer, Customer.id == Loan.customer_id)
+            .filter(
+                Loan.vehicle_id.in_(vehicle_ids),
+                Loan.is_deleted == False,  # noqa: E712
+            )
+            .order_by(Loan.created_at.desc())
+            .all()
+        )
+        for loan, customer in loan_rows:
+            # First seen wins because the query is newest-first.
+            loan_by_vehicle.setdefault(
+                loan.vehicle_id, (loan, customer.full_name)
+            )
+
+    results = []
+    total_market = _ZERO
+    total_cost = _ZERO
+    status_counts = {s.value: 0 for s in AssetStatus}
+    for v in vehicles:
+        market = _d(v.market_value)
+        cost = _d(v.purchase_cost)
+        total_market += market
+        total_cost += cost
+        status_counts[v.status.value] = status_counts.get(v.status.value, 0) + 1
+        linked = loan_by_vehicle.get(v.id)
+        results.append(
+            {
+                "vehicle_id": v.id,
+                "plate_number": v.plate_number,
+                "make": v.make,
+                "model": v.model,
+                "year": v.year,
+                "type": v.type.value,
+                "status": v.status.value,
+                "market_value": market,
+                "purchase_cost": cost,
+                "hp_number": linked[0].hp_number if linked else None,
+                "loan_id": linked[0].id if linked else None,
+                "customer_name": linked[1] if linked else None,
+            }
+        )
+
+    return {
+        "total_vehicles": len(vehicles),
+        "total_market_value": total_market,
+        "total_purchase_cost": total_cost,
+        "status_counts": status_counts,
+        "results": results,
+    }
+
+
 def get_fee_report(
     db: Session, date1: Optional[date] = None, date2: Optional[date] = None
 ) -> dict:

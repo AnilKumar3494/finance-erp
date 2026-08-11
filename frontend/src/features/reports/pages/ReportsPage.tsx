@@ -17,6 +17,7 @@ import MenuBookOutlined from '@mui/icons-material/MenuBookOutlined'
 import SavingsOutlined from '@mui/icons-material/SavingsOutlined'
 import TrendingUpOutlined from '@mui/icons-material/TrendingUpOutlined'
 import BalanceOutlined from '@mui/icons-material/BalanceOutlined'
+import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 import { useAuth } from '@/app/auth-context'
@@ -37,6 +38,7 @@ import { FeesTab } from '../components/FeesTab'
 import { CapitalExpensesTab } from '../components/CapitalExpensesTab'
 import { PnlTab } from '../components/PnlTab'
 import { BalanceSheetTab } from '../components/BalanceSheetTab'
+import { VehiclesReportTab } from '../components/VehiclesReportTab'
 
 const routeApi = getRouteApi('/_authed/reports')
 
@@ -147,6 +149,12 @@ const REPORT_SECTIONS: ReportSection[] = [
         description: 'The full register of executed finances with terms and vehicles.',
         icon: MenuBookOutlined,
       },
+      {
+        tab: 'vehicles',
+        label: 'Vehicle Register',
+        description: 'Collateral and inventory valuation, with the finance each vehicle backs.',
+        icon: DirectionsCarOutlined,
+      },
     ],
   },
   {
@@ -186,6 +194,7 @@ const REPORT_VIEWS: Record<ReportTab, { title: string; render: () => React.React
   outstanding: { title: 'HP Outstanding', render: () => <HpOutstandingTab /> },
   receivable: { title: 'Receivable Interest', render: () => <HpReceivableTab /> },
   register: { title: 'HP Register', render: () => <HpRegisterTab /> },
+  vehicles: { title: 'Vehicle Register', render: () => <VehiclesReportTab /> },
   fees: { title: 'Fees', render: () => <FeesTab /> },
   cashbook: { title: 'Capital & Expenses', render: () => <CapitalExpensesTab /> },
   pnl: { title: 'Profit & Loss', render: () => <PnlTab /> },

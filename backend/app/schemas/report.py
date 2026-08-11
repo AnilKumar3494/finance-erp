@@ -352,6 +352,34 @@ class FeeReport(BaseModel):
 
 
 # --------------------------------------------------
+# VEHICLE REGISTER (collateral & inventory valuation)
+# --------------------------------------------------
+class VehicleRegisterRow(BaseModel):
+    vehicle_id: uuid.UUID
+    plate_number: str
+    make: str | None
+    model: str | None
+    year: int | None
+    type: str
+    status: str
+    market_value: Decimal
+    purchase_cost: Decimal
+    # The finance this vehicle is pledged against, if any (latest linked loan).
+    hp_number: str | None
+    loan_id: uuid.UUID | None
+    customer_name: str | None
+
+
+class VehicleRegisterReport(BaseModel):
+    total_vehicles: int
+    total_market_value: Decimal
+    total_purchase_cost: Decimal
+    # Keyed by AssetStatus value, zero-filled for every status.
+    status_counts: dict[str, int]
+    results: list[VehicleRegisterRow]
+
+
+# --------------------------------------------------
 # PROFIT & LOSS / BALANCE SHEET
 # --------------------------------------------------
 class PnlExpenseCategory(BaseModel):

@@ -39,6 +39,12 @@ export interface VehicleListResponse {
   page: number
   page_size: number
   results: VehicleResponse[]
+  // Portfolio KPIs over the whole filtered set (not just this page). Money
+  // fields are strings; status_counts is keyed by AssetStatus, zero-filled.
+  total_vehicles: number
+  total_market_value: string
+  total_purchase_cost: string
+  status_counts: Record<AssetStatus, number>
 }
 
 // Source of truth: the runtime array. The type is derived from it so the
@@ -63,6 +69,9 @@ export interface VehicleListParams {
   search?: string
   status?: AssetStatus
   type?: AssetType
+  // Registration-date window (ISO yyyy-mm-dd), inclusive.
+  created_after?: string
+  created_before?: string
   sort_by?: VehicleSortField
   sort_order?: SortOrder
 }

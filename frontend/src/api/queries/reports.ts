@@ -271,6 +271,31 @@ export interface HpRegisterReport {
   results: HpRegisterRow[]
 }
 
+export interface VehicleRegisterRow {
+  vehicle_id: string
+  plate_number: string
+  make: string | null
+  model: string | null
+  year: number | null
+  type: string
+  status: string
+  market_value: string
+  purchase_cost: string
+  // The finance this vehicle is pledged against, if any (latest linked loan).
+  hp_number: string | null
+  loan_id: string | null
+  customer_name: string | null
+}
+
+export interface VehicleRegisterReport {
+  total_vehicles: number
+  total_market_value: string
+  total_purchase_cost: string
+  // Keyed by AssetStatus value, zero-filled for every status.
+  status_counts: Record<string, number>
+  results: VehicleRegisterRow[]
+}
+
 export interface FeeRow {
   loan_id: string
   loan_number: string
@@ -400,6 +425,7 @@ export const reportKeys = {
   hpReceivable: (w?: DateWindow) =>
     [...reportKeys.all, 'hpReceivable', ...win(w)] as const,
   hpRegister: (w?: DateWindow) => [...reportKeys.all, 'hpRegister', ...win(w)] as const,
+  vehicles: (w?: DateWindow) => [...reportKeys.all, 'vehicles', ...win(w)] as const,
   fees: (w?: DateWindow) => [...reportKeys.all, 'fees', ...win(w)] as const,
   pnl: (date1: string, date2: string) => [...reportKeys.all, 'pnl', date1, date2] as const,
   balanceSheet: () => [...reportKeys.all, 'balanceSheet'] as const,
@@ -615,6 +641,21 @@ export function useHpRegister(enabled = true, window?: DateWindow) {
     queryKey: reportKeys.hpRegister(window),
     queryFn: async () => {
       const { data } = await apiClient.get<HpRegisterReport>('/reports/hp-register', {
+        params: { ...window },
+      })
+      return data
+    },
+    enabled,
+    staleTime: REPORT_STALE_MS,
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useVehicleRegister(enabled = true, window?: DateWindow) {
+  return useQuery({
+    queryKey: reportKeys.vehicles(window),
+    queryFn: async () => {
+      const { data } = await apiClient.get<VehicleRegisterReport>('/reports/vehicles', {
         params: { ...window },
       })
       return data

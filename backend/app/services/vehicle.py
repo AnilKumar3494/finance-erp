@@ -1,9 +1,12 @@
 import uuid
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import Request
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
 from app.models.vehicle import AssetStatus, AssetType, Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleUpdate
@@ -122,19 +125,21 @@ def get_vehicle_by_chassis(db: Session, chassis_number: str) -> Optional[Vehicle
     return db.query(Vehicle).filter(Vehicle.chassis_number == chassis_number).first()
 
 
-def list_vehicles(
+def _vehicle_filtered_query(
     db: Session,
+    *,
     search: Optional[str] = None,
     status: Optional[AssetStatus] = None,
     type: Optional[AssetType] = None,
-    page: int = 1,
-    page_size: int = 20,
-    sort_by: Optional[str] = None,
-    sort_order: Optional[str] = None,
-) -> tuple[list[Vehicle], int]:
+    created_after: Optional[date] = None,
+    created_before: Optional[date] = None,
+) -> Query:
     """
-    List vehicles with optional filters.
-    Returns (results, total_count)
+    The filtered (unsorted, unpaginated) vehicle query shared by the paginated
+    list and the KPI aggregate (`vehicle_stats`), so both agree on which rows
+    the filters select. `created_after`/`created_before` bound the registration
+    (created_at) date inclusively; created_at is a timestamp, so the upper bound
+    covers the whole of that day.
     """
     query = db.query(Vehicle).filter(Vehicle.is_deleted == False)
 
@@ -146,6 +151,88 @@ def list_vehicles(
 
     if type:
         query = query.filter(Vehicle.type == type)
+
+    if created_after is not None:
+        query = query.filter(Vehicle.created_at >= datetime.combine(created_after, time.min))
+
+    if created_before is not None:
+        query = query.filter(
+            Vehicle.created_at < datetime.combine(created_before + timedelta(days=1), time.min)
+        )
+
+    return query
+
+
+def vehicle_stats(
+    db: Session,
+    *,
+    search: Optional[str] = None,
+    status: Optional[AssetStatus] = None,
+    type: Optional[AssetType] = None,
+    created_after: Optional[date] = None,
+    created_before: Optional[date] = None,
+) -> dict:
+    """
+    Portfolio KPIs over the whole filtered set (not just the visible page) for
+    the Vehicles list summary cards: how many vehicles the filters select,
+    broken down by status, and the total market value / purchase cost.
+    """
+    query = _vehicle_filtered_query(
+        db,
+        search=search,
+        status=status,
+        type=type,
+        created_after=created_after,
+        created_before=created_before,
+    )
+    total, market, cost = query.with_entities(
+        func.count(Vehicle.id),
+        func.coalesce(func.sum(Vehicle.market_value), 0),
+        func.coalesce(func.sum(Vehicle.purchase_cost), 0),
+    ).one()
+
+    status_rows = (
+        query.with_entities(Vehicle.status, func.count(Vehicle.id))
+        .group_by(Vehicle.status)
+        .all()
+    )
+    # Every status present, zero-filled, so the frontend can read any key.
+    status_counts = {s.value: 0 for s in AssetStatus}
+    for s, n in status_rows:
+        status_counts[s.value] = int(n)
+
+    return {
+        "total_vehicles": int(total),
+        "total_market_value": Decimal(market),
+        "total_purchase_cost": Decimal(cost),
+        "status_counts": status_counts,
+    }
+
+
+def list_vehicles(
+    db: Session,
+    search: Optional[str] = None,
+    status: Optional[AssetStatus] = None,
+    type: Optional[AssetType] = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+    created_after: Optional[date] = None,
+    created_before: Optional[date] = None,
+) -> tuple[list[Vehicle], int]:
+    """
+    List vehicles with optional filters.
+    Returns (results, total_count)
+    """
+    query = _vehicle_filtered_query(
+        db,
+        search=search,
+        status=status,
+        type=type,
+        created_after=created_after,
+        created_before=created_before,
+    )
 
     total = query.count()
 

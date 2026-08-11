@@ -2,23 +2,17 @@ import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpRegister, type HpRegisterRow } from '@/api/queries/reports'
-import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
-import { SortableTh } from '@/components/sort/SortableTh'
+import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { VirtualReportTable, type VirtualColumn } from './VirtualReportTable'
 import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
@@ -101,6 +95,90 @@ export function HpRegisterTab() {
       ),
     [rows],
   )
+
+  const columns: VirtualColumn<HpRegisterRow, Field>[] = [
+    {
+      field: 'hp',
+      label: 'HP No',
+      width: '10%',
+      cellSx: { fontFamily: 'var(--font-mono)' },
+      renderCell: (r) => r.hp_number ?? r.loan_number,
+    },
+    {
+      field: 'customer',
+      label: 'Customer',
+      width: '20%',
+      renderCell: (r) => (
+        <>
+          <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+            {r.customer_name}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'var(--font-mono)' }}
+          >
+            {r.customer_mobile}
+          </Typography>
+        </>
+      ),
+    },
+    {
+      field: 'vehicle',
+      label: 'Vehicle',
+      width: '10%',
+      cellSx: { fontFamily: 'var(--font-mono)' },
+      renderCell: (r) => r.vehicle_plate ?? '—',
+    },
+    {
+      field: 'approved',
+      label: 'Approved',
+      width: '10%',
+      defaultDir: 'desc',
+      renderCell: (r) => (r.approval_date ? fmtDate(r.approval_date) : '—'),
+    },
+    {
+      field: 'principal',
+      label: 'Principal',
+      align: 'right',
+      width: '12%',
+      defaultDir: 'desc',
+      renderCell: (r) => inr(r.principal),
+      footer: fmtINR(sums.principal),
+    },
+    {
+      field: 'rate',
+      label: 'Rate',
+      align: 'right',
+      width: '7%',
+      defaultDir: 'desc',
+      renderCell: (r) => (r.interest_rate !== null ? `${Number(r.interest_rate)}%` : '—'),
+    },
+    {
+      field: 'tenure',
+      label: 'Tenure',
+      align: 'right',
+      width: '8%',
+      defaultDir: 'desc',
+      renderCell: (r) => (r.tenure !== null ? `${r.tenure} mo` : '—'),
+    },
+    {
+      field: 'payable',
+      label: 'Payable',
+      align: 'right',
+      width: '13%',
+      defaultDir: 'desc',
+      cellSx: { fontWeight: 600 },
+      renderCell: (r) => inr(r.total_payable),
+      footer: fmtINR(sums.payable),
+    },
+    {
+      field: 'status',
+      label: 'Status',
+      width: '10%',
+      renderCell: (r) => STATUS_LABELS[r.status] ?? r.status,
+    },
+  ]
 
   const exportCsv = () =>
     downloadCsv(
@@ -207,84 +285,18 @@ export function HpRegisterTab() {
                 No finances match this filter.
               </Typography>
             ) : (
-              <Card sx={{ p: 0, overflow: 'hidden' }}>
-                <TableContainer sx={{ overflowX: 'auto' }}>
-                  <Table
-                    size="small"
-                    sx={{ minWidth: 1000, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
-                  >
-                    <TableHead>
-                      <TableRow>
-                        <SortableTh field="hp" label="HP No" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                        <SortableTh field="customer" label="Customer" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                        <SortableTh field="vehicle" label="Vehicle" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                        <SortableTh field="approved" label="Approved" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                        <SortableTh field="principal" label="Principal" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                        <SortableTh field="rate" label="Rate" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                        <SortableTh field="tenure" label="Tenure" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                        <SortableTh field="payable" label="Payable" align="right" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="desc" onSort={onSort} />
-                        <SortableTh field="status" label="Status" activeField={sort.sort_by} activeOrder={sort.sort_order} defaultDir="asc" onSort={onSort} />
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {rows.map((r) => (
-                        <TableRow
-                          key={r.loan_id}
-                          hover
-                          sx={{ cursor: 'pointer' }}
-                          onClick={() =>
-                            navigate({ to: '/finances/$loanId', params: { loanId: r.loan_id } })
-                          }
-                        >
-                          <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                            {r.hp_number ?? r.loan_number}
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                              {r.customer_name}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'var(--font-mono)' }}>
-                              {r.customer_mobile}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                            {r.vehicle_plate ?? '—'}
-                          </TableCell>
-                          <TableCell>
-                            {r.approval_date ? fmtDate(r.approval_date) : '—'}
-                          </TableCell>
-                          <TableCell align="right">{inr(r.principal)}</TableCell>
-                          <TableCell align="right">
-                            {r.interest_rate !== null ? `${Number(r.interest_rate)}%` : '—'}
-                          </TableCell>
-                          <TableCell align="right">
-                            {r.tenure !== null ? `${r.tenure} mo` : '—'}
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 600 }}>
-                            {inr(r.total_payable)}
-                          </TableCell>
-                          <TableCell>{STATUS_LABELS[r.status] ?? r.status}</TableCell>
-                        </TableRow>
-                      ))}
-                      <TableRow sx={{ bgcolor: 'action.hover' }}>
-                        <TableCell sx={{ fontWeight: 700 }}>TOTAL</TableCell>
-                        <TableCell />
-                        <TableCell />
-                        <TableCell />
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          {fmtINR(sums.principal)}
-                        </TableCell>
-                        <TableCell />
-                        <TableCell />
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          {fmtINR(sums.payable)}
-                        </TableCell>
-                        <TableCell />
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Card>
+              <VirtualReportTable
+                columns={columns}
+                rows={rows}
+                getRowKey={(r) => r.loan_id}
+                onRowClick={(r) =>
+                  navigate({ to: '/finances/$loanId', params: { loanId: r.loan_id } })
+                }
+                sort={sort}
+                onSort={onSort}
+                minWidth={1000}
+                estimateRowHeight={52}
+              />
             )}
           </>
         )}
