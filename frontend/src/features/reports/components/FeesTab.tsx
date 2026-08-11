@@ -12,6 +12,7 @@ import { toggleSort, useClientSort, type SortState } from '@/components/sort/use
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { ReportToggle, ReportToggleBar } from './ReportToggle'
 import { VirtualReportTable, type VirtualColumn } from './VirtualReportTable'
 import { downloadCsv } from '../csvExport'
 import { downloadTablePdf, pdfINR } from '../reportPdf'
@@ -20,18 +21,28 @@ import { EMPTY_RANGE, isoOrUndefined, rangeError, type DateRangeValue } from '@/
 
 const inr = (s: string) => fmtINR(Number(s))
 
-// Five tiles, not the shared four-column grid — otherwise the grand total
-// orphans onto a row of its own and reads like an afterthought.
-const FEE_KPI_GRID_SX = {
-  ...KPI_GRID_SX,
-  gridTemplateColumns: {
-    xs: 'repeat(2, 1fr)',
-    sm: 'repeat(3, 1fr)',
-    lg: 'repeat(5, 1fr)',
-  },
-} as const
+// Five tiles (six with penalties on), not the shared four-column grid —
+// otherwise the grand total orphans onto a row of its own.
+const feeKpiGridSx = (cols: number) =>
+  ({
+    ...KPI_GRID_SX,
+    gridTemplateColumns: {
+      xs: 'repeat(2, 1fr)',
+      sm: 'repeat(3, 1fr)',
+      lg: `repeat(${cols}, 1fr)`,
+    },
+  }) as const
 
-type Field = 'hp' | 'customer' | 'approved' | 'processing' | 'documentation' | 'dsc' | 'rto' | 'total'
+type Field =
+  | 'hp'
+  | 'customer'
+  | 'approved'
+  | 'processing'
+  | 'documentation'
+  | 'dsc'
+  | 'rto'
+  | 'total'
+  | 'penalty'
 
 const ACCESSORS: Partial<Record<Field, (r: FeeRow) => string | number | null>> = {
   hp: (r) => r.hp_number ?? r.loan_number,
@@ -42,6 +53,7 @@ const ACCESSORS: Partial<Record<Field, (r: FeeRow) => string | number | null>> =
   dsc: (r) => Number(r.dsc_fee),
   rto: (r) => Number(r.rto_fee),
   total: (r) => Number(r.total_fee),
+  penalty: (r) => Number(r.penalty_charged),
 }
 
 /**
@@ -62,6 +74,9 @@ export function FeesTab() {
   const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
+  // Penalties are supplementary to a fees report, so off by default; the switch
+  // reveals a Penalties column + total.
+  const [showPenalties, setShowPenalties] = useState(false)
   const [sort, setSort] = useState<SortState<Field>>({ sort_by: 'total', sort_order: 'desc' })
   const onSort = (field: Field, defaultDir: 'asc' | 'desc') =>
     setSort((s) => toggleSort(s, field, defaultDir))
@@ -89,8 +104,9 @@ export function FeesTab() {
           dsc: a.dsc + Number(r.dsc_fee),
           rto: a.rto + Number(r.rto_fee),
           total: a.total + Number(r.total_fee),
+          penalty: a.penalty + Number(r.penalty_charged),
         }),
-        { processing: 0, documentation: 0, dsc: 0, rto: 0, total: 0 },
+        { processing: 0, documentation: 0, dsc: 0, rto: 0, total: 0, penalty: 0 },
       ),
     [rows],
   )
@@ -169,12 +185,27 @@ export function FeesTab() {
       field: 'total',
       label: 'Total',
       align: 'right',
-      width: '18%',
+      width: showPenalties ? '10%' : '18%',
       defaultDir: 'desc',
       cellSx: { fontWeight: 600 },
       renderCell: (r) => inr(r.total_fee),
       footer: fmtINR(sums.total),
     },
+    ...(showPenalties
+      ? [
+          {
+            field: 'penalty' as Field,
+            label: 'Penalty',
+            align: 'right' as const,
+            width: '10%',
+            defaultDir: 'desc' as const,
+            cellSx: { color: 'warning.main' },
+            renderCell: (r: FeeRow) => inr(r.penalty_charged),
+            footer: fmtINR(sums.penalty),
+            footerSx: { color: 'warning.main' },
+          },
+        ]
+      : []),
   ]
 
   const exportCsv = () =>
@@ -190,6 +221,7 @@ export function FeesTab() {
         'DSC fee',
         'RTO fee',
         'Total fee',
+        ...(showPenalties ? ['Penalty charged'] : []),
       ],
       [
         ...rows.map((r) => [
@@ -202,6 +234,7 @@ export function FeesTab() {
           r.dsc_fee,
           r.rto_fee,
           r.total_fee,
+          ...(showPenalties ? [r.penalty_charged] : []),
         ]),
         [
           'TOTAL',
@@ -213,6 +246,7 @@ export function FeesTab() {
           sums.dsc.toFixed(2),
           sums.rto.toFixed(2),
           sums.total.toFixed(2),
+          ...(showPenalties ? [sums.penalty.toFixed(2)] : []),
         ],
       ],
     )
@@ -230,14 +264,15 @@ export function FeesTab() {
       orientation: 'landscape',
       columns: [
         { header: 'HP No', width: 0.11 },
-        { header: 'Customer', width: 0.21 },
+        { header: 'Customer', width: 0.2 },
         { header: 'Mobile', width: 0.1 },
-        { header: 'Approved', width: 0.1 },
+        { header: 'Approved', width: 0.09 },
         { header: 'Processing', width: 0.1, align: 'right' },
         { header: 'Documentation', width: 0.12, align: 'right' },
-        { header: 'DSC', width: 0.08, align: 'right' },
-        { header: 'RTO', width: 0.08, align: 'right' },
-        { header: 'Total', width: 0.1, align: 'right' },
+        { header: 'DSC', width: 0.07, align: 'right' },
+        { header: 'RTO', width: 0.07, align: 'right' },
+        { header: 'Total', width: showPenalties ? 0.07 : 0.1, align: 'right' },
+        ...(showPenalties ? [{ header: 'Penalty', width: 0.07, align: 'right' as const }] : []),
       ],
       rows: rows.map((r) => [
         r.hp_number ?? r.loan_number,
@@ -249,6 +284,7 @@ export function FeesTab() {
         pdfINR(r.dsc_fee),
         pdfINR(r.rto_fee),
         pdfINR(r.total_fee),
+        ...(showPenalties ? [pdfINR(r.penalty_charged)] : []),
       ]),
       totals: [
         'TOTAL',
@@ -260,6 +296,7 @@ export function FeesTab() {
         pdfINR(sums.dsc),
         pdfINR(sums.rto),
         pdfINR(sums.total),
+        ...(showPenalties ? [pdfINR(sums.penalty)] : []),
       ],
       note: 'Fees as agreed on each finance, not fees receipted. Totals cover the rows in this document (the filters above), not the whole window.',
     })
@@ -279,7 +316,7 @@ export function FeesTab() {
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>
         {report && (
           <>
-            <Box sx={FEE_KPI_GRID_SX}>
+            <Box sx={feeKpiGridSx(showPenalties ? 6 : 5)}>
               <KpiCard label="Processing fees" value={inr(report.total_processing_fee)} />
               <KpiCard label="Documentation fees" value={inr(report.total_documentation_fee)} />
               <KpiCard label="DSC fees" value={inr(report.total_dsc_fee)} />
@@ -290,6 +327,13 @@ export function FeesTab() {
                 hint={`${report.total_loans} finances`}
                 accent="var(--accent)"
               />
+              {showPenalties && (
+                <KpiCard
+                  label="Penalties charged"
+                  value={inr(report.total_penalties)}
+                  accent="warning.main"
+                />
+              )}
             </Box>
 
             <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
@@ -302,6 +346,13 @@ export function FeesTab() {
                   autoComplete="off"
                 />
               </Box>
+              <ReportToggleBar>
+                <ReportToggle
+                  label="Show penalties"
+                  checked={showPenalties}
+                  onChange={setShowPenalties}
+                />
+              </ReportToggleBar>
               <Typography variant="body2" color="text.secondary">
                 {rows.length} of {report.results.length} finances
               </Typography>

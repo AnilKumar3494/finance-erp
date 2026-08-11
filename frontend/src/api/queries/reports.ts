@@ -21,6 +21,8 @@ export interface DashboardSummary {
   total_principal_outstanding: string
   total_amount_collected: string
   total_pending_collections: string
+  fee_income: string
+  penalty_income: string
 }
 
 export interface LoanPortfolioReport {
@@ -310,6 +312,7 @@ export interface FeeRow {
   dsc_fee: string
   rto_fee: string
   total_fee: string
+  penalty_charged: string
 }
 
 export interface FeeReport {
@@ -320,6 +323,7 @@ export interface FeeReport {
   total_dsc_fee: string
   total_rto_fee: string
   total_fees: string
+  total_penalties: string
   results: FeeRow[]
 }
 
@@ -335,6 +339,8 @@ export interface PnlReport {
   interest_received: string
   ta_income: string
   other_income: string
+  fee_income: string
+  penalty_income: string
   total_income: string
   total_expenses: string
   expenses_by_category: PnlExpenseCategory[]
@@ -370,6 +376,7 @@ export interface BalanceSheetReport {
   cash_in_hand: string
   receivable_principal: string
   unearned_interest: string
+  penalty_receivable: string
   receivable_total: string
   total_assets: string
   open_loans: number
@@ -378,6 +385,8 @@ export interface BalanceSheetReport {
   capital_net: string
   interest_earned: string
   other_income: string
+  fee_income: string
+  penalty_income: string
   expenses: string
   bad_debt_written_off: string
   retained_earnings: string

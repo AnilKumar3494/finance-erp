@@ -5,9 +5,9 @@ import Stack from '@mui/material/Stack'
 
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 
-import { Btn } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { EMPTY_RANGE, type DateRangeValue } from '@/lib/dateRange'
+import { ClearDatesButton } from './ClearDatesButton'
 
 interface DateRangeFilterProps {
   idPrefix: string
@@ -71,11 +71,7 @@ export function DateRangeFilter({
           }}
         />
       </Box>
-      {hasRange && (
-        <Btn variant="ghost" onClick={() => onChange(EMPTY_RANGE)}>
-          Clear dates
-        </Btn>
-      )}
+      {hasRange && <ClearDatesButton onClick={() => onChange(EMPTY_RANGE)} />}
       {children}
     </Stack>
   )

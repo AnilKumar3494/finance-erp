@@ -31,6 +31,8 @@ class DashboardSummary(BaseModel):
     # don't disappear when a loan closes.
     total_amount_collected: Decimal
     total_pending_collections: Decimal
+    fee_income: Decimal = Decimal("0")
+    penalty_income: Decimal = Decimal("0")
 
 
 # --------------------------------------------------
@@ -338,6 +340,7 @@ class FeeRow(BaseModel):
     dsc_fee: Decimal
     rto_fee: Decimal
     total_fee: Decimal
+    penalty_charged: Decimal = Decimal("0.00")
 
 
 class FeeReport(BaseModel):
@@ -348,6 +351,7 @@ class FeeReport(BaseModel):
     total_dsc_fee: Decimal
     total_rto_fee: Decimal
     total_fees: Decimal
+    total_penalties: Decimal = Decimal("0.00")
     results: list[FeeRow]
 
 
@@ -418,6 +422,8 @@ class PnlReport(BaseModel):
     interest_received: Decimal
     ta_income: Decimal = Decimal("0")
     other_income: Decimal
+    fee_income: Decimal = Decimal("0")
+    penalty_income: Decimal = Decimal("0")
     total_income: Decimal
     total_expenses: Decimal
     expenses_by_category: list[PnlExpenseCategory]
@@ -430,6 +436,7 @@ class BalanceSheetReport(BaseModel):
     cash_in_hand: Decimal
     receivable_principal: Decimal
     unearned_interest: Decimal
+    penalty_receivable: Decimal = Decimal("0")
     receivable_total: Decimal
     total_assets: Decimal
     open_loans: int
@@ -439,6 +446,8 @@ class BalanceSheetReport(BaseModel):
     capital_net: Decimal
     interest_earned: Decimal
     other_income: Decimal
+    fee_income: Decimal = Decimal("0")
+    penalty_income: Decimal = Decimal("0")
     expenses: Decimal
     bad_debt_written_off: Decimal
     retained_earnings: Decimal

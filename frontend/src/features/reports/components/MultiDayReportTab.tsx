@@ -8,6 +8,7 @@ import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 
 import { useDayReport } from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
+import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { onlyValidDate } from '@/lib/dateRange'
@@ -29,6 +30,11 @@ const MAX_RANGE_DAYS = 92
 export function MultiDayReportTab() {
   const [from, setFrom] = useState<Dayjs>(() => dayjs().subtract(6, 'day'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
+  const isDefault = from.isSame(dayjs().subtract(6, 'day'), 'day') && to.isSame(dayjs(), 'day')
+  const resetWindow = () => {
+    setFrom(dayjs().subtract(6, 'day'))
+    setTo(dayjs())
+  }
 
   const rangeError =
     to.isBefore(from, 'day')
@@ -67,6 +73,9 @@ export function MultiDayReportTab() {
             slotProps={{ textField: { id: 'mdr-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        {!isDefault && (
+          <ClearDatesButton onClick={resetWindow} title="Reset to the default period" />
+        )}
         <Btn
           variant="ghost"
           startIcon={<PrintOutlinedIcon />}
