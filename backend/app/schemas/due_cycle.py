@@ -169,3 +169,13 @@ class DueCycleWorklistResponse(BaseModel):
     page: int
     page_size: int
     results: list[DueCycleWorklistItem]
+
+    # Portfolio KPIs over the whole filtered set (not just this page), for the
+    # Collections summary cards. total == total_cycles; kept as a distinct field
+    # so the cards read declaratively alongside the others.
+    total_cycles: int = 0
+    total_loans: int = 0
+    total_customers: int = 0
+    total_shortfall: Decimal = Decimal("0.00")
+    overdue_cycles: int = 0
+    overdue_shortfall: Decimal = Decimal("0.00")

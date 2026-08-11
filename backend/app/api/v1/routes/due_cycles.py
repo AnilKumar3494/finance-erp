@@ -29,6 +29,7 @@ from app.services.due_cycle import (
     get_cycle,
     list_cycles_for_loan,
     list_cycles_worklist,
+    worklist_totals,
 )
 from app.services.penalty import (
     apply_penalty,
@@ -180,8 +181,25 @@ def worklist(
                 mandal_village=customer.mandal_village,
             )
         )
+    # Portfolio KPIs over the whole filtered set (same filters/scope as the
+    # page, not just the 20 visible rows) for the Collections summary cards.
+    totals = worklist_totals(
+        db,
+        today,
+        status=cycle_status,
+        due_before=due_before,
+        due_after=due_after,
+        unpaid_only=unpaid_only,
+        search=search,
+        assigned_employee_id=scope,
+    )
+
     return DueCycleWorklistResponse(
-        total=total, page=page, page_size=page_size, results=results
+        total=total,
+        page=page,
+        page_size=page_size,
+        results=results,
+        **totals,
     )
 
 

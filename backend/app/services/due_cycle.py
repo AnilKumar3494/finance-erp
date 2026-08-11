@@ -10,10 +10,11 @@ Penalty calculation and admin classification live in `services/penalty.py`
 """
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import List, Optional, Tuple
 
-from sqlalchemy import and_, not_, or_
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import and_, case, func, not_, or_
+from sqlalchemy.orm import Query, Session, aliased
 
 from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
@@ -147,7 +148,13 @@ def find_target_cycle_for_payment(
     return cycles[-1]
 
 
-def list_cycles_worklist(
+# The per-cycle shortfall as a SQL expression, clamped at zero to mirror
+# services.penalty.compute_shortfall (an overpaid cycle contributes 0, never a
+# negative). Shared by the paginated worklist, its sort key, and the totals.
+_SHORTFALL_SQL = func.greatest(DueCycle.total_due - DueCycle.total_received, 0)
+
+
+def _worklist_filtered_query(
     db: Session,
     *,
     status: Optional[CycleStatus] = None,
@@ -155,32 +162,14 @@ def list_cycles_worklist(
     due_after: Optional[date] = None,
     unpaid_only: bool = False,
     search: Optional[str] = None,
-    page: int = 1,
-    page_size: int = 20,
     assigned_employee_id: Optional[uuid.UUID] = None,
-    sort_by: Optional[str] = None,
-    sort_order: Optional[str] = None,
-) -> Tuple[List[Tuple[DueCycle, Loan, Customer]], int]:
+) -> Query:
     """
-    Cross-loan due-cycle worklist for the Collections module.
-
-    Joins each cycle to its loan and customer so a collector can see who owes
-    what, due when, across every loan in one list — instead of opening loans
-    one by one. Restricted to collectible loan statuses (ACTIVE /
-    AWAITING_CLOSURE / BAD_DEBT_PROPOSED).
-
-    Scoping: pass `assigned_employee_id` to limit to that employee's assigned
-    customers (EMPLOYEE role); leave None for ADMIN / SUPER_ADMIN (all).
-
-    Ordered by due_date ascending (most overdue first), then loan_number, so
-    the top of the list is the most pressing. Returns (rows, total) where each
-    row is a (DueCycle, Loan, Customer) tuple.
-
-    With `unpaid_only`, cycles already classified LATE_PAYMENT / MISSED_CAPPED
-    whose recovery was spread forward into later cycles are excluded — they are
-    being collected through the inflated future EMIs, so re-listing them would
-    invite double collection. A late cycle with no later cycle to absorb the
-    recovery (e.g. the final cycle) is kept, since it is genuinely outstanding.
+    The filtered (but unsorted, unpaginated) cross-loan cycle query shared by
+    `list_cycles_worklist` (the page) and `worklist_totals` (the KPI figures),
+    so both always agree on which rows the filters select. See
+    `list_cycles_worklist` for the meaning of each filter, including the
+    `unpaid_only` spread-forward exclusion.
     """
     query = (
         db.query(DueCycle, Loan, Customer)
@@ -250,6 +239,101 @@ def list_cycles_worklist(
                 Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
             )
         )
+
+    return query
+
+
+def worklist_totals(
+    db: Session,
+    today: date,
+    *,
+    status: Optional[CycleStatus] = None,
+    due_before: Optional[date] = None,
+    due_after: Optional[date] = None,
+    unpaid_only: bool = False,
+    search: Optional[str] = None,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+) -> dict:
+    """
+    Aggregate the whole filtered worklist (not just the visible page) for the
+    Collections KPI cards: how many cycles the filters select, across how many
+    distinct finances and customers, the total shortfall owed, and the overdue
+    slice of both. `today` decides overdue (due_date strictly before today),
+    matching the row-level days_overdue. Returns Decimals for the money figures
+    so the response serialises them the same way as every other cycle amount.
+    """
+    query = _worklist_filtered_query(
+        db,
+        status=status,
+        due_before=due_before,
+        due_after=due_after,
+        unpaid_only=unpaid_only,
+        search=search,
+        assigned_employee_id=assigned_employee_id,
+    )
+    overdue = DueCycle.due_date < today
+    row = query.with_entities(
+        func.count(DueCycle.id),
+        func.count(func.distinct(Loan.id)),
+        func.count(func.distinct(Customer.id)),
+        func.coalesce(func.sum(_SHORTFALL_SQL), 0),
+        func.coalesce(func.sum(case((overdue, 1), else_=0)), 0),
+        func.coalesce(func.sum(case((overdue, _SHORTFALL_SQL), else_=0)), 0),
+    ).one()
+    return {
+        "total_cycles": int(row[0]),
+        "total_loans": int(row[1]),
+        "total_customers": int(row[2]),
+        "total_shortfall": Decimal(row[3]),
+        "overdue_cycles": int(row[4]),
+        "overdue_shortfall": Decimal(row[5]),
+    }
+
+
+def list_cycles_worklist(
+    db: Session,
+    *,
+    status: Optional[CycleStatus] = None,
+    due_before: Optional[date] = None,
+    due_after: Optional[date] = None,
+    unpaid_only: bool = False,
+    search: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    assigned_employee_id: Optional[uuid.UUID] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+) -> Tuple[List[Tuple[DueCycle, Loan, Customer]], int]:
+    """
+    Cross-loan due-cycle worklist for the Collections module.
+
+    Joins each cycle to its loan and customer so a collector can see who owes
+    what, due when, across every loan in one list — instead of opening loans
+    one by one. Restricted to collectible loan statuses (ACTIVE /
+    AWAITING_CLOSURE / BAD_DEBT_PROPOSED).
+
+    Scoping: pass `assigned_employee_id` to limit to that employee's assigned
+    customers (EMPLOYEE role); leave None for ADMIN / SUPER_ADMIN (all).
+
+    Ordered by due_date ascending (most overdue first), then loan_number, so
+    the top of the list is the most pressing. Returns (rows, total) where each
+    row is a (DueCycle, Loan, Customer) tuple.
+
+    With `unpaid_only`, cycles already classified LATE_PAYMENT / MISSED_CAPPED
+    whose recovery was spread forward into later cycles are excluded — they are
+    being collected through the inflated future EMIs, so re-listing them would
+    invite double collection. A late cycle with no later cycle to absorb the
+    recovery (e.g. the final cycle) is kept, since it is genuinely outstanding.
+    """
+    query = _worklist_filtered_query(
+        db,
+        status=status,
+        due_before=due_before,
+        due_after=due_after,
+        unpaid_only=unpaid_only,
+        search=search,
+        assigned_employee_id=assigned_employee_id,
+    )
 
     total = query.count()
 
