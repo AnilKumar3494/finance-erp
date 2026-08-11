@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
@@ -11,9 +11,13 @@ import { useLoan, type LoanResponse } from '@/api/queries/loans'
 import type { LoanStatus } from '@/schemas/enums'
 import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
+import { useLoanSummary, useLoanTransactions } from '@/api/queries/transactions'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
-import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
+import { fmtDate, fmtDateTime } from '@/lib/format'
+import { deriveNetDue } from '../cycleNetDue'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
+import { LoanTermsCard } from '../components/LoanTermsCard'
+import { RecordPaymentDialog } from '../components/RecordPaymentDialog'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
@@ -165,70 +169,68 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 // --------------------------------------------------
 
 function HeaderCard({ loan }: { loan: LoanResponse }) {
-  // Due cycles only exist after approval; the next UPCOMING one is the EMI to
-  // collect next.
-  const cyclesQuery = useDueCycles(loan.id, loan.status !== 'DRAFT')
-  const nextEmi =
-    (cyclesQuery.data?.results ?? [])
-      .filter((c) => c.cycle_status === 'UPCOMING')
-      .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null
+  const isDraft = loan.status === 'DRAFT'
+  // Collectible statuses can take a payment. Cycles + balances only exist after
+  // approval; the summary carries Outstanding / Total paid. Same plumbing as the
+  // Collections workspace so the card reads identically.
+  const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
+  const cyclesQuery = useDueCycles(loan.id, !isDraft)
+  const summaryQuery = useLoanSummary(loan.id, !isDraft)
+  const txnsQuery = useLoanTransactions(loan.id, !isDraft)
+  const cycles = useMemo(() => cyclesQuery.data?.results ?? [], [cyclesQuery.data])
+  const txns = txnsQuery.data?.results ?? []
+
+  // Net-due waterfall (same as the schedule tab) → the focus cycle: the
+  // lowest-numbered cycle that still genuinely owes money.
+  const netDueByCycleId = useMemo(
+    () => deriveNetDue(cycles, Number(summaryQuery.data?.total_paid ?? 0)),
+    [cycles, summaryQuery.data],
+  )
+  const focusCycle = useMemo(
+    () =>
+      cycles
+        .filter((c) => (netDueByCycleId.get(c.id)?.netDue ?? 0) > 0)
+        .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null,
+    [cycles, netDueByCycleId],
+  )
+  const focusNet = focusCycle ? netDueByCycleId.get(focusCycle.id) : undefined
+  const penaltiesTotal = cycles.reduce((a, c) => a + Number(c.penalty_amount), 0)
+  const pendingTxns = txns.filter((t) => t.status === 'PENDING')
+  const pendingTotal = pendingTxns.reduce((a, t) => a + Number(t.amount), 0)
+
+  const [recordOpen, setRecordOpen] = useState(false)
+  const [seedCycleId, setSeedCycleId] = useState('')
+  const [seedAmount, setSeedAmount] = useState('')
+  const onRecord = () => {
+    const net = focusCycle ? (netDueByCycleId.get(focusCycle.id)?.netDue ?? 0) : 0
+    setSeedCycleId(focusCycle?.id ?? '')
+    setSeedAmount(net > 0 ? net.toFixed(2) : '')
+    setRecordOpen(true)
+  }
 
   return (
     <>
       <LoanIdentityCard loan={loan} eyebrow="Finance" showLmsNumber />
-      <Card>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' },
-            gap: { xs: 1.5, sm: 2.5 },
-          }}
-        >
-          <HeaderStat
-            label="Principal"
-            value={loan.principal != null ? fmtINR(Number(loan.principal)) : '—'}
-          />
-          {nextEmi && (
-            <HeaderStat
-              label="Next EMI"
-              // Show the actual amount due that month (base EMI + any penalty
-              // add-on spread from an earlier late cycle), not the sticker EMI.
-              value={fmtINR(Number(nextEmi.total_due))}
-              hint={
-                Number(nextEmi.addon_from_penalties) > 0
-                  ? `due ${fmtDate(nextEmi.due_date)} · ${fmtINR(Number(nextEmi.base_emi))} + ${fmtINR(Number(nextEmi.addon_from_penalties))} penalty`
-                  : `due ${fmtDate(nextEmi.due_date)}`
-              }
-            />
-          )}
-          {loan.tenure != null && <HeaderStat label="Tenure" value={`${loan.tenure} months`} />}
-          {loan.interest_rate != null && (
-            <HeaderStat label="Interest rate" value={`${loan.interest_rate}% p.a.`} />
-          )}
-          {loan.total_payable != null && (
-            <HeaderStat label="Total payable" value={fmtINR(Number(loan.total_payable))} />
-          )}
-        </Box>
-      </Card>
+      <LoanTermsCard
+        loan={loan}
+        summary={summaryQuery.data}
+        focusCycle={focusCycle}
+        focusNet={focusNet}
+        penaltiesTotal={penaltiesTotal}
+        pendingCount={pendingTxns.length}
+        pendingTotal={pendingTotal}
+        showMoney={!isDraft}
+        onRecord={onRecord}
+        showRecord={payable}
+      />
+      <RecordPaymentDialog
+        loanId={loan.id}
+        open={recordOpen}
+        onClose={() => setRecordOpen(false)}
+        defaultCycleId={seedCycleId}
+        defaultAmount={seedAmount}
+      />
     </>
-  )
-}
-
-function HeaderStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h3" sx={{ fontSize: { xs: 16, sm: 18 } }}>
-        {value}
-      </Typography>
-      {hint && (
-        <Typography variant="caption" color="text.secondary">
-          {hint}
-        </Typography>
-      )}
-    </Box>
   )
 }
 

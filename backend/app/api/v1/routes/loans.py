@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -190,6 +191,12 @@ def list_all(
         ),
     ),
     status: Optional[LoanStatus] = Query(None),
+    created_after: Optional[date] = Query(
+        None, description="Earliest creation (created_at) date, inclusive"
+    ),
+    created_before: Optional[date] = Query(
+        None, description="Latest creation (created_at) date, inclusive"
+    ),
     search: Optional[str] = Query(
         None, description="Search by loan number, customer name, mobile, or mandal/village"
     ),
@@ -227,6 +234,8 @@ def list_all(
         sort_by=sort_by,
         sort_order=sort_order,
         search=search,
+        created_after=created_after,
+        created_before=created_before,
     )
     emi_map = emi_due_status_map(db, results)
     return LoanListResponse(

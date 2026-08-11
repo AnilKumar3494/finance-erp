@@ -56,6 +56,17 @@ def get_transaction(db: Session, transaction_id: uuid.UUID) -> Optional[Transact
     )
 
 
+def get_transaction_including_deleted(
+    db: Session, transaction_id: uuid.UUID
+) -> Optional[Transaction]:
+    """Used by restore — fetch even if soft-deleted."""
+    return (
+        db.query(Transaction)
+        .filter(Transaction.id == transaction_id)
+        .first()
+    )
+
+
 def list_transactions(
     db: Session,
     loan_id: Optional[uuid.UUID] = None,
@@ -744,23 +755,38 @@ def soft_delete_transaction(
     *,
     request: Optional[Request] = None,
 ) -> Transaction:
-    """Soft delete — only allowed for FAILED transactions."""
-    if transaction.status == TransactionStatus.SUCCESS:
-        raise ValueError(
-            "Cannot delete a confirmed transaction. "
-            "Contact super admin for reversal."
-        )
+    """
+    Soft delete a transaction of any status.
 
-    if transaction.status == TransactionStatus.PENDING:
-        raise ValueError(
-            "Cannot delete a pending transaction. "
-            "Mark it as failed first, then delete."
-        )
-
+    A deleted SUCCESS transaction stops counting toward its cycle's
+    total_received, so we recompute the allocated cycle after the delete
+    lands — the same ledger-maintenance update_transaction does when a
+    SUCCESS row's amount or cycle changes. Cycle classification is left
+    untouched (there is no demotion path anywhere in the codebase; a
+    restore or a manual re-classify puts it right), and loan.status is not
+    reverted for the same reason update_transaction doesn't touch it.
+    """
     snapshot = _txn_audit_snapshot(transaction)
+    was_success = transaction.status == TransactionStatus.SUCCESS
+    affected_cycle_id = transaction.due_cycle_id
+
     # Use AuditBase.soft_delete so deleted_by_id is also set (review item T5).
     transaction.soft_delete(deleted_by)
     db.flush()
+
+    # Only SUCCESS rows contribute to cycle.total_received; the recompute
+    # query filters is_deleted, so after the flush above the just-deleted row
+    # is already excluded from the sum.
+    if was_success and affected_cycle_id is not None:
+        cycle = (
+            db.query(DueCycle)
+            .filter(DueCycle.id == affected_cycle_id)
+            .with_for_update()
+            .first()
+        )
+        if cycle is not None:
+            recompute_cycle_totals(db, cycle)
+
     write_audit(
         db,
         action_type="TRANSACTION_DELETE",
@@ -771,4 +797,52 @@ def soft_delete_transaction(
         request=request,
     )
     db.commit()
+    return transaction
+
+
+# --------------------------------------------------
+# RESTORE
+# --------------------------------------------------
+def restore_transaction(
+    db: Session,
+    transaction: Transaction,
+    restored_by: uuid.UUID,
+    *,
+    request: Optional[Request] = None,
+) -> Transaction:
+    """
+    Reverse a soft delete (the undo window's Restore action).
+
+    Mirror of soft_delete: a restored SUCCESS row counts toward its cycle
+    again, so recompute the allocated cycle and re-run the auto-classify
+    check (a clean, on-time, fully-paid cycle promotes itself, matching
+    confirm/update).
+    """
+    snapshot = _txn_audit_snapshot(transaction)
+    transaction.restore(restored_by)
+    db.flush()
+
+    if transaction.status == TransactionStatus.SUCCESS and transaction.due_cycle_id:
+        cycle = (
+            db.query(DueCycle)
+            .filter(DueCycle.id == transaction.due_cycle_id)
+            .with_for_update()
+            .first()
+        )
+        if cycle is not None:
+            recompute_cycle_totals(db, cycle)
+            maybe_auto_classify_cycle(db, cycle, restored_by)
+
+    write_audit(
+        db,
+        action_type="TRANSACTION_RESTORE",
+        target_table="transactions",
+        record_id=transaction.id,
+        user_id=restored_by,
+        new_data=_txn_audit_snapshot(transaction),
+        old_data=snapshot,
+        request=request,
+    )
+    db.commit()
+    db.refresh(transaction)
     return transaction

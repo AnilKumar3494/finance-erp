@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -7,6 +8,7 @@ import { useAuth } from '@/app/auth-context'
 import { useCustomerReport, useDashboardSummary } from '@/api/queries/reports'
 import { fmtINR } from '@/lib/format'
 import { KPI_GRID_SX } from '@/features/reports/components/KpiCard'
+import { ReportToggle, ReportToggleBar } from '@/features/reports/components/ReportToggle'
 import { AsyncSection } from '@/features/reports/components/AsyncSection'
 import { money } from '@/features/reports/reportUtils'
 import { greetingForNow } from '../greeting'
@@ -46,10 +48,13 @@ export function DashboardPage() {
 function AdminKpis() {
   const navigate = useNavigate()
   const summary = useDashboardSummary()
+  const [showFees, setShowFees] = useState(true)
+  const [showPenalties, setShowPenalties] = useState(true)
 
   return (
     <AsyncSection isLoading={summary.isLoading} isError={summary.isError} error={summary.error}>
       {summary.data && (
+        <>
         <Box sx={KPI_GRID_SX}>
           <StatTile
             label="Customers"
@@ -113,7 +118,32 @@ function AdminKpis() {
             value={String(summary.data.total_vehicles)}
             onClick={() => navigate({ to: '/vehicles', search: { page: 1 } })}
           />
+          {showFees && (
+            <StatTile
+              label="Fee income"
+              value={fmtINR(money(summary.data.fee_income))}
+              accent="success.main"
+            />
+          )}
+          {showPenalties && (
+            <StatTile
+              label="Penalty income"
+              value={fmtINR(money(summary.data.penalty_income))}
+              accent="success.main"
+            />
+          )}
         </Box>
+        <Box sx={{ mt: 2 }}>
+          <ReportToggleBar>
+            <ReportToggle label="Fee income" checked={showFees} onChange={setShowFees} />
+            <ReportToggle
+              label="Penalty income"
+              checked={showPenalties}
+              onChange={setShowPenalties}
+            />
+          </ReportToggleBar>
+        </Box>
+        </>
       )}
     </AsyncSection>
   )

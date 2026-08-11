@@ -13,6 +13,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 
 import { useCollectionsByCollector } from '@/api/queries/reports'
 import { Card } from '@/components/primitives'
+import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtINR } from '@/lib/format'
 import { onlyValidDate } from '@/lib/dateRange'
@@ -29,6 +30,11 @@ const iso = (d: Dayjs) => d.format('YYYY-MM-DD')
 export function CollectorsTab() {
   const [from, setFrom] = useState<Dayjs>(() => dayjs().startOf('month'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
+  const isDefault = from.isSame(dayjs().startOf('month'), 'day') && to.isSame(dayjs(), 'day')
+  const resetWindow = () => {
+    setFrom(dayjs().startOf('month'))
+    setTo(dayjs())
+  }
   const query = useCollectionsByCollector(iso(from), iso(to))
   const report = query.data
 
@@ -64,6 +70,9 @@ export function CollectorsTab() {
             }}
           />
         </Box>
+        {!isDefault && (
+          <ClearDatesButton onClick={resetWindow} title="Reset to the default period" />
+        )}
       </Stack>
 
       <AsyncSection isLoading={query.isLoading} isError={query.isError} error={query.error}>

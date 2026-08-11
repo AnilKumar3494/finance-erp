@@ -16,6 +16,7 @@ import { useNavigate } from '@tanstack/react-router'
 
 import { useReceivedInterest, type ReceivedInterestRow } from '@/api/queries/reports'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
+import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
@@ -49,6 +50,11 @@ const RI_ACCESSORS: Partial<
 export function ReceivedInterestTab() {
   const [from, setFrom] = useState<Dayjs>(() => dayjs().subtract(29, 'day'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
+  const isDefault = from.isSame(dayjs().subtract(29, 'day'), 'day') && to.isSame(dayjs(), 'day')
+  const resetWindow = () => {
+    setFrom(dayjs().subtract(29, 'day'))
+    setTo(dayjs())
+  }
   const navigate = useNavigate()
 
   const rangeError = to.isBefore(from, 'day')
@@ -141,6 +147,9 @@ export function ReceivedInterestTab() {
             slotProps={{ textField: { id: 'ri-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        {!isDefault && (
+          <ClearDatesButton onClick={resetWindow} title="Reset to the default period" />
+        )}
         <Btn
           variant="ghost"
           startIcon={<FileDownloadOutlinedIcon />}

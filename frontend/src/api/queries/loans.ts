@@ -157,6 +157,9 @@ export interface LoanListParams {
   status?: LoanStatus
   include?: string
   search?: string
+  // Creation-date window (ISO yyyy-mm-dd), inclusive — when the finance was written.
+  created_after?: string
+  created_before?: string
   sort_by?: LoanSortField
   sort_order?: SortOrder
 }

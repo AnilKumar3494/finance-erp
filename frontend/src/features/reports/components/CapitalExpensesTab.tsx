@@ -27,6 +27,7 @@ import {
 } from '@/api/queries/cashEntries'
 import { serverMessage } from '@/api/errors'
 import { Btn, Card, ErrorBanner, Input } from '@/components/primitives'
+import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { onlyValidDate } from '@/lib/dateRange'
@@ -47,6 +48,11 @@ const TYPE_OPTIONS: CashEntryType[] = ['EXPENSE', 'CAPITAL_IN', 'CAPITAL_OUT', '
 export function CapitalExpensesTab() {
   const [from, setFrom] = useState<Dayjs>(() => dayjs().subtract(29, 'day'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
+  const isDefault = from.isSame(dayjs().subtract(29, 'day'), 'day') && to.isSame(dayjs(), 'day')
+  const resetWindow = () => {
+    setFrom(dayjs().subtract(29, 'day'))
+    setTo(dayjs())
+  }
   const [typeFilter, setTypeFilter] = useState<CashEntryType | ''>('')
   const [addOpen, setAddOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<CashEntry | null>(null)
@@ -84,6 +90,9 @@ export function CapitalExpensesTab() {
             slotProps={{ textField: { id: 'ce-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        {!isDefault && (
+          <ClearDatesButton onClick={resetWindow} title="Reset to the default period" />
+        )}
         <Box sx={{ minWidth: 170 }}>
           <Input
             select

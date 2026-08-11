@@ -97,6 +97,126 @@ def _d(value) -> Decimal:
     return Decimal(str(value))
 
 
+# A loan's net outstanding, as a SQL expression: greatest(Σ total_due −
+# Σ total_received, 0) over its cycles. This nets an OVERPAID cycle against
+# UNDERPAID ones on the SAME loan — a customer who prepays an EMI genuinely owes
+# less — so a prepayment reduces the balance owed instead of sitting clamped on
+# one cycle. It is deliberately NOT the per-cycle shortfall the collections
+# worklist uses (`Σ max(total_due − total_received, 0)`): that clamp is correct
+# for "what is overdue" but overstates the receivable as an ASSET, which broke
+# the balance sheet (assets counted a prepayment on both sides). Matches the
+# loan-summary endpoint's `total_payable − total_paid`. MUST be used under
+# GROUP BY the loan.
+def _loan_net_outstanding():
+    return func.greatest(
+        func.coalesce(func.sum(DueCycle.total_due), 0)
+        - func.coalesce(func.sum(DueCycle.total_received), 0),
+        0,
+    )
+
+
+def _loan_net_outstanding_subq(db: Session, statuses=OPEN_LOAN_STATUSES):
+    """Subquery of (loan_id, outstanding) — each loan's net outstanding (see
+    `_loan_net_outstanding`) over non-deleted cycles of non-deleted loans in
+    `statuses`. Sum its `outstanding` column for a portfolio total that nets
+    per loan rather than per cycle."""
+    return (
+        db.query(
+            DueCycle.loan_id.label("loan_id"),
+            _loan_net_outstanding().label("outstanding"),
+        )
+        .join(Loan, Loan.id == DueCycle.loan_id)
+        .filter(
+            DueCycle.is_deleted == False,
+            Loan.is_deleted == False,
+            Loan.status.in_(statuses),
+        )
+        .group_by(DueCycle.loan_id)
+        .subquery()
+    )
+
+
+# --------------------------------------------------
+# FEE & PENALTY INCOME (accrual recognition)
+# --------------------------------------------------
+# The four one-off loan charges and late-payment penalties are recognised as
+# income when CHARGED (accrual). Both already sit inside the ASSET side today —
+# fees are kept in cash at disbursement (principal is booked out gross), and
+# penalties inflate the receivable via due_cycles.total_due — but neither had a
+# matching income line, which left the balance sheet unreconciled. These helpers
+# supply the funding-side terms. See get_balance_sheet / get_pnl.
+
+
+def _fee_income_total(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> Decimal:
+    """Σ (processing + documentation + dsc + rto) fees over non-deleted, non-DRAFT
+    loans. Optional approval-date window (used by the windowed P&L; the balance
+    sheet passes none for all-time)."""
+    q = db.query(
+        func.coalesce(
+            func.sum(
+                Loan.processing_fee
+                + Loan.documentation_fee
+                + Loan.dsc_fee
+                + Loan.rto_fee
+            ),
+            0,
+        )
+    ).filter(Loan.is_deleted == False, Loan.status != LoanStatus.DRAFT)
+    if date1 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date >= date1)
+    if date2 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date <= date2)
+    return _d(q.scalar())
+
+
+def _penalty_charged_by_loan(db: Session, statuses=OPEN_LOAN_STATUSES) -> dict:
+    """{loan_id: Σ DueCycle.penalty_amount} — total late-payment penalty CHARGED
+    on each loan in `statuses`. penalty_amount (not addon_from_penalties) is the
+    genuinely new money a penalty creates; the addon also carries relocated
+    shortfall. One grouped query."""
+    rows = (
+        db.query(
+            DueCycle.loan_id,
+            func.coalesce(func.sum(DueCycle.penalty_amount), 0),
+        )
+        .join(Loan, Loan.id == DueCycle.loan_id)
+        .filter(
+            DueCycle.is_deleted == False,
+            Loan.is_deleted == False,
+            Loan.status.in_(statuses),
+        )
+        .group_by(DueCycle.loan_id)
+        .all()
+    )
+    return {loan_id: _d(total) for loan_id, total in rows}
+
+
+def _penalty_income_total(
+    db: Session, date1: Optional[date] = None, date2: Optional[date] = None
+) -> Decimal:
+    """Σ DueCycle.penalty_amount over OPEN loans — the penalty recognised as
+    income. Open-only is deliberate: a loan that flips to BAD_DEBT drops out of
+    this sum, which IS the accrual reversal (its penalty leaves both the open
+    receivable and this income line together). Optional approval-date window for
+    the P&L."""
+    q = (
+        db.query(func.coalesce(func.sum(DueCycle.penalty_amount), 0))
+        .join(Loan, Loan.id == DueCycle.loan_id)
+        .filter(
+            DueCycle.is_deleted == False,
+            Loan.is_deleted == False,
+            Loan.status.in_(OPEN_LOAN_STATUSES),
+        )
+    )
+    if date1 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date >= date1)
+    if date2 is not None:
+        q = q.filter(Loan.approval_date.isnot(None), Loan.approval_date <= date2)
+    return _d(q.scalar())
+
+
 def _local_month(column):
     """
     YYYY-MM bucket from a timestamptz column converted to the configured
@@ -137,32 +257,13 @@ def get_dashboard_summary(db: Session) -> dict:
     # --- Source of truth: due_cycles ledger for open loans -------------------
     # total_due:     scheduled obligation (base_emi + penalty add-ons)
     # total_received: SUCCESS REGULAR transactions allocated to the cycle
-    # Outstanding   = SUM(total_due - total_received), floored at 0 per cycle.
-    cycle_totals = (
-        db.query(
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
-        )
-        .join(Loan, Loan.id == DueCycle.loan_id)
-        .filter(
-            DueCycle.is_deleted == False,
-            Loan.is_deleted == False,
-            Loan.status.in_(OPEN_LOAN_STATUSES),
-        )
-        .first()
+    # Outstanding is netted PER LOAN (prepayments offset later shortfalls), not
+    # floored per cycle — see _loan_net_outstanding. Summing the per-loan subq
+    # keeps this in step with HP Outstanding and the balance sheet.
+    _net_sq = _loan_net_outstanding_subq(db)
+    total_outstanding = _d(
+        db.query(func.coalesce(func.sum(_net_sq.c.outstanding), 0)).scalar()
     )
-
-    total_outstanding = _d(cycle_totals.outstanding if cycle_totals else 0)
 
     # Lifetime EMI collected — REGULAR, SUCCESS, non-deleted transactions
     # across all (non-deleted) loans. Down-payments are excluded because they
@@ -201,6 +302,10 @@ def get_dashboard_summary(db: Session) -> dict:
         # Kept as alias for the same number — frontend may surface either.
         "total_principal_outstanding": total_outstanding,
         "total_amount_collected": _d(total_collected),
+        # Accrued income the standalone reports recognise (all-time), so the
+        # dashboard can show toggleable Fee / Penalty income tiles.
+        "fee_income": _fee_income_total(db),
+        "penalty_income": _penalty_income_total(db),
     }
 
 
@@ -228,22 +333,12 @@ def get_loan_portfolio(db: Session) -> dict:
     )
 
     # Open-loan ledger totals (source of truth — see get_dashboard_summary).
+    # payable/collected are portfolio-wide cycle sums; outstanding is netted per
+    # loan (see _loan_net_outstanding) so it agrees with HP Outstanding.
     cycle_totals = (
         db.query(
             func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
             func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
         )
         .join(Loan, Loan.id == DueCycle.loan_id)
         .filter(
@@ -252,6 +347,10 @@ def get_loan_portfolio(db: Session) -> dict:
             Loan.status.in_(OPEN_LOAN_STATUSES),
         )
         .first()
+    )
+    _net_sq = _loan_net_outstanding_subq(db)
+    total_outstanding = _d(
+        db.query(func.coalesce(func.sum(_net_sq.c.outstanding), 0)).scalar()
     )
 
     total_loans = stats[0] or 0
@@ -272,7 +371,7 @@ def get_loan_portfolio(db: Session) -> dict:
         # from due_cycles.total_due for currently-open loans.
         "total_payable": _d(cycle_totals.payable if cycle_totals else 0),
         "total_collected": _d(cycle_totals.collected if cycle_totals else 0),
-        "total_outstanding": _d(cycle_totals.outstanding if cycle_totals else 0),
+        "total_outstanding": total_outstanding,
         "average_interest_rate": Decimal(str(avg_rate)).quantize(Decimal("0.01")),
         "average_tenure": Decimal(str(avg_tenure)).quantize(Decimal("0.1")),
     }
@@ -443,22 +542,15 @@ def _customer_report_query(
         )
     ).group_by(Loan.customer_id).subquery()
 
-    outstanding_sub = (
+    # Net per loan first (prepayments offset later shortfalls — see
+    # _loan_net_outstanding), then roll up to the customer; a per-cycle floor
+    # would overstate the balance the same way it did on the balance sheet.
+    loan_net_sub = (
         _cohort(
             db.query(
-                Loan.customer_id,
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                DueCycle.total_due > DueCycle.total_received,
-                                DueCycle.total_due - DueCycle.total_received,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ).label("outstanding"),
+                Loan.customer_id.label("customer_id"),
+                DueCycle.loan_id.label("loan_id"),
+                _loan_net_outstanding().label("outstanding"),
             )
             .join(DueCycle, DueCycle.loan_id == Loan.id)
             .filter(
@@ -467,7 +559,15 @@ def _customer_report_query(
                 DueCycle.is_deleted == False,
             )
         )
-        .group_by(Loan.customer_id)
+        .group_by(Loan.customer_id, DueCycle.loan_id)
+        .subquery()
+    )
+    outstanding_sub = (
+        db.query(
+            loan_net_sub.c.customer_id,
+            func.coalesce(func.sum(loan_net_sub.c.outstanding), 0).label("outstanding"),
+        )
+        .group_by(loan_net_sub.c.customer_id)
         .subquery()
     )
 
@@ -1300,18 +1400,9 @@ def _open_loan_ledger_rows(
             DueCycle.loan_id.label("loan_id"),
             func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
             func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
+            # Net per loan (prepayments offset later shortfalls), not per-cycle
+            # floored — see _loan_net_outstanding.
+            _loan_net_outstanding().label("outstanding"),
         )
         .filter(DueCycle.is_deleted == False)
         .group_by(DueCycle.loan_id)
@@ -1628,6 +1719,19 @@ def get_fee_report(
         Loan.approval_date.asc().nulls_last(), Loan.created_at.asc()
     ).all()
 
+    # Penalty charged per loan (Σ DueCycle.penalty_amount) for the loans shown —
+    # one grouped query, matched to the row's loan_id.
+    loan_ids = [loan.id for loan, _customer in rows]
+    penalty_map: dict = {}
+    if loan_ids:
+        for loan_id, total in (
+            db.query(DueCycle.loan_id, func.coalesce(func.sum(DueCycle.penalty_amount), 0))
+            .filter(DueCycle.loan_id.in_(loan_ids), DueCycle.is_deleted == False)
+            .group_by(DueCycle.loan_id)
+            .all()
+        ):
+            penalty_map[loan_id] = _d(total)
+
     results = []
     customer_ids = set()
     totals = {
@@ -1635,6 +1739,7 @@ def get_fee_report(
         "documentation": _ZERO,
         "dsc": _ZERO,
         "rto": _ZERO,
+        "penalty": _ZERO,
     }
     for loan, customer in rows:
         customer_ids.add(customer.id)
@@ -1642,10 +1747,12 @@ def get_fee_report(
         documentation = _d(loan.documentation_fee)
         dsc = _d(loan.dsc_fee)
         rto = _d(loan.rto_fee)
+        penalty = penalty_map.get(loan.id, _ZERO)
         totals["processing"] += processing
         totals["documentation"] += documentation
         totals["dsc"] += dsc
         totals["rto"] += rto
+        totals["penalty"] += penalty
         results.append(
             {
                 "loan_id": loan.id,
@@ -1661,6 +1768,7 @@ def get_fee_report(
                 "dsc_fee": dsc,
                 "rto_fee": rto,
                 "total_fee": processing + documentation + dsc + rto,
+                "penalty_charged": penalty,
             }
         )
 
@@ -1671,7 +1779,8 @@ def get_fee_report(
         "total_documentation_fee": totals["documentation"],
         "total_dsc_fee": totals["dsc"],
         "total_rto_fee": totals["rto"],
-        "total_fees": sum(totals.values(), _ZERO),
+        "total_fees": totals["processing"] + totals["documentation"] + totals["dsc"] + totals["rto"],
+        "total_penalties": totals["penalty"],
         "results": results,
     }
 
@@ -1726,14 +1835,22 @@ def get_pnl(db: Session, date1: date, date2: date) -> dict:
     Profit & Loss for [date1, date2].
 
     Income = interest earned on the window's EMI collections (flat-rate share,
-    same rule as Received Interest) + OTHER_INCOME cash entries. Expenses =
-    EXPENSE cash entries, broken down by category. Capital movements and down
-    payments are balance-sheet items, not P&L; bad-debt write-offs carry no
-    event date, so they too surface only on the balance sheet.
+    same rule as Received Interest) + OTHER_INCOME cash entries + fee income +
+    penalty income. Expenses = EXPENSE cash entries, broken down by category.
+    Capital movements and down payments are balance-sheet items, not P&L;
+    bad-debt write-offs carry no event date, so they too surface only on the
+    balance sheet.
+
+    Fee and penalty income are windowed by loan APPROVAL date (the cohort of
+    finances written in the window) — fees/penalties have no per-payment event
+    date to bucket on. The frontend toggles let a viewer exclude either line to
+    get the pure interest-on-collections view.
     """
     collections, interest_received = _interest_received_total(db, date1, date2)
     sums = cash_entry_type_sums(db, date1, date2)
     other_income = sums.get(CashEntryType.OTHER_INCOME, _ZERO)
+    fee_income = _fee_income_total(db, date1, date2)
+    penalty_income = _penalty_income_total(db, date1, date2)
     expenses = sums.get(CashEntryType.EXPENSE, _ZERO)
     # TA (Travelling Allowance) collected on EMIs is real income, separate from
     # the interest share — bucket on the same effective_payment_date window.
@@ -1750,7 +1867,7 @@ def get_pnl(db: Session, date1: date, date2: date) -> dict:
         )
         .scalar()
     )
-    total_income = interest_received + ta_income + other_income
+    total_income = interest_received + ta_income + other_income + fee_income + penalty_income
     return {
         "date1": date1,
         "date2": date2,
@@ -1758,6 +1875,8 @@ def get_pnl(db: Session, date1: date, date2: date) -> dict:
         "interest_received": interest_received,
         "ta_income": ta_income,
         "other_income": other_income,
+        "fee_income": fee_income,
+        "penalty_income": penalty_income,
         "total_income": total_income,
         "total_expenses": expenses,
         "expenses_by_category": [
@@ -1782,35 +1901,61 @@ def get_balance_sheet(db: Session) -> dict:
     """
     two_places = Decimal("0.01")
     today = _today()
-    cash_in_hand = _cash_position_before(db, today + timedelta(days=1))
+    cash_position = _cash_position_before(db, today + timedelta(days=1))
 
-    def _split(rows):
-        """(outstanding_total, interest_portion) for ledger rows, flat-share."""
+    # Penalty charged per open loan — carved OUT of the receivable before the
+    # flat principal/interest split so a late-payment penalty is not mis-labelled
+    # as principal + interest (that mis-split was the last balance-sheet residual).
+    penalty_by_loan = _penalty_charged_by_loan(db, statuses=OPEN_LOAN_STATUSES)
+
+    def _split(rows, penalty_map):
+        """(outstanding_total, interest_portion, penalty_out) for ledger rows.
+        The penalty portion still owed (min of the loan's net outstanding and its
+        penalty charged) is carved off and returned separately; only the
+        remaining principal+interest is flat-split by the loan's flat-rate share."""
         outstanding_total = _ZERO
         interest_portion = _ZERO
+        penalty_out_total = _ZERO
         for loan, _customer, _payable, _collected, outstanding in rows:
             outstanding_d = _d(outstanding)
             outstanding_total += outstanding_d
+            pen_out = min(outstanding_d, penalty_map.get(loan.id, _ZERO))
+            penalty_out_total += pen_out
+            non_penalty = outstanding_d - pen_out
             if loan.principal and loan.interest_rate is not None and loan.tenure:
                 tp = calc_total_payable(_d(loan.principal), _d(loan.interest_rate), loan.tenure)
                 if tp > 0:
                     interest_portion += (
-                        outstanding_d * (tp - _d(loan.principal)) / tp
+                        non_penalty * (tp - _d(loan.principal)) / tp
                     ).quantize(two_places)
-        return outstanding_total, interest_portion
+        return outstanding_total, interest_portion, penalty_out_total
 
     open_rows = _open_loan_ledger_rows(db)
-    receivable_total, unearned_interest = _split(open_rows)
-    receivable_principal = receivable_total - unearned_interest
+    receivable_total, unearned_interest, penalty_receivable = _split(open_rows, penalty_by_loan)
+    # Three-way asset split: principal + unearned interest + outstanding penalty.
+    receivable_principal = receivable_total - unearned_interest - penalty_receivable
 
     # Write-offs: BAD_DEBT loans keep their unpaid cycles; the principal share
-    # is a realised loss, the interest share simply never materialises.
-    bad_total, bad_interest = _split(
-        _open_loan_ledger_rows(db, statuses=(LoanStatus.BAD_DEBT,))
+    # is a realised loss, the interest share simply never materialises. Their
+    # penalty is not recognised as income (recognition is open-loans-only), so it
+    # is carved off here too and simply not written off as principal.
+    bad_penalty_by_loan = _penalty_charged_by_loan(db, statuses=(LoanStatus.BAD_DEBT,))
+    bad_total, bad_interest, _bad_penalty = _split(
+        _open_loan_ledger_rows(db, statuses=(LoanStatus.BAD_DEBT,)), bad_penalty_by_loan
     )
-    bad_debt_written_off = bad_total - bad_interest
+    bad_debt_written_off = bad_total - bad_interest - _bad_penalty
 
     _, interest_earned = _interest_received_total(db)
+    # Fee income: the four one-off charges, recognised at disbursement. They are
+    # retained cash (principal is booked out gross while the customer receives
+    # principal − fees), so they are added to BOTH cash-in-hand (asset) and
+    # retained earnings (funding) — the two move together, keeping the sheet
+    # balanced while making cash and profit accurate. Penalty income: penalty
+    # charged on open loans (already inside the receivable via total_due).
+    fee_income = _fee_income_total(db)
+    penalty_income = _penalty_income_total(db)
+    cash_in_hand = cash_position + fee_income
+
     sums = cash_entry_type_sums(db)
     capital_in = sums.get(CashEntryType.CAPITAL_IN, _ZERO)
     capital_out = sums.get(CashEntryType.CAPITAL_OUT, _ZERO)
@@ -1829,7 +1974,14 @@ def get_balance_sheet(db: Session) -> dict:
         .scalar()
     )
 
-    retained_earnings = interest_earned + other_income - expenses - bad_debt_written_off
+    retained_earnings = (
+        interest_earned
+        + other_income
+        + fee_income
+        + penalty_income
+        - expenses
+        - bad_debt_written_off
+    )
     total_assets = cash_in_hand + receivable_total
     total_funded = (
         (capital_in - capital_out) + retained_earnings + down_payments + unearned_interest
@@ -1839,6 +1991,7 @@ def get_balance_sheet(db: Session) -> dict:
         "cash_in_hand": cash_in_hand,
         "receivable_principal": receivable_principal,
         "unearned_interest": unearned_interest,
+        "penalty_receivable": penalty_receivable,
         "receivable_total": receivable_total,
         "total_assets": total_assets,
         "open_loans": len(open_rows),
@@ -1847,6 +2000,8 @@ def get_balance_sheet(db: Session) -> dict:
         "capital_net": capital_in - capital_out,
         "interest_earned": interest_earned,
         "other_income": other_income,
+        "fee_income": fee_income,
+        "penalty_income": penalty_income,
         "expenses": expenses,
         "bad_debt_written_off": bad_debt_written_off,
         "retained_earnings": retained_earnings,

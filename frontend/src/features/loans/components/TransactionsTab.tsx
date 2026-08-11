@@ -22,6 +22,7 @@ import ReceiptIcon from '@mui/icons-material/ReceiptLongOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import EditNoteIcon from '@mui/icons-material/EditOutlined'
 import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
+import UndoIcon from '@mui/icons-material/UndoOutlined'
 
 import {
   useLoanTransactions,
@@ -30,6 +31,7 @@ import {
   useFailTransaction,
   useUpdateTransaction,
   useDeleteTransaction,
+  useRestoreTransaction,
   type TransactionResponse,
 } from '@/api/queries/transactions'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
@@ -46,7 +48,6 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { PAYMENT_METHOD_LABELS } from '../paymentMethodLabels'
 import { RecordPaymentDialog } from './RecordPaymentDialog'
 import { EditTransactionDialog } from './EditTransactionDialog'
-import { VoidTransactionDialog } from './VoidTransactionDialog'
 
 const TXN_STATUS_META: Record<
   TransactionStatus,
@@ -61,6 +62,12 @@ const TXN_TYPE_LABELS: Record<TransactionType, string> = {
   REGULAR: 'Regular',
   DOWN_PAYMENT: 'Down payment',
 }
+
+// How long a just-deleted row stays in place offering Restore. The delete is a
+// soft delete, so the record survives either way — this is only how long the
+// undo stays within reach before the row leaves the list. An admin can still
+// restore it afterwards from the record itself.
+const UNDO_WINDOW_MS = 6000
 
 type TxnField = 'date' | 'amount' | 'mode' | 'cycle' | 'type' | 'status'
 
@@ -85,9 +92,9 @@ function mapError(error: unknown): string {
 export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
-  // Assigned employee (or admin) can edit PENDING/FAILED rows so a collector
-  // can correct their own misclick without admin intervention. SUCCESS edits
-  // stay admin-only — server gates this too.
+  // Assigned employee (or admin) can edit/delete PENDING/FAILED rows so a
+  // collector can correct their own misclick without admin intervention.
+  // SUCCESS edits and deletes stay admin-only — the server gates this too.
   const perms = useFinancePermissions(loan)
   const canEditOpenTxn = isAdmin || perms.isAssignedEmployee
   const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
@@ -107,9 +114,9 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   const fail = useFailTransaction(loan.id)
   const update = useUpdateTransaction(loan.id)
   const del = useDeleteTransaction(loan.id)
+  const restore = useRestoreTransaction(loan.id)
   const [recordOpen, setRecordOpen] = useState(false)
   const [editTxn, setEditTxn] = useState<TransactionResponse | null>(null)
-  const [voidTxn, setVoidTxn] = useState<TransactionResponse | null>(null)
 
   // Client-side sort over the already-loaded transactions (one loan's worth).
   const [sort, setSort] = useState<SortState<TxnField>>({ sort_by: 'date', sort_order: 'desc' })
@@ -127,6 +134,20 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     [cyclesById],
   )
   const sortedRows = useClientSort(query.data?.results ?? [], sort.sort_by, sort.sort_order, sortAccessors)
+
+  // The transaction deleted in the last few seconds, kept in component state so
+  // its row can hold its position and offer Restore. The list query drops it
+  // the moment the delete lands, so the row has nowhere else to come from.
+  // One at a time: deleting again closes the previous window, which is what its
+  // timer was about to do anyway. Mirrors AllDocumentsSection's undo pattern.
+  const [undo, setUndo] = useState<{ txn: TransactionResponse; index: number } | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(undoTimer.current), [])
+
+  const closeUndo = () => {
+    clearTimeout(undoTimer.current)
+    setUndo(null)
+  }
 
   // Cross-component focus: the cycle's "Pending confirmation" chip in
   // DueCyclesTab fires focusTransaction(txnId); we scroll the row into view
@@ -163,10 +184,6 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     update.reset()
     setEditTxn(txn)
   }
-  const openVoid = (txn: TransactionResponse) => {
-    del.reset()
-    setVoidTxn(txn)
-  }
 
   const onSaveEdit = (payload: import('@/api/queries/transactions').TransactionUpdate) => {
     if (!editTxn) return
@@ -180,18 +197,38 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
       { onSuccess: () => setEditTxn(null) },
     )
   }
-  const onConfirmVoid = () => {
-    if (!voidTxn) return
-    del.mutate(voidTxn.id, { onSuccess: () => setVoidTxn(null) })
+
+  // Soft-delete, then keep the row in place for the undo window. The index is
+  // resolved against the current sort so Restore returns the row to where it
+  // was rather than jumping it to the end of the list.
+  const removeTxn = (txn: TransactionResponse) => {
+    del.reset()
+    const index = Math.max(0, sortedRows.findIndex((t) => t.id === txn.id))
+    del.mutate(txn.id, {
+      onSuccess: () => {
+        clearTimeout(undoTimer.current)
+        setUndo({ txn, index })
+        undoTimer.current = setTimeout(() => setUndo(null), UNDO_WINDOW_MS)
+      },
+    })
+  }
+  const onRestore = (txn: TransactionResponse) => {
+    restore.reset()
+    restore.mutate(txn.id, { onSuccess: closeUndo })
   }
 
-  // Row-action errors that aren't shown inside a dialog (confirm/fail) surface
-  // in the banner above the table; edit/void errors live in their dialogs.
+  // Row-action errors that aren't shown inside a dialog (confirm/fail/delete/
+  // restore) surface in the banner above the table; edit errors live in the
+  // edit dialog.
   const actionError = confirm.isError
     ? mapActionError(confirm.error)
     : fail.isError
       ? mapActionError(fail.error)
-      : null
+      : del.isError
+        ? mapActionError(del.error)
+        : restore.isError
+          ? mapActionError(restore.error)
+          : null
 
   if (query.isLoading) {
     return (
@@ -204,25 +241,31 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
     return <ErrorBanner message={mapError(query.error)} />
   }
 
-  const rows = sortedRows
+  // Put the deleted row back where it was so Restore appears in place of the
+  // Delete affordance. Filter by id first: between the DELETE resolving and the
+  // list refetch, the deleted transaction is still in the cached page.
+  const rows: TransactionResponse[] = sortedRows.filter((t) => t.id !== undo?.txn.id)
+  if (undo) rows.splice(Math.min(undo.index, rows.length), 0, undo.txn)
+
   const acting =
-    confirm.isPending || fail.isPending || update.isPending || del.isPending
+    confirm.isPending || fail.isPending || update.isPending || del.isPending || restore.isPending
   // Action availability per row:
-  //   - Confirm / Fail / Void: admin only (server-gated).
+  //   - Confirm / Fail: admin only (server-gated).
   //   - Edit: in-scope user (admin OR assigned employee) on PENDING/FAILED;
-  //     admin-only on SUCCESS. The server enforces both — we just decide
-  //     whether to show the kebab.
+  //     admin-only on SUCCESS.
+  //   - Delete: same rule as Edit — in-scope on PENDING/FAILED, admin on
+  //     SUCCESS. The server enforces all of these; we just decide what to show.
+  const perRowGate = (txn: TransactionResponse) =>
+    txn.status === 'SUCCESS' ? isAdmin : canEditOpenTxn
   const rowActions: RowActions | null =
     isAdmin || canEditOpenTxn
       ? {
           onConfirm: isAdmin ? (id: string) => confirm.mutate(id) : null,
           onFail: isAdmin ? (id: string) => fail.mutate(id) : null,
           onEdit: openEdit,
-          onVoid: isAdmin ? openVoid : null,
-          canEditTxn: (txn: TransactionResponse) => {
-            if (txn.status === 'SUCCESS') return isAdmin
-            return canEditOpenTxn
-          },
+          onDelete: removeTxn,
+          canEditTxn: perRowGate,
+          canDeleteTxn: perRowGate,
           acting,
         }
       : null
@@ -279,6 +322,9 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
             onReceipt={onReceipt}
             cyclesById={cyclesById}
             highlightedId={highlightedId}
+            undoTxnId={undo?.txn.id ?? null}
+            onRestore={onRestore}
+            restoring={restore.isPending}
             sort={sort}
             onSort={onSort}
           />
@@ -288,6 +334,9 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
             onReceipt={onReceipt}
             cyclesById={cyclesById}
             highlightedId={highlightedId}
+            undoTxnId={undo?.txn.id ?? null}
+            onRestore={onRestore}
+            restoring={restore.isPending}
           />
         </>
       )}
@@ -302,15 +351,6 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
         onSubmit={onSaveEdit}
         saving={update.isPending}
         error={update.isError ? mapActionError(update.error) : null}
-      />
-
-      <VoidTransactionDialog
-        txn={voidTxn}
-        open={!!voidTxn}
-        onClose={() => setVoidTxn(null)}
-        onConfirm={onConfirmVoid}
-        deleting={del.isPending}
-        error={del.isError ? mapActionError(del.error) : null}
       />
     </>
   )
@@ -327,15 +367,16 @@ function mapActionError(error: unknown): string {
 }
 
 interface RowActions {
-  // Admin-only inline buttons (Confirm/Fail/Void). Null when the current user
-  // is an assigned-employee with edit access but not an admin.
+  // Admin-only inline buttons (Confirm/Fail). Null when the current user is an
+  // assigned-employee with edit access but not an admin.
   onConfirm: ((id: string) => void) | null
   onFail: ((id: string) => void) | null
-  onVoid: ((txn: TransactionResponse) => void) | null
-  // Edit is broader: admins for any row, in-scope users for PENDING/FAILED.
-  // The caller per-row gate is `canEditTxn`.
+  // Edit / Delete are broader: admins for any row, in-scope users for
+  // PENDING/FAILED. The per-row gates are canEditTxn / canDeleteTxn.
   onEdit: (txn: TransactionResponse) => void
+  onDelete: (txn: TransactionResponse) => void
   canEditTxn: (txn: TransactionResponse) => boolean
+  canDeleteTxn: (txn: TransactionResponse) => boolean
   acting: boolean
 }
 
@@ -365,18 +406,58 @@ function PendingActions({ id, actions }: { id: string; actions: RowActions }) {
   )
 }
 
-// Overflow menu for per-row actions that aren't the inline lifecycle
-// buttons. Items appear conditionally based on row status + role:
+// The in-place "are you sure?" that replaces a row's action buttons when Delete
+// is chosen. No modal — the confirmation lives in the row itself, and the
+// deleted row then offers Restore for a few seconds (the undo window).
+function InlineDeleteConfirm({
+  onCancel,
+  onConfirm,
+  acting,
+}: {
+  onCancel: () => void
+  onConfirm: () => void
+  acting: boolean
+}) {
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{ justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'nowrap' }}
+    >
+      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+        Delete this payment?
+      </Typography>
+      <Btn variant="ghost" size="sm" onClick={onCancel} disabled={acting}>
+        Cancel
+      </Btn>
+      <Btn variant="danger" size="sm" onClick={onConfirm} disabled={acting}>
+        Delete
+      </Btn>
+    </Stack>
+  )
+}
+
+// Overflow menu for per-row actions that aren't the inline lifecycle buttons.
+// Items appear conditionally based on row status + role:
 //   - Edit transaction — any row the current user is allowed to edit
-//   - Void — FAILED rows, admin only
-function RowKebab({ txn, actions }: { txn: TransactionResponse; actions: RowActions }) {
+//   - Delete — any row the current user is allowed to delete (fires the inline
+//     confirm rather than deleting immediately)
+function RowKebab({
+  txn,
+  actions,
+  onRequestDelete,
+}: {
+  txn: TransactionResponse
+  actions: RowActions
+  onRequestDelete: () => void
+}) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const close = () => setAnchor(null)
 
   const showEdit = actions.canEditTxn(txn)
-  const showVoid = txn.status === 'FAILED' && !!actions.onVoid
+  const showDelete = actions.canDeleteTxn(txn)
 
-  if (!showEdit && !showVoid) return null
+  if (!showEdit && !showDelete) return null
 
   return (
     <>
@@ -402,18 +483,18 @@ function RowKebab({ txn, actions }: { txn: TransactionResponse; actions: RowActi
             <ListItemText>Edit transaction</ListItemText>
           </MenuItem>
         )}
-        {showVoid && (
+        {showDelete && (
           <MenuItem
             onClick={() => {
               close()
-              actions.onVoid!(txn)
+              onRequestDelete()
             }}
             sx={{ color: 'error.main' }}
           >
             <ListItemIcon>
               <DeleteIcon fontSize="small" color="error" />
             </ListItemIcon>
-            <ListItemText>Void</ListItemText>
+            <ListItemText>Delete transaction</ListItemText>
           </MenuItem>
         )}
       </Menu>
@@ -422,10 +503,12 @@ function RowKebab({ txn, actions }: { txn: TransactionResponse; actions: RowActi
 }
 
 // Per-row actions:
-//   - SUCCESS: Receipt download for everyone. Admin can edit via kebab.
-//   - PENDING: Admin sees Received/Cancel (confirm/fail) inline; in-scope user (admin or
-//     assigned employee) sees the kebab with Edit.
-//   - FAILED: kebab with Edit (in-scope) and Void (admin).
+//   - SUCCESS: Receipt download for everyone. In-scope admins get the kebab
+//     (Edit / Delete).
+//   - PENDING: Admin sees Received/Cancel (confirm/fail) inline; in-scope user
+//     (admin or assigned employee) sees the kebab (Edit / Delete).
+//   - FAILED: kebab (Edit / Delete) for in-scope users.
+// Choosing Delete flips the whole cell to an inline "are you sure?" prompt.
 function RowActionsCell({
   txn,
   actions,
@@ -435,6 +518,8 @@ function RowActionsCell({
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
   const receiptBtn =
     txn.status === 'SUCCESS' ? (
       <Btn variant="ghost" size="sm" startIcon={<ReceiptIcon />} onClick={() => onReceipt(txn)}>
@@ -444,12 +529,29 @@ function RowActionsCell({
 
   if (!actions) return receiptBtn
 
+  // The inline confirm owns the whole cell so the intent is unmistakable.
+  if (confirmingDelete) {
+    return (
+      <InlineDeleteConfirm
+        acting={actions.acting}
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={() => {
+          setConfirmingDelete(false)
+          actions.onDelete(txn)
+        }}
+      />
+    )
+  }
+
+  const kebab = (
+    <RowKebab txn={txn} actions={actions} onRequestDelete={() => setConfirmingDelete(true)} />
+  )
+
   if (txn.status === 'SUCCESS') {
-    // Receipt + (optional) edit kebab.
     return (
       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
         {receiptBtn}
-        <RowKebab txn={txn} actions={actions} />
+        {kebab}
       </Stack>
     )
   }
@@ -459,17 +561,13 @@ function RowActionsCell({
     return (
       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
         {actions.onConfirm && <PendingActions id={txn.id} actions={actions} />}
-        <RowKebab txn={txn} actions={actions} />
+        {kebab}
       </Stack>
     )
   }
 
   if (txn.status === 'FAILED') {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <RowKebab txn={txn} actions={actions} />
-      </Box>
-    )
+    return <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>{kebab}</Box>
   }
   return null
 }
@@ -511,6 +609,9 @@ function DesktopTable({
   onReceipt,
   cyclesById,
   highlightedId,
+  undoTxnId,
+  onRestore,
+  restoring,
   sort,
   onSort,
 }: {
@@ -519,6 +620,9 @@ function DesktopTable({
   onReceipt: (txn: TransactionResponse) => void
   cyclesById: Map<string, DueCycleResponse>
   highlightedId: string | null
+  undoTxnId: string | null
+  onRestore: (txn: TransactionResponse) => void
+  restoring: boolean
   sort: SortState<TxnField>
   onSort: (field: TxnField, defaultDir: SortOrder) => void
 }) {
@@ -545,6 +649,32 @@ function DesktopTable({
           </TableHead>
           <TableBody>
             {rows.map((t) => {
+              if (t.id === undoTxnId) {
+                return (
+                  <TableRow key={t.id} data-txn-id={t.id}>
+                    <TableCell colSpan={7} sx={{ bgcolor: 'var(--surface-alt)' }}>
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Deleted — {fmtINR(Number(t.amount))} · {fmtDate(t.effective_payment_date)}
+                        </Typography>
+                        <Btn
+                          variant="ghost"
+                          size="sm"
+                          startIcon={<UndoIcon />}
+                          onClick={() => onRestore(t)}
+                          loading={restoring}
+                        >
+                          Restore
+                        </Btn>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                )
+              }
               const isHighlighted = t.id === highlightedId
               return (
                 <TableRow
@@ -589,16 +719,62 @@ function MobileCards({
   onReceipt,
   cyclesById,
   highlightedId,
+  undoTxnId,
+  onRestore,
+  restoring,
 }: {
   rows: TransactionResponse[]
   actions: RowActions | null
   onReceipt: (txn: TransactionResponse) => void
   cyclesById: Map<string, DueCycleResponse>
   highlightedId: string | null
+  undoTxnId: string | null
+  onRestore: (txn: TransactionResponse) => void
+  restoring: boolean
 }) {
   return (
     <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
       {rows.map((t) => {
+        if (t.id === undoTxnId) {
+          return (
+            <Box
+              key={t.id}
+              data-txn-id={t.id}
+              sx={{
+                p: 1.5,
+                border: '1px dashed',
+                borderColor: 'divider',
+                borderRadius: 'var(--radius-sm)',
+                bgcolor: 'var(--surface-alt)',
+              }}
+            >
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Deleted
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {fmtINR(Number(t.amount))} · {fmtDate(t.effective_payment_date)}
+                  </Typography>
+                </Box>
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  startIcon={<UndoIcon />}
+                  onClick={() => onRestore(t)}
+                  loading={restoring}
+                  sx={{ flexShrink: 0 }}
+                >
+                  Restore
+                </Btn>
+              </Stack>
+            </Box>
+          )
+        }
         const cycle = t.due_cycle_id ? cyclesById.get(t.due_cycle_id) ?? null : null
         const isHighlighted = t.id === highlightedId
         return (

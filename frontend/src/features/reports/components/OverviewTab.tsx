@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -8,10 +9,13 @@ import { fmtINR } from '@/lib/format'
 import { money } from '../reportUtils'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { ReportToggle, ReportToggleBar } from './ReportToggle'
 
 export function OverviewTab() {
   const summary = useDashboardSummary()
   const portfolio = useLoanPortfolio()
+  const [showFees, setShowFees] = useState(true)
+  const [showPenalties, setShowPenalties] = useState(true)
 
   return (
     <Stack spacing={4}>
@@ -49,9 +53,28 @@ export function OverviewTab() {
               accent="warning.main"
             />
             <KpiCard label="Vehicles" value={String(summary.data.total_vehicles)} />
+            {showFees && (
+              <KpiCard
+                label="Fee income"
+                value={fmtINR(money(summary.data.fee_income))}
+                accent="success.main"
+              />
+            )}
+            {showPenalties && (
+              <KpiCard
+                label="Penalty income"
+                value={fmtINR(money(summary.data.penalty_income))}
+                accent="success.main"
+              />
+            )}
           </Box>
         )}
       </AsyncSection>
+
+      <ReportToggleBar>
+        <ReportToggle label="Fee income" checked={showFees} onChange={setShowFees} />
+        <ReportToggle label="Penalty income" checked={showPenalties} onChange={setShowPenalties} />
+      </ReportToggleBar>
 
       <Box>
         <Typography variant="h3" sx={{ mb: 1.5 }}>

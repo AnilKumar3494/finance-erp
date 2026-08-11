@@ -3,11 +3,9 @@ import { AxiosError } from 'axios'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
-import AddIcon from '@mui/icons-material/AddOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
@@ -17,8 +15,9 @@ import {
   type LoanTransactionSummary,
 } from '@/api/queries/transactions'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
-import { fmtDate, fmtINR } from '@/lib/format'
+import { fmtINR } from '@/lib/format'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
+import { LoanTermsCard } from '../components/LoanTermsCard'
 import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
 import { LoanActions } from '../components/LoanActions'
@@ -243,167 +242,20 @@ function HeaderCard({
   onRecord,
   onStatusClick,
 }: HeaderCardProps) {
-  // Nominal monthly instalment (base EMI) — total payable spread over tenure.
-  const nextEmi =
-    loan.total_payable != null && loan.tenure ? Number(loan.total_payable) / loan.tenure : null
-
   return (
     <>
       <LoanIdentityCard loan={loan} eyebrow="Collections workspace" onStatusClick={onStatusClick} />
-      <Card>
-        <Stack spacing={1.5}>
-          {/* Loan terms — the fixed contract figures. */}
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              Loan Terms
-            </Typography>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)', md: 'repeat(5, 1fr)' },
-                gap: { xs: 1.5, sm: 2.5 },
-                mt: 0.5,
-              }}
-            >
-              <HeaderStat label="Principal" value={fmtINR(Number(loan.principal))} />
-              <HeaderStat
-                label="Interest rate"
-                value={loan.interest_rate != null ? `${loan.interest_rate}% p.a.` : '—'}
-              />
-              <HeaderStat
-                label="Tenure"
-                value={loan.tenure != null ? `${loan.tenure} months` : '—'}
-              />
-              <HeaderStat
-                label="Total payable"
-                value={loan.total_payable != null ? fmtINR(Number(loan.total_payable)) : '—'}
-              />
-              <HeaderStat
-                label="Next EMI"
-                // The actual amount due on the next collectible cycle (base EMI +
-                // any penalty add-on), with the breakdown — not the sticker EMI.
-                value={
-                  focusCycle
-                    ? fmtINR(Number(focusCycle.total_due))
-                    : nextEmi != null
-                      ? fmtINR(nextEmi)
-                      : '—'
-                }
-                hint={
-                  focusCycle
-                    ? Number(focusCycle.addon_from_penalties) > 0
-                      ? `due ${fmtDate(focusCycle.due_date)} · ${fmtINR(Number(focusCycle.base_emi))} + ${fmtINR(Number(focusCycle.addon_from_penalties))} penalty`
-                      : `due ${fmtDate(focusCycle.due_date)}`
-                    : undefined
-                }
-              />
-            </Box>
-          </Box>
-
-          <Divider />
-
-          {/* Money — live balances. */}
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
-              gap: { xs: 1.5, sm: 2.5 },
-            }}
-          >
-            <HeaderStat
-              label="Outstanding"
-              value={summary ? fmtINR(Number(summary.outstanding)) : '—'}
-            />
-            <HeaderStat
-              label="Total paid"
-              value={summary ? fmtINR(Number(summary.total_paid)) : '—'}
-            />
-            <HeaderStat
-              label="Penalties"
-              value={penaltiesTotal > 0 ? fmtINR(penaltiesTotal) : '—'}
-              tone={penaltiesTotal > 0 ? 'warning' : undefined}
-            />
-            <HeaderStat
-              label="Pending confirmations"
-              value={pendingCount > 0 ? `${pendingCount}` : '—'}
-              hint={pendingCount > 0 ? fmtINR(pendingTotal) : undefined}
-              tone={pendingCount > 0 ? 'warning' : undefined}
-            />
-          </Box>
-
-          {focusCycle && (
-            <>
-              <Divider />
-              <Box>
-                <Typography variant="overline" color="text.secondary">
-                  Focus cycle — #{focusCycle.cycle_number} · due {fmtDate(focusCycle.due_date)}
-                </Typography>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
-                    gap: { xs: 1.5, sm: 2.5 },
-                    mt: 0.5,
-                  }}
-                >
-                  <HeaderStat
-                    label="Net due"
-                    value={focusNet ? fmtINR(focusNet.netDue) : '—'}
-                    tone={focusNet && focusNet.netDue > 0 ? 'warning' : undefined}
-                  />
-                  <HeaderStat label="Scheduled due" value={fmtINR(Number(focusCycle.total_due))} />
-                  <HeaderStat label="Received" value={fmtINR(Number(focusCycle.total_received))} />
-                  <HeaderStat
-                    label="Penalty"
-                    value={
-                      Number(focusCycle.penalty_amount) > 0
-                        ? fmtINR(Number(focusCycle.penalty_amount))
-                        : '—'
-                    }
-                  />
-                </Box>
-              </Box>
-            </>
-          )}
-
-          {payable && (
-            <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 0.5 }}>
-              <Btn variant="primary" size="md" startIcon={<AddIcon />} onClick={onRecord}>
-                Record payment
-              </Btn>
-            </Stack>
-          )}
-        </Stack>
-      </Card>
+      <LoanTermsCard
+        loan={loan}
+        summary={summary}
+        focusCycle={focusCycle}
+        focusNet={focusNet}
+        penaltiesTotal={penaltiesTotal}
+        pendingCount={pendingCount}
+        pendingTotal={pendingTotal}
+        onRecord={onRecord}
+        showRecord={payable}
+      />
     </>
-  )
-}
-
-function HeaderStat({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: 'warning'
-}) {
-  const color = tone === 'warning' ? 'warning.main' : undefined
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h3" sx={{ fontSize: { xs: 16, sm: 18 }, color }}>
-        {value}
-      </Typography>
-      {hint && (
-        <Typography variant="caption" color="text.secondary">
-          {hint}
-        </Typography>
-      )}
-    </Box>
   )
 }
