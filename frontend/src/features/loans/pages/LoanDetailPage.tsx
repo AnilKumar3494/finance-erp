@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
@@ -11,11 +11,13 @@ import { useLoan, type LoanResponse } from '@/api/queries/loans'
 import type { LoanStatus } from '@/schemas/enums'
 import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
-import { useLoanSummary } from '@/api/queries/transactions'
+import { useLoanSummary, useLoanTransactions } from '@/api/queries/transactions'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
-import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
+import { fmtDate, fmtDateTime } from '@/lib/format'
+import { deriveNetDue } from '../cycleNetDue'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
 import { LoanTermsCard } from '../components/LoanTermsCard'
+import { RecordPaymentDialog } from '../components/RecordPaymentDialog'
 import { LoanActions } from '../components/LoanActions'
 import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
@@ -168,27 +170,43 @@ function DetailBody({ loan }: { loan: LoanResponse }) {
 
 function HeaderCard({ loan }: { loan: LoanResponse }) {
   const isDraft = loan.status === 'DRAFT'
-  // Due cycles + balances only exist after approval; the next UPCOMING cycle is
-  // the EMI to collect next, and the summary carries Outstanding / Total paid.
+  // Collectible statuses can take a payment. Cycles + balances only exist after
+  // approval; the summary carries Outstanding / Total paid. Same plumbing as the
+  // Collections workspace so the card reads identically.
+  const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
   const cyclesQuery = useDueCycles(loan.id, !isDraft)
   const summaryQuery = useLoanSummary(loan.id, !isDraft)
-  const cycles = cyclesQuery.data?.results ?? []
-  const upcoming =
-    cycles
-      .filter((c) => c.cycle_status === 'UPCOMING')
-      .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null
-  const nextEmi = upcoming
-    ? {
-        // The actual amount due that month (base EMI + any penalty add-on
-        // spread from an earlier late cycle), not the sticker EMI.
-        value: fmtINR(Number(upcoming.total_due)),
-        hint:
-          Number(upcoming.addon_from_penalties) > 0
-            ? `due ${fmtDate(upcoming.due_date)} · ${fmtINR(Number(upcoming.base_emi))} + ${fmtINR(Number(upcoming.addon_from_penalties))} penalty`
-            : `due ${fmtDate(upcoming.due_date)}`,
-      }
-    : undefined
+  const txnsQuery = useLoanTransactions(loan.id, !isDraft)
+  const cycles = useMemo(() => cyclesQuery.data?.results ?? [], [cyclesQuery.data])
+  const txns = txnsQuery.data?.results ?? []
+
+  // Net-due waterfall (same as the schedule tab) → the focus cycle: the
+  // lowest-numbered cycle that still genuinely owes money.
+  const netDueByCycleId = useMemo(
+    () => deriveNetDue(cycles, Number(summaryQuery.data?.total_paid ?? 0)),
+    [cycles, summaryQuery.data],
+  )
+  const focusCycle = useMemo(
+    () =>
+      cycles
+        .filter((c) => (netDueByCycleId.get(c.id)?.netDue ?? 0) > 0)
+        .sort((a, b) => a.cycle_number - b.cycle_number)[0] ?? null,
+    [cycles, netDueByCycleId],
+  )
+  const focusNet = focusCycle ? netDueByCycleId.get(focusCycle.id) : undefined
   const penaltiesTotal = cycles.reduce((a, c) => a + Number(c.penalty_amount), 0)
+  const pendingTxns = txns.filter((t) => t.status === 'PENDING')
+  const pendingTotal = pendingTxns.reduce((a, t) => a + Number(t.amount), 0)
+
+  const [recordOpen, setRecordOpen] = useState(false)
+  const [seedCycleId, setSeedCycleId] = useState('')
+  const [seedAmount, setSeedAmount] = useState('')
+  const onRecord = () => {
+    const net = focusCycle ? (netDueByCycleId.get(focusCycle.id)?.netDue ?? 0) : 0
+    setSeedCycleId(focusCycle?.id ?? '')
+    setSeedAmount(net > 0 ? net.toFixed(2) : '')
+    setRecordOpen(true)
+  }
 
   return (
     <>
@@ -196,9 +214,21 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
       <LoanTermsCard
         loan={loan}
         summary={summaryQuery.data}
-        nextEmi={nextEmi}
+        focusCycle={focusCycle}
+        focusNet={focusNet}
         penaltiesTotal={penaltiesTotal}
+        pendingCount={pendingTxns.length}
+        pendingTotal={pendingTotal}
         showMoney={!isDraft}
+        onRecord={onRecord}
+        showRecord={payable}
+      />
+      <RecordPaymentDialog
+        loanId={loan.id}
+        open={recordOpen}
+        onClose={() => setRecordOpen(false)}
+        defaultCycleId={seedCycleId}
+        defaultAmount={seedAmount}
       />
     </>
   )

@@ -3,11 +3,9 @@ import { AxiosError } from 'axios'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import Divider from '@mui/material/Divider'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
-import AddIcon from '@mui/icons-material/AddOutlined'
 
 import { useLoan, type LoanResponse } from '@/api/queries/loans'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
@@ -17,9 +15,9 @@ import {
   type LoanTransactionSummary,
 } from '@/api/queries/transactions'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
-import { fmtDate, fmtINR } from '@/lib/format'
+import { fmtINR } from '@/lib/format'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
-import { LoanTermsCard, HeaderStat } from '../components/LoanTermsCard'
+import { LoanTermsCard } from '../components/LoanTermsCard'
 import { DueCyclesTab } from '../components/DueCyclesTab'
 import { TransactionsTab } from '../components/TransactionsTab'
 import { LoanActions } from '../components/LoanActions'
@@ -250,66 +248,14 @@ function HeaderCard({
       <LoanTermsCard
         loan={loan}
         summary={summary}
-        nextEmi={
-          focusCycle
-            ? {
-                // The actual amount due on the next collectible cycle (base EMI
-                // + any penalty add-on), with the breakdown — not the sticker EMI.
-                value: fmtINR(Number(focusCycle.total_due)),
-                hint:
-                  Number(focusCycle.addon_from_penalties) > 0
-                    ? `due ${fmtDate(focusCycle.due_date)} · ${fmtINR(Number(focusCycle.base_emi))} + ${fmtINR(Number(focusCycle.addon_from_penalties))} penalty`
-                    : `due ${fmtDate(focusCycle.due_date)}`,
-              }
-            : undefined
-        }
+        focusCycle={focusCycle}
+        focusNet={focusNet}
         penaltiesTotal={penaltiesTotal}
         pendingCount={pendingCount}
         pendingTotal={pendingTotal}
-      >
-          {focusCycle && (
-            <>
-              <Divider />
-              <Box>
-                <Typography variant="overline" color="text.secondary">
-                  Focus cycle — #{focusCycle.cycle_number} · due {fmtDate(focusCycle.due_date)}
-                </Typography>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
-                    gap: { xs: 1.5, sm: 2.5 },
-                    mt: 0.5,
-                  }}
-                >
-                  <HeaderStat
-                    label="Net due"
-                    value={focusNet ? fmtINR(focusNet.netDue) : '—'}
-                    tone={focusNet && focusNet.netDue > 0 ? 'warning' : undefined}
-                  />
-                  <HeaderStat label="Scheduled due" value={fmtINR(Number(focusCycle.total_due))} />
-                  <HeaderStat label="Received" value={fmtINR(Number(focusCycle.total_received))} />
-                  <HeaderStat
-                    label="Penalty"
-                    value={
-                      Number(focusCycle.penalty_amount) > 0
-                        ? fmtINR(Number(focusCycle.penalty_amount))
-                        : '—'
-                    }
-                  />
-                </Box>
-              </Box>
-            </>
-          )}
-
-          {payable && (
-            <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 0.5 }}>
-              <Btn variant="primary" size="md" startIcon={<AddIcon />} onClick={onRecord}>
-                Record payment
-              </Btn>
-            </Stack>
-          )}
-      </LoanTermsCard>
+        onRecord={onRecord}
+        showRecord={payable}
+      />
     </>
   )
 }
