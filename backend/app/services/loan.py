@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 from typing import Any, Optional
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import Request
 from sqlalchemy import or_
@@ -200,8 +200,15 @@ def list_loans(
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
     search: Optional[str] = None,
+    created_after: Optional[date] = None,
+    created_before: Optional[date] = None,
 ) -> tuple[list[Loan], int]:
-    """List loans with optional filters, search, sorting, and eager loading"""
+    """List loans with optional filters, search, sorting, and eager loading.
+
+    `created_after`/`created_before` bound the record's creation date
+    (created_at) inclusively — a window over when the finances were written,
+    including drafts (which have no approval_date). created_at is a timestamp,
+    so the upper bound covers the whole of that day."""
     includes = parse_includes(include)
     query = db.query(Loan).filter(Loan.is_deleted == False)
 
@@ -241,6 +248,14 @@ def list_loans(
 
     if status:
         query = query.filter(Loan.status == status)
+
+    if created_after is not None:
+        query = query.filter(Loan.created_at >= datetime.combine(created_after, time.min))
+
+    if created_before is not None:
+        query = query.filter(
+            Loan.created_at < datetime.combine(created_before + timedelta(days=1), time.min)
+        )
 
     total = query.count()
 

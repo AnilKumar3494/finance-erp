@@ -24,6 +24,9 @@ import { useCustomer } from '@/api/queries/customers'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
+import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
+import dayjs from 'dayjs'
 import { PagerBar } from '@/components/PagerBar'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
@@ -99,12 +102,31 @@ export function LoansListPage() {
     customer_id,
     assigned_to,
     search: searchTerm,
+    date_from,
+    date_to,
     sort_by,
     sort_order,
   } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+
+  // Creation-date window (scopes the list). A backwards range doesn't query.
+  const range: DateRangeValue = {
+    from: date_from ? dayjs(date_from) : null,
+    to: date_to ? dayjs(date_to) : null,
+  }
+  const setRange = (next: DateRangeValue) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: 1,
+        date_from: isoOrUndefined(next.from),
+        date_to: isoOrUndefined(next.to),
+      }),
+      replace: true,
+    })
+  const invalidRange = rangeError(range)
 
   const setSort = (next: { sort_by: LoanSortField; sort_order: SortOrder }) =>
     navigate({
@@ -154,6 +176,8 @@ export function LoansListPage() {
     customer_id,
     assigned_employee_id: assigned_to,
     search: searchTerm,
+    created_after: invalidRange ? undefined : isoOrUndefined(range.from),
+    created_before: invalidRange ? undefined : isoOrUndefined(range.to),
     include: 'customer,vehicle',
     sort_by,
     sort_order,
@@ -283,6 +307,21 @@ export function LoansListPage() {
         </Box>
       </Box>
 
+      <Box sx={{ mb: 2 }}>
+        <DateRangeFilter
+          idPrefix="finances"
+          value={range}
+          onChange={setRange}
+          fromLabel="Created from"
+          toLabel="Created to"
+        />
+        {invalidRange && (
+          <Box sx={{ mt: 1 }}>
+            <ErrorBanner message={invalidRange} />
+          </Box>
+        )}
+      </Box>
+
       {query.isError && (
         <Box sx={{ mb: 2 }}>
           <ErrorBanner message={mapListError(query.error)} />
@@ -297,7 +336,9 @@ export function LoansListPage() {
         <>
           {rows.length === 0 ? (
             <EmptyState
-              filtered={!!status || !!customer_id || !!assigned_to || !!searchTerm}
+              filtered={
+                !!status || !!customer_id || !!assigned_to || !!searchTerm || !!date_from || !!date_to
+              }
               onCreate={goToCreate}
             />
           ) : (
