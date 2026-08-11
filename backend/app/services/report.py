@@ -97,6 +97,45 @@ def _d(value) -> Decimal:
     return Decimal(str(value))
 
 
+# A loan's net outstanding, as a SQL expression: greatest(Σ total_due −
+# Σ total_received, 0) over its cycles. This nets an OVERPAID cycle against
+# UNDERPAID ones on the SAME loan — a customer who prepays an EMI genuinely owes
+# less — so a prepayment reduces the balance owed instead of sitting clamped on
+# one cycle. It is deliberately NOT the per-cycle shortfall the collections
+# worklist uses (`Σ max(total_due − total_received, 0)`): that clamp is correct
+# for "what is overdue" but overstates the receivable as an ASSET, which broke
+# the balance sheet (assets counted a prepayment on both sides). Matches the
+# loan-summary endpoint's `total_payable − total_paid`. MUST be used under
+# GROUP BY the loan.
+def _loan_net_outstanding():
+    return func.greatest(
+        func.coalesce(func.sum(DueCycle.total_due), 0)
+        - func.coalesce(func.sum(DueCycle.total_received), 0),
+        0,
+    )
+
+
+def _loan_net_outstanding_subq(db: Session, statuses=OPEN_LOAN_STATUSES):
+    """Subquery of (loan_id, outstanding) — each loan's net outstanding (see
+    `_loan_net_outstanding`) over non-deleted cycles of non-deleted loans in
+    `statuses`. Sum its `outstanding` column for a portfolio total that nets
+    per loan rather than per cycle."""
+    return (
+        db.query(
+            DueCycle.loan_id.label("loan_id"),
+            _loan_net_outstanding().label("outstanding"),
+        )
+        .join(Loan, Loan.id == DueCycle.loan_id)
+        .filter(
+            DueCycle.is_deleted == False,
+            Loan.is_deleted == False,
+            Loan.status.in_(statuses),
+        )
+        .group_by(DueCycle.loan_id)
+        .subquery()
+    )
+
+
 def _local_month(column):
     """
     YYYY-MM bucket from a timestamptz column converted to the configured
@@ -137,32 +176,13 @@ def get_dashboard_summary(db: Session) -> dict:
     # --- Source of truth: due_cycles ledger for open loans -------------------
     # total_due:     scheduled obligation (base_emi + penalty add-ons)
     # total_received: SUCCESS REGULAR transactions allocated to the cycle
-    # Outstanding   = SUM(total_due - total_received), floored at 0 per cycle.
-    cycle_totals = (
-        db.query(
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
-        )
-        .join(Loan, Loan.id == DueCycle.loan_id)
-        .filter(
-            DueCycle.is_deleted == False,
-            Loan.is_deleted == False,
-            Loan.status.in_(OPEN_LOAN_STATUSES),
-        )
-        .first()
+    # Outstanding is netted PER LOAN (prepayments offset later shortfalls), not
+    # floored per cycle — see _loan_net_outstanding. Summing the per-loan subq
+    # keeps this in step with HP Outstanding and the balance sheet.
+    _net_sq = _loan_net_outstanding_subq(db)
+    total_outstanding = _d(
+        db.query(func.coalesce(func.sum(_net_sq.c.outstanding), 0)).scalar()
     )
-
-    total_outstanding = _d(cycle_totals.outstanding if cycle_totals else 0)
 
     # Lifetime EMI collected — REGULAR, SUCCESS, non-deleted transactions
     # across all (non-deleted) loans. Down-payments are excluded because they
@@ -228,22 +248,12 @@ def get_loan_portfolio(db: Session) -> dict:
     )
 
     # Open-loan ledger totals (source of truth — see get_dashboard_summary).
+    # payable/collected are portfolio-wide cycle sums; outstanding is netted per
+    # loan (see _loan_net_outstanding) so it agrees with HP Outstanding.
     cycle_totals = (
         db.query(
             func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
             func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
         )
         .join(Loan, Loan.id == DueCycle.loan_id)
         .filter(
@@ -252,6 +262,10 @@ def get_loan_portfolio(db: Session) -> dict:
             Loan.status.in_(OPEN_LOAN_STATUSES),
         )
         .first()
+    )
+    _net_sq = _loan_net_outstanding_subq(db)
+    total_outstanding = _d(
+        db.query(func.coalesce(func.sum(_net_sq.c.outstanding), 0)).scalar()
     )
 
     total_loans = stats[0] or 0
@@ -272,7 +286,7 @@ def get_loan_portfolio(db: Session) -> dict:
         # from due_cycles.total_due for currently-open loans.
         "total_payable": _d(cycle_totals.payable if cycle_totals else 0),
         "total_collected": _d(cycle_totals.collected if cycle_totals else 0),
-        "total_outstanding": _d(cycle_totals.outstanding if cycle_totals else 0),
+        "total_outstanding": total_outstanding,
         "average_interest_rate": Decimal(str(avg_rate)).quantize(Decimal("0.01")),
         "average_tenure": Decimal(str(avg_tenure)).quantize(Decimal("0.1")),
     }
@@ -443,22 +457,15 @@ def _customer_report_query(
         )
     ).group_by(Loan.customer_id).subquery()
 
-    outstanding_sub = (
+    # Net per loan first (prepayments offset later shortfalls — see
+    # _loan_net_outstanding), then roll up to the customer; a per-cycle floor
+    # would overstate the balance the same way it did on the balance sheet.
+    loan_net_sub = (
         _cohort(
             db.query(
-                Loan.customer_id,
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                DueCycle.total_due > DueCycle.total_received,
-                                DueCycle.total_due - DueCycle.total_received,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ).label("outstanding"),
+                Loan.customer_id.label("customer_id"),
+                DueCycle.loan_id.label("loan_id"),
+                _loan_net_outstanding().label("outstanding"),
             )
             .join(DueCycle, DueCycle.loan_id == Loan.id)
             .filter(
@@ -467,7 +474,15 @@ def _customer_report_query(
                 DueCycle.is_deleted == False,
             )
         )
-        .group_by(Loan.customer_id)
+        .group_by(Loan.customer_id, DueCycle.loan_id)
+        .subquery()
+    )
+    outstanding_sub = (
+        db.query(
+            loan_net_sub.c.customer_id,
+            func.coalesce(func.sum(loan_net_sub.c.outstanding), 0).label("outstanding"),
+        )
+        .group_by(loan_net_sub.c.customer_id)
         .subquery()
     )
 
@@ -1300,18 +1315,9 @@ def _open_loan_ledger_rows(
             DueCycle.loan_id.label("loan_id"),
             func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
             func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            DueCycle.total_due > DueCycle.total_received,
-                            DueCycle.total_due - DueCycle.total_received,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("outstanding"),
+            # Net per loan (prepayments offset later shortfalls), not per-cycle
+            # floored — see _loan_net_outstanding.
+            _loan_net_outstanding().label("outstanding"),
         )
         .filter(DueCycle.is_deleted == False)
         .group_by(DueCycle.loan_id)
