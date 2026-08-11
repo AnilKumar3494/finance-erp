@@ -19,6 +19,7 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { onlyValidDate } from '@/lib/dateRange'
 import { AsyncSection } from './AsyncSection'
 import { KPI_GRID_SX, KpiCard } from './KpiCard'
+import { ReportToggle, ReportToggleBar } from './ReportToggle'
 import { downloadCsv } from '../csvExport'
 import { downloadStatementPdf, pdfINR } from '../reportPdf'
 
@@ -37,6 +38,10 @@ const MAX_RANGE_DAYS = 366
 export function PnlTab() {
   const [from, setFrom] = useState<Dayjs>(() => dayjs().startOf('month'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
+  // Recognise fee / penalty income by default; the switches let a viewer drop
+  // either line to see the pure interest-on-collections view.
+  const [showFees, setShowFees] = useState(true)
+  const [showPenalties, setShowPenalties] = useState(true)
 
   const rangeError = to.isBefore(from, 'day')
     ? 'The end date must be on or after the start date.'
@@ -47,6 +52,26 @@ export function PnlTab() {
   const query = usePnl(iso(from), iso(to), !rangeError)
   const report = query.data
 
+  // Widen to the maximum allowed window (a P&L needs a bounded period, so
+  // "full period" is the cap, not all-time).
+  const fullPeriod = () => {
+    const end = dayjs()
+    setTo(end)
+    setFrom(end.subtract(MAX_RANGE_DAYS, 'day'))
+  }
+
+  // Income recomputed from components so the totals honour the toggles.
+  const feeInc = report && showFees ? Number(report.fee_income) : 0
+  const penInc = report && showPenalties ? Number(report.penalty_income) : 0
+  const totalIncome = report
+    ? Number(report.interest_received) +
+      Number(report.ta_income) +
+      Number(report.other_income) +
+      feeInc +
+      penInc
+    : 0
+  const netProfit = report ? totalIncome - Number(report.total_expenses) : 0
+
   const exportCsv = () =>
     report &&
     downloadCsv(
@@ -56,12 +81,14 @@ export function PnlTab() {
         ['Income', 'Interest earned on collections', report.interest_received],
         ['Income', 'TA collected', report.ta_income],
         ['Income', 'Other income', report.other_income],
-        ['Income', 'Total income', report.total_income],
+        ...(showFees ? [['Income', 'Fee income', report.fee_income]] : []),
+        ...(showPenalties ? [['Income', 'Penalty income', report.penalty_income]] : []),
+        ['Income', 'Total income', String(totalIncome)],
         ...report.expenses_by_category.map(
           (e) => ['Expenses', e.category ?? 'Uncategorised', e.amount],
         ),
         ['Expenses', 'Total expenses', report.total_expenses],
-        ['Net profit', 'Net profit for the period', report.net_profit],
+        ['Net profit', 'Net profit for the period', String(netProfit)],
       ],
     )
 
@@ -78,7 +105,13 @@ export function PnlTab() {
             { label: 'Interest earned on collections', value: pdfINR(report.interest_received), indent: true },
             { label: 'TA collected', value: pdfINR(report.ta_income), indent: true },
             { label: 'Other income', value: pdfINR(report.other_income), indent: true },
-            { label: 'Total income', value: pdfINR(report.total_income), bold: true },
+            ...(showFees
+              ? [{ label: 'Fee income', value: pdfINR(report.fee_income), indent: true }]
+              : []),
+            ...(showPenalties
+              ? [{ label: 'Penalty income', value: pdfINR(report.penalty_income), indent: true }]
+              : []),
+            { label: 'Total income', value: pdfINR(String(totalIncome)), bold: true },
           ],
         },
         {
@@ -96,7 +129,7 @@ export function PnlTab() {
         },
         {
           heading: 'NET PROFIT',
-          lines: [{ label: 'Net profit for the period', value: pdfINR(report.net_profit), bold: true }],
+          lines: [{ label: 'Net profit for the period', value: pdfINR(String(netProfit)), bold: true }],
         },
       ],
       note:
@@ -128,6 +161,9 @@ export function PnlTab() {
             slotProps={{ textField: { id: 'pnl-to', size: 'small', fullWidth: true } }}
           />
         </Box>
+        <Btn variant="ghost" onClick={fullPeriod}>
+          Full period
+        </Btn>
         <Btn
           variant="ghost"
           startIcon={<FileDownloadOutlinedIcon />}
@@ -146,6 +182,11 @@ export function PnlTab() {
         </Btn>
       </Stack>
 
+      <ReportToggleBar>
+        <ReportToggle label="Fee income" checked={showFees} onChange={setShowFees} />
+        <ReportToggle label="Penalty income" checked={showPenalties} onChange={setShowPenalties} />
+      </ReportToggleBar>
+
       {rangeError && <ErrorBanner message={rangeError} />}
 
       {!rangeError && (
@@ -155,15 +196,15 @@ export function PnlTab() {
               <Box sx={KPI_GRID_SX}>
                 <KpiCard
                   label="Income"
-                  value={inr(report.total_income)}
-                  hint={`Interest ${inr(report.interest_received)} · TA ${inr(report.ta_income)} · Other ${inr(report.other_income)}`}
+                  value={fmtINR(totalIncome)}
+                  hint={`Interest ${inr(report.interest_received)} · TA ${inr(report.ta_income)} · Other ${inr(report.other_income)}${showFees ? ` · Fees ${inr(report.fee_income)}` : ''}${showPenalties ? ` · Penalty ${inr(report.penalty_income)}` : ''}`}
                   accent="success.main"
                 />
                 <KpiCard label="Expenses" value={inr(report.total_expenses)} accent="error.main" />
                 <KpiCard
                   label="Net profit"
-                  value={inr(report.net_profit)}
-                  accent={Number(report.net_profit) >= 0 ? 'success.main' : 'error.main'}
+                  value={fmtINR(netProfit)}
+                  accent={netProfit >= 0 ? 'success.main' : 'error.main'}
                 />
                 <KpiCard
                   label="Collections in period"
@@ -198,10 +239,26 @@ export function PnlTab() {
                           {inr(report.other_income)}
                         </TableCell>
                       </TableRow>
+                      {showFees && (
+                        <TableRow>
+                          <TableCell>Fee income (processing, doc, DSC, RTO)</TableCell>
+                          <TableCell align="right" sx={{ color: 'success.main' }}>
+                            {inr(report.fee_income)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {showPenalties && (
+                        <TableRow>
+                          <TableCell>Penalty income (late-payment)</TableCell>
+                          <TableCell align="right" sx={{ color: 'success.main' }}>
+                            {inr(report.penalty_income)}
+                          </TableCell>
+                        </TableRow>
+                      )}
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600 }}>Total income</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'success.main' }}>
-                          {inr(report.total_income)}
+                          {fmtINR(totalIncome)}
                         </TableCell>
                       </TableRow>
 
@@ -238,10 +295,10 @@ export function PnlTab() {
                           align="right"
                           sx={{
                             fontWeight: 700,
-                            color: Number(report.net_profit) >= 0 ? 'success.main' : 'error.main',
+                            color: netProfit >= 0 ? 'success.main' : 'error.main',
                           }}
                         >
-                          {inr(report.net_profit)}
+                          {fmtINR(netProfit)}
                         </TableCell>
                       </TableRow>
                     </TableBody>

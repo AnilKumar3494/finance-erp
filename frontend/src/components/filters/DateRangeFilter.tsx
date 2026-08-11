@@ -4,6 +4,7 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined'
 
 import { Btn } from '@/components/primitives'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
@@ -72,8 +73,13 @@ export function DateRangeFilter({
         />
       </Box>
       {hasRange && (
-        <Btn variant="ghost" onClick={() => onChange(EMPTY_RANGE)}>
-          Clear dates
+        <Btn
+          variant="ghost"
+          startIcon={<ClearOutlinedIcon />}
+          onClick={() => onChange(EMPTY_RANGE)}
+          title="Clear the date window and show the full period"
+        >
+          Clear
         </Btn>
       )}
       {children}
