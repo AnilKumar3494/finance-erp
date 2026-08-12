@@ -25,6 +25,22 @@ from app.services.due_cycle import find_target_cycle_for_payment
 from app.services.finance import total_payable as calc_total_payable
 from app.utils.audit import write_audit
 
+# Loan statuses that accept a NEW incoming payment (record + confirm).
+# BAD_DEBT_PROPOSED is a proposal pending admin review, not a settled write-off
+# — a customer who turns up with cash must not be turned away while that review
+# is outstanding.
+#
+# Deliberately narrower than due_cycle._COLLECTIBLE_LOAN_STATUSES, which also
+# includes AWAITING_CLOSURE: that set governs which loans' cycles appear in the
+# collections worklist, whereas this one governs whether money can still be
+# taken. AWAITING_CLOSURE means "fully paid, admin finalising" — it has no
+# outstanding balance to collect against, so it stays out of this set. Keep the
+# two names distinct on purpose; they are not interchangeable.
+PAYMENT_ACCEPTING_LOAN_STATUSES = (
+    LoanStatus.ACTIVE,
+    LoanStatus.BAD_DEBT_PROPOSED,
+)
+
 
 def _txn_audit_snapshot(t: Transaction) -> dict:
     """Money record — `amount` is part of the audit on purpose. `notes`
@@ -431,7 +447,7 @@ def create_transaction(
     if not loan:
         raise ValueError("Loan not found")
 
-    if loan.status != LoanStatus.ACTIVE:
+    if loan.status not in PAYMENT_ACCEPTING_LOAN_STATUSES:
         raise ValueError(f"Cannot record payment — loan is {loan.status.value}")
 
     # --- Overpayment handling ---
@@ -540,7 +556,7 @@ def confirm_transaction(
         db.query(Loan).filter(Loan.id == transaction.loan_id).with_for_update().first()
     )
 
-    if loan.status != LoanStatus.ACTIVE:
+    if loan.status not in PAYMENT_ACCEPTING_LOAN_STATUSES:
         raise ValueError(f"Cannot confirm — loan is {loan.status.value}")
 
     summary = get_loan_transaction_summary(db, loan)
@@ -581,9 +597,21 @@ def confirm_transaction(
     # No more auto-close: the admin must finalise via /loans/{id}/close,
     # which records closure_type, charges, NOC, etc.
     refreshed_summary = get_loan_transaction_summary(db, loan)
-    if refreshed_summary["outstanding"] <= Decimal("0.00") and loan.status == LoanStatus.ACTIVE:
-        loan.status = LoanStatus.AWAITING_CLOSURE
-        loan.updated_by_id = updated_by
+    if refreshed_summary["outstanding"] <= Decimal("0.00"):
+        if loan.status == LoanStatus.ACTIVE:
+            loan.status = LoanStatus.AWAITING_CLOSURE
+            loan.updated_by_id = updated_by
+        elif loan.status == LoanStatus.BAD_DEBT_PROPOSED:
+            # A proposed-bad-debt loan that has just been cleared in full is
+            # not a bad debt. Withdraw the outstanding auto-proposal so it
+            # leaves the admin review queue, then close it out like any other
+            # fully-paid loan. Local import keeps the loan <-> bad_debt module
+            # load order safe (mirrors the penalty import above).
+            from app.services.bad_debt import withdraw_auto_proposal_on_full_payment
+
+            withdraw_auto_proposal_on_full_payment(db, loan, updated_by)
+            loan.status = LoanStatus.AWAITING_CLOSURE
+            loan.updated_by_id = updated_by
 
     write_audit(
         db,
