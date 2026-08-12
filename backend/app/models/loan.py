@@ -93,6 +93,12 @@ class Loan(AuditBase):
         server_default="36.00",
     )
 
+    # Date the first EMI falls due ("Due date" in the UI). Optional at
+    # creation, captured up front so it survives to approval; required at
+    # approval, where it anchors the repayment schedule. Only editable while
+    # DRAFT — once ACTIVE the schedule is generated and this is locked.
+    first_emi_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
     # Set when admin approves a DRAFT loan. Immutable thereafter.
     approval_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 

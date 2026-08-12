@@ -19,7 +19,7 @@ from app.models.transaction import (
     TransactionType,
 )
 from app.models.due_cycle import DueCycle
-from app.services.due_cycle import generate_cycles_for_loan
+from app.services.due_cycle import generate_cycles_for_loan, reanchor_cycles
 from app.services.finance import monthly_interest, total_payable as calc_total_payable
 from app.utils.audit import write_audit
 from app.utils.db_errors import safe_integrity_message
@@ -43,6 +43,7 @@ def _loan_audit_snapshot(loan: Loan) -> dict:
         "penalty_rate": str(loan.penalty_rate) if loan.penalty_rate is not None else None,
         "status": loan.status.value,
         "approval_date": loan.approval_date.isoformat() if loan.approval_date else None,
+        "first_emi_date": loan.first_emi_date.isoformat() if loan.first_emi_date else None,
     }
 
 
@@ -408,6 +409,7 @@ def create_loan(db: Session, data: LoanCreate, created_by: uuid.UUID) -> Loan:
         documentation_fee=data.documentation_fee,
         dsc_fee=data.dsc_fee,
         rto_fee=data.rto_fee,
+        first_emi_date=data.first_emi_date,
         # penalty_rate defaults to 36.00 from the DB; admin can override via update.
         status=LoanStatus.DRAFT,
         created_by_id=created_by,
@@ -440,16 +442,18 @@ def approve_loan(
     Transition a DRAFT loan to ACTIVE.
 
     Atomically:
-      - Stamps approval_date = today, due_day_of_month = today.day.
-      - Generates 1..tenure DueCycle rows with the agreed last-day-of-month
-        fallback for short months.
+      - Stamps approval_date (today unless backdated) and, from the required
+        first-EMI date, first_emi_date + due_day_of_month.
+      - Generates 1..tenure DueCycle rows starting on the first-EMI date, with
+        the agreed last-day-of-month fallback for short months.
       - If the loan has a down payment, creates a DOWN_PAYMENT transaction
         with status=SUCCESS, punctuality=PAID_ON_TIME, effective_date=today,
         allocated to cycle 1 (which is automatically "ahead" by the DP amount).
 
     Raises:
-      ValueError if loan is not in DRAFT or if down payment is set but
-      `down_payment_mode` is missing.
+      ValueError if loan is not in DRAFT, if no first-EMI date is available
+      (neither on the loan nor in the approve body), or if down payment is set
+      but `down_payment_mode` is missing.
     """
     if loan.status != LoanStatus.DRAFT:
         raise ValueError(
@@ -469,24 +473,31 @@ def approve_loan(
 
     today = date.today()
     # Approval date defaults to today, but the admin may backdate it to the real
-    # iFinance origination date. Never allow a future date. The first-EMI date,
-    # if given, shapes the cycle schedule; otherwise cycles run from approval.
+    # iFinance origination date. Never allow a future date.
     eff_approval = approval_date or today
     if eff_approval > today:
         raise ValueError("Approval date cannot be in the future")
-    if first_emi_date is not None and first_emi_date < eff_approval:
-        raise ValueError("First-EMI date cannot be before the approval date")
+
+    # The first-EMI date ("Due date") anchors the whole schedule and is required
+    # to approve. Prefer an override in the approve body (admin can adjust at the
+    # moment of approval); otherwise use the value captured at creation.
+    eff_first_emi = first_emi_date or loan.first_emi_date
+    if eff_first_emi is None:
+        raise ValueError("Set the due date (first EMI date) before approving this finance")
+    if eff_first_emi < eff_approval:
+        raise ValueError("Due date cannot be before the approval date")
 
     before = _loan_audit_snapshot(loan)
 
     loan.approval_date = eff_approval
-    loan.due_day_of_month = (first_emi_date or eff_approval).day
+    loan.first_emi_date = eff_first_emi
+    loan.due_day_of_month = eff_first_emi.day
     loan.status = LoanStatus.ACTIVE
     loan.updated_by_id = approved_by
 
     # Generate due cycles (cycles are added to session, not yet committed).
     cycles = generate_cycles_for_loan(
-        db, loan, approved_by=approved_by, first_emi_date=first_emi_date
+        db, loan, approved_by=approved_by, first_emi_date=eff_first_emi
     )
 
     # Flush so the cycles have IDs we can reference in the DP transaction.
@@ -570,9 +581,32 @@ def update_loan(
             if new_vehicle_id is not None:
                 _resolve_pledgeable_vehicle(db, new_vehicle_id)
 
+    # The first-EMI date ("Due date") anchors the repayment schedule. On a DRAFT
+    # there are no cycles yet, so it's a plain field write. On an ACTIVE loan an
+    # admin may correct it, but the change must re-anchor the already-generated
+    # schedule (done below) — and an active loan can never be left with no due
+    # date, nor one before its origination.
+    old_first_emi = loan.first_emi_date
+    reanchor_needed = (
+        "first_emi_date" in changes
+        and loan.status == LoanStatus.ACTIVE
+        and changes["first_emi_date"] != old_first_emi
+    )
+    if "first_emi_date" in changes and loan.status == LoanStatus.ACTIVE:
+        new_first_emi = changes["first_emi_date"]
+        if new_first_emi is None:
+            raise ValueError("An active finance must keep a due date")
+        if loan.approval_date is not None and new_first_emi < loan.approval_date:
+            raise ValueError("Due date cannot be before the approval date")
+
     before = _loan_audit_snapshot(loan)
     for field, value in changes.items():
         setattr(loan, field, value)
+
+    # Re-date every cycle onto the new anchor (amounts/payments untouched).
+    if reanchor_needed:
+        loan.due_day_of_month = loan.first_emi_date.day
+        reanchor_cycles(db, loan, updated_by)
 
     loan.updated_by_id = updated_by
     db.flush()

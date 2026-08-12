@@ -65,6 +65,11 @@ export interface LoanResponse {
   created_at: string
   updated_at: string
 
+  // Date the first EMI falls due ("Due date"). Optional at create; captured up
+  // front so it survives to approval, where it becomes required and anchors the
+  // schedule. ISO yyyy-mm-dd, or null until set.
+  first_emi_date: string | null
+
   // Lifecycle — populated only after approval.
   penalty_rate: string | null
   approval_date: string | null
@@ -112,6 +117,8 @@ export interface LoanCreate {
   // Required by the backend only when down_payment > 0.
   down_payment_mode?: PaymentMethod | null
   penalty_rate?: string | null
+  // Due date (ISO yyyy-mm-dd). Optional at create.
+  first_emi_date?: string | null
 }
 
 // Partial update — only DRAFT/ACTIVE loans are editable; the backend uses
@@ -130,6 +137,9 @@ export interface LoanUpdate {
   dsc_fee?: string
   rto_fee?: string
   penalty_rate?: string
+  // Due date (ISO yyyy-mm-dd). Only accepted while DRAFT; the backend rejects a
+  // change once the loan is ACTIVE (the schedule is already generated).
+  first_emi_date?: string | null
 }
 
 // Sortable columns — keep in lockstep with the backend _SORTABLE_COLUMNS dict

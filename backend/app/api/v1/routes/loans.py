@@ -392,13 +392,16 @@ def update_loan_route(
             ),
         )
 
-    updated = update_loan(
-        db=db,
-        loan=loan,
-        data=payload,
-        updated_by=current_user.id,
-        request=request,
-    )
+    try:
+        updated = update_loan(
+            db=db,
+            loan=loan,
+            data=payload,
+            updated_by=current_user.id,
+            request=request,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return enrich_loan(updated)
 
 

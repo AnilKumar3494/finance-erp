@@ -139,8 +139,10 @@ function ApproveAction({
     approve.reset()
     setMode('')
     setModeError(undefined)
+    setDateError(undefined)
     setApprovalDate(null)
-    setFirstEmiDate(null)
+    // Pre-fill the due date captured at creation; the admin can adjust it here.
+    setFirstEmiDate(loan.first_emi_date ? dayjs(loan.first_emi_date) : null)
     setOpen(true)
   }
   const closeDialog = () => {
@@ -176,13 +178,17 @@ function ApproveAction({
       setModeError('Select how the down payment was received')
       return
     }
+    // The due date is required — it anchors the whole repayment schedule.
+    if (firstEmiDate === null) {
+      setDateError('Set the due date before approving')
+      return
+    }
     // A picker hands back a non-null but invalid Dayjs while a date is being
     // typed; formatting one would post the string "Invalid Date".
     const badDate =
-      (approvalDate !== null && !approvalDate.isValid()) ||
-      (firstEmiDate !== null && !firstEmiDate.isValid())
+      (approvalDate !== null && !approvalDate.isValid()) || !firstEmiDate.isValid()
     if (badDate) {
-      setDateError('Enter a complete date, or clear the field')
+      setDateError('Enter a complete date')
       return
     }
     setDateError(undefined)
@@ -190,7 +196,7 @@ function ApproveAction({
       {
         down_payment_mode: requireMode ? (mode as PaymentMethod) : undefined,
         approval_date: approvalDate ? approvalDate.format('YYYY-MM-DD') : undefined,
-        first_emi_date: firstEmiDate ? firstEmiDate.format('YYYY-MM-DD') : undefined,
+        first_emi_date: firstEmiDate.format('YYYY-MM-DD'),
       },
       { onSuccess: () => closeDialog() },
     )
@@ -324,13 +330,34 @@ function ApproveAction({
 
           <Box sx={{ mt: requireMode ? 2.5 : 2 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-              Dates (optional)
+              Dates
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Leave blank to use today. Set these to backdate a finance to its
-              original iFinance dates if it was added late.
+              The due date sets when the first instalment falls due and drives the whole schedule
+              (pre-filled from the finance if it was set already). Approval date is optional —
+              set it to backdate a finance to its original iFinance date.
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Box sx={{ flex: 1 }}>
+                <FieldLabel htmlFor="approve_first_emi" required>
+                  Due date
+                </FieldLabel>
+                <DatePicker
+                  value={firstEmiDate}
+                  onChange={(d) => setFirstEmiDate(d)}
+                  format="DD MMM YYYY"
+                  minDate={approvalDate ?? undefined}
+                  slotProps={{
+                    textField: {
+                      id: 'approve_first_emi',
+                      size: 'small',
+                      fullWidth: true,
+                      error: !!dateError && firstEmiDate === null,
+                    },
+                    field: { clearable: true },
+                  }}
+                />
+              </Box>
               <Box sx={{ flex: 1 }}>
                 <FieldLabel htmlFor="approve_date">Approval date</FieldLabel>
                 <DatePicker
@@ -340,19 +367,6 @@ function ApproveAction({
                   maxDate={dayjs()}
                   slotProps={{
                     textField: { id: 'approve_date', size: 'small', fullWidth: true },
-                    field: { clearable: true },
-                  }}
-                />
-              </Box>
-              <Box sx={{ flex: 1 }}>
-                <FieldLabel htmlFor="approve_first_emi">First EMI date</FieldLabel>
-                <DatePicker
-                  value={firstEmiDate}
-                  onChange={(d) => setFirstEmiDate(d)}
-                  format="DD MMM YYYY"
-                  minDate={approvalDate ?? undefined}
-                  slotProps={{
-                    textField: { id: 'approve_first_emi', size: 'small', fullWidth: true },
                     field: { clearable: true },
                   }}
                 />

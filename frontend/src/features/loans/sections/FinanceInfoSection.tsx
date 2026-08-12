@@ -1,15 +1,18 @@
 import { useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
 import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
+import dayjs, { type Dayjs } from 'dayjs'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
 
 import { useUpdateLoan, type LoanResponse, type LoanUpdate } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
-import { Btn, ErrorBanner, Input } from '@/components/primitives'
+import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { EditableSection } from '../components/EditableSection'
@@ -56,7 +59,11 @@ export function FinanceInfoSection({
   // rule: editable on DRAFT, or on ACTIVE only by a super-admin.
   const { user } = useAuth()
   const isSuper = user?.role === 'SUPER_ADMIN'
+  const isAdmin = user?.role === 'ADMIN' || isSuper
   const canEditSensitive = loan.status === 'DRAFT' || (loan.status === 'ACTIVE' && isSuper)
+  // The due date re-anchors the schedule, so unlike principal/tenure it stays
+  // editable on an ACTIVE loan — by any admin, not just super-admin.
+  const canEditDueDate = loan.status === 'DRAFT' || (loan.status === 'ACTIVE' && isAdmin)
 
   const warning =
     perm.warning ??
@@ -84,6 +91,7 @@ export function FinanceInfoSection({
         <FinanceEditForm
           loan={loan}
           canEditSensitive={canEditSensitive}
+          canEditDueDate={canEditDueDate}
           onDone={done}
           highlight={highlight}
         />
@@ -122,6 +130,7 @@ function FinanceView({ loan }: { loan: LoanResponse }) {
         label="Penalty rate"
         value={loan.penalty_rate != null ? `${loan.penalty_rate}% per month` : undefined}
       />
+      <FieldRow label="Due date" value={fmtDate(loan.first_emi_date) || undefined} />
       <FieldRow label="Approval date" value={fmtDate(loan.approval_date) || undefined} />
       <FieldRow
         label="Due day of month"
@@ -140,6 +149,7 @@ interface FormValues {
   principal: string
   interest_rate: string
   tenure: string
+  first_emi_date: Dayjs | null
   down_payment: string
   processing_fee: string
   documentation_fee: string
@@ -151,15 +161,18 @@ interface FormValues {
 function FinanceEditForm({
   loan,
   canEditSensitive,
+  canEditDueDate,
   onDone,
   highlight,
 }: {
   loan: LoanResponse
   canEditSensitive: boolean
+  canEditDueDate: boolean
   onDone: () => void
   highlight?: Set<string>
 }) {
   const update = useUpdateLoan(loan.id)
+  const isActive = loan.status === 'ACTIVE'
 
   const schema = useMemo(
     () =>
@@ -169,6 +182,7 @@ function FinanceEditForm({
           principal: z.string(),
           interest_rate: z.string(),
           tenure: z.string(),
+          first_emi_date: z.custom<Dayjs | null>().nullable(),
           down_payment: z.string(),
           processing_fee: z.string(),
           documentation_fee: z.string(),
@@ -177,6 +191,19 @@ function FinanceEditForm({
           penalty_rate: z.string(),
         })
         .superRefine((v, ctx) => {
+          if (v.first_emi_date !== null && !v.first_emi_date.isValid()) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['first_emi_date'],
+              message: 'Enter a complete date, or clear the field',
+            })
+          } else if (isActive && canEditDueDate && v.first_emi_date === null) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['first_emi_date'],
+              message: 'An active finance must keep a due date',
+            })
+          }
           if (v.hp_number.trim() === '') {
             ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'Enter the HP number' })
           } else if (v.hp_number.trim().length > 30) {
@@ -264,12 +291,13 @@ function FinanceEditForm({
             })
           }
         }),
-    [canEditSensitive],
+    [canEditSensitive, isActive, canEditDueDate],
   )
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -278,6 +306,7 @@ function FinanceEditForm({
       principal: loan.principal ?? '',
       interest_rate: loan.interest_rate ?? '',
       tenure: loan.tenure != null ? String(loan.tenure) : '',
+      first_emi_date: loan.first_emi_date ? dayjs(loan.first_emi_date) : null,
       down_payment: loan.down_payment,
       processing_fee: loan.processing_fee,
       documentation_fee: loan.documentation_fee,
@@ -288,7 +317,7 @@ function FinanceEditForm({
   })
 
   const onSubmit = (v: FormValues) => {
-    const payload = buildDiff(v, loan, canEditSensitive)
+    const payload = buildDiff(v, loan, canEditSensitive, canEditDueDate)
     if (Object.keys(payload).length === 0) {
       onDone()
       return
@@ -362,6 +391,52 @@ function FinanceEditForm({
             message="Principal, interest rate, tenure, and down payment can only be changed on a DRAFT, or on an ACTIVE loan by a super-admin."
           />
         )}
+        {canEditDueDate && (
+          <Controller
+            control={control}
+            name="first_emi_date"
+            render={({ field, fieldState }) => (
+              <Box>
+                <FieldLabel htmlFor="fin_first_emi" required={isActive}>
+                  Due date
+                </FieldLabel>
+                <DatePicker
+                  value={field.value}
+                  onChange={(d) => field.onChange(d)}
+                  format="DD MMM YYYY"
+                  minDate={isActive && loan.approval_date ? dayjs(loan.approval_date) : undefined}
+                  slotProps={{
+                    textField: {
+                      id: 'fin_first_emi',
+                      size: 'small',
+                      fullWidth: true,
+                      error: !!fieldState.error,
+                    },
+                    // An active finance must keep a due date; only a draft may clear it.
+                    field: { clearable: !isActive },
+                  }}
+                />
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mt: 0.5 }}
+                >
+                  {isActive
+                    ? 'When the first instalment is due. Changing it re-dates the whole schedule (cycle 1 onwards); recorded payments are kept.'
+                    : 'When the first instalment is due. Required to approve — it sets the repayment schedule.'}
+                </Typography>
+                {fieldState.error?.message && (
+                  <Typography
+                    role="alert"
+                    sx={{ mt: 0.5, fontSize: 11, fontWeight: 500, color: 'error.main' }}
+                  >
+                    {fieldState.error.message}
+                  </Typography>
+                )}
+              </Box>
+            )}
+          />
+        )}
         <TwoCol>
           <Input
             id="fin_processing"
@@ -417,12 +492,23 @@ function FinanceEditForm({
   )
 }
 
-function buildDiff(v: FormValues, loan: LoanResponse, canEditSensitive: boolean): LoanUpdate {
+function buildDiff(
+  v: FormValues,
+  loan: LoanResponse,
+  canEditSensitive: boolean,
+  canEditDueDate: boolean,
+): LoanUpdate {
   const p: LoanUpdate = {}
   const numChanged = (input: string, orig: string) => Number(input) !== Number(orig)
 
   const hp = v.hp_number.trim().toUpperCase()
   if (hp !== (loan.hp_number ?? '')) p.hp_number = hp
+
+  if (canEditDueDate) {
+    const iso =
+      v.first_emi_date && v.first_emi_date.isValid() ? v.first_emi_date.format('YYYY-MM-DD') : null
+    if (iso !== (loan.first_emi_date ?? null)) p.first_emi_date = iso
+  }
 
   if (canEditSensitive) {
     if (numChanged(v.principal, loan.principal ?? '')) p.principal = v.principal.trim()
