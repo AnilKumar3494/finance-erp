@@ -97,7 +97,13 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   // SUCCESS edits and deletes stay admin-only — the server gates this too.
   const perms = useFinancePermissions(loan)
   const canEditOpenTxn = isAdmin || perms.isAssignedEmployee
-  const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
+  // Mirrors the backend's PAYMENT_ACCEPTING_LOAN_STATUSES. BAD_DEBT_PROPOSED is
+  // collectible — the proposal is pending admin review, not a settled write-off,
+  // and paying it off is how a customer clears it. AWAITING_CLOSURE is NOT: it
+  // means fully paid / admin finalising, so the server rejects a payment on it
+  // and the Record button would only 400. Keep this list in step with the
+  // backend set so we never surface a button the server refuses.
+  const payable = loan.status === 'ACTIVE' || loan.status === 'BAD_DEBT_PROPOSED'
 
   const query = useLoanTransactions(loan.id)
   const summaryQuery = useLoanSummary(loan.id)

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import dayjs from 'dayjs'
 import { AxiosError } from 'axios'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import Alert from '@mui/material/Alert'
@@ -29,6 +30,17 @@ import { focusTransaction } from '../txnFocus'
 // getRouteApi instead of importing the Route object avoids a circular import
 // with the route file.
 const routeApi = getRouteApi('/_authed/finances/$loanId/collections')
+
+// Mirror of the backend nightly job's _cap_days_for: the number of days past a
+// cycle's due date at which the running penalty reaches 100% of the EMI
+// (cap_days = ceil(days_in_month * 100 / penalty_rate)). Kept in step with the
+// backend so the frontend nudge fires on the same cycles the nightly job flags
+// in advisory mode. Used only to suggest review — the bad-debt decision is
+// manual.
+function capDaysFor(dueDateIso: string, penaltyRate: number): number {
+  const daysInMonth = dayjs(dueDateIso).daysInMonth()
+  return Math.ceil((daysInMonth * 100) / penaltyRate)
+}
 
 function mapDetailError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -78,7 +90,13 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
   const txnsQuery = useLoanTransactions(loan.id)
   const cyclesQuery = useDueCycles(loan.id, loan.status !== 'DRAFT')
 
-  const payable = loan.status === 'ACTIVE' || loan.status === 'AWAITING_CLOSURE'
+  // Mirrors the backend's PAYMENT_ACCEPTING_LOAN_STATUSES. BAD_DEBT_PROPOSED is
+  // collectible — the proposal is pending admin review, not a settled write-off,
+  // and paying it off is how a customer clears it. AWAITING_CLOSURE is NOT: it
+  // means fully paid / admin finalising, so the server rejects a payment on it
+  // and the Record button would only 400. Keep this list in step with the
+  // backend set so we never surface a button the server refuses.
+  const payable = loan.status === 'ACTIVE' || loan.status === 'BAD_DEBT_PROPOSED'
   const cycles = cyclesQuery.data?.results ?? []
   const txns = txnsQuery.data?.results ?? []
 
@@ -103,6 +121,21 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
 
   // Total penalty currently active on the loan = Σ each cycle's own penalty.
   const penaltiesTotal = cycles.reduce((sum, c) => sum + Number(c.penalty_amount), 0)
+
+  // Advisory nudge: does this loan have an unclassified cycle overdue past the
+  // penalty cap? The nightly job records this as a suggestion (advisory mode)
+  // rather than auto-proposing bad debt, so surface it here and point the user
+  // at the manual Propose action. Only meaningful on ACTIVE loans.
+  const penaltyRate = Number(loan.penalty_rate ?? 0)
+  const today = dayjs()
+  const hasPastCapCycle =
+    penaltyRate > 0 &&
+    cycles.some(
+      (c) =>
+        c.cycle_status === 'AWAITING_REVIEW' &&
+        Number(c.shortfall) > 0 &&
+        today.diff(dayjs(c.due_date), 'day') >= capDaysFor(c.due_date, penaltyRate),
+    )
 
   const pendingTxns = txns.filter((t) => t.status === 'PENDING')
   const pendingTotal = pendingTxns.reduce((sum, t) => sum + Number(t.amount), 0)
@@ -173,6 +206,29 @@ function CockpitBody({ loan }: { loan: LoanResponse }) {
         onRecord={onHeaderRecord}
         onStatusClick={statusNeedsAction ? scrollToActions : undefined}
       />
+
+      {loan.status === 'BAD_DEBT_PROPOSED' && (
+        <Alert severity="warning" variant="outlined">
+          Proposed for bad-debt review. You can still record a payment —
+          clearing the full balance withdraws the proposal automatically and
+          moves the loan to awaiting closure.
+        </Alert>
+      )}
+
+      {loan.status === 'ACTIVE' && hasPastCapCycle && (
+        <Alert
+          severity="info"
+          variant="outlined"
+          action={
+            <Btn variant="ghost" size="sm" onClick={scrollToActions}>
+              Review options
+            </Btn>
+          }
+        >
+          A cycle on this finance is overdue past the penalty cap. Consider
+          proposing it for bad-debt review.
+        </Alert>
+      )}
 
       {pendingTxns.length > 0 && (
         <Alert severity="warning" variant="outlined">

@@ -176,6 +176,43 @@ def reopen_proposal(
     return proposal
 
 
+def withdraw_auto_proposal_on_full_payment(
+    db: Session,
+    loan: Loan,
+    user_id: uuid.UUID,
+) -> Optional[BadDebtProposal]:
+    """
+    A BAD_DEBT_PROPOSED loan has just been paid to zero outstanding.
+
+    A customer who clears the whole balance is, by definition, not a bad debt,
+    so the outstanding auto-proposal must not linger in the admin's review
+    queue. Reject it here with an accurate note (this is a system unwind driven
+    by full payment, NOT an admin review decision) and let the caller move the
+    loan to AWAITING_CLOSURE.
+
+    Only AUTO proposals are touched — a manual employee/admin proposal reflects
+    a human judgment the payment doesn't automatically overturn; leave it for
+    the admin to review. Caller holds the loan lock and commits.
+
+    Note: this deliberately does NOT supersede the capped penalty_event or the
+    MISSED_CAPPED cycle — those stay on the books as the historical record of
+    what happened, the same way settled loans carry their old cycles. That is
+    why the existing `_withdraw_auto_proposal_if_no_cap_remains` (guarded on the
+    cap being gone) cannot be reused for this trigger.
+    """
+    prop = get_open_proposal(db, loan.id)
+    if prop is None or not prop.auto_proposed:
+        return None
+
+    now = datetime.now(timezone.utc)
+    prop.status = BadDebtProposalStatus.REJECTED
+    prop.reviewed_by_id = user_id
+    prop.reviewed_at = now
+    prop.review_notes = "Auto-withdrawn: loan paid in full."
+    prop.updated_by_id = user_id
+    return prop
+
+
 def auto_propose_bad_debt(
     db: Session,
     loan: Loan,
