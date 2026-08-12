@@ -125,6 +125,46 @@ def list_cycles_for_loan(db: Session, loan_id: uuid.UUID) -> List[DueCycle]:
     )
 
 
+# Statuses that only reflect where the due date sits relative to today — safe to
+# recompute when the schedule is re-anchored. The others (PAID_ON_TIME,
+# LATE_PAYMENT, MISSED_CAPPED) record a payment/classification outcome and must
+# be left untouched.
+_TRANSIENT_CYCLE_STATUSES = (CycleStatus.UPCOMING, CycleStatus.AWAITING_REVIEW)
+
+
+def reanchor_cycles(
+    db: Session, loan: Loan, updated_by: uuid.UUID
+) -> List[DueCycle]:
+    """
+    Re-date every existing cycle so cycle 1 falls on `loan.first_emi_date` and
+    each later cycle a month on (same last-day-of-month fallback as generation).
+
+    Used when an admin corrects the due date on an already-approved loan. Only
+    the due date (and the transient UPCOMING/AWAITING_REVIEW status) moves;
+    amounts, received totals, and recorded payments are left intact, and
+    classified cycles (paid/late/missed) keep their status.
+
+    Added to the session and flushed, but not committed — the caller owns the
+    transaction boundary.
+    """
+    if loan.first_emi_date is None:
+        raise ValueError("Cannot re-anchor cycles without a first_emi_date")
+
+    cycles = list_cycles_for_loan(db, loan.id)
+    today = date.today()
+    for cycle in cycles:
+        cycle.due_date = cycle_due_date(loan.first_emi_date, cycle.cycle_number - 1)
+        if cycle.cycle_status in _TRANSIENT_CYCLE_STATUSES:
+            cycle.cycle_status = (
+                CycleStatus.AWAITING_REVIEW
+                if cycle.due_date < today
+                else CycleStatus.UPCOMING
+            )
+        cycle.updated_by_id = updated_by
+    db.flush()
+    return cycles
+
+
 def find_target_cycle_for_payment(
     db: Session,
     loan_id: uuid.UUID,
