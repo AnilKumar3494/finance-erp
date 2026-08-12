@@ -32,6 +32,7 @@ Disabling
 from __future__ import annotations
 
 import logging
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -104,6 +105,10 @@ def start_scheduler() -> None:
         trigger=CronTrigger(
             hour=settings.NIGHTLY_JOB_HOUR,
             minute=settings.NIGHTLY_JOB_MINUTE,
+            # BackgroundScheduler's timezone= is NOT inherited by a CronTrigger
+            # constructed explicitly — APScheduler 3.x falls back to the system
+            # zone (UTC on the EC2 host). Pin it on the trigger itself.
+            timezone=ZoneInfo(settings.REPORTS_TIMEZONE),
         ),
         id="nightly_cycle_check",
         # `coalesce=True`: if the app was offline at fire time, run ONCE on
