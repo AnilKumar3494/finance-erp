@@ -76,6 +76,60 @@ def _has_active_event(db: Session, cycle_id: uuid.UUID) -> bool:
     return get_active_penalty_for_cycle(db, cycle_id) is not None
 
 
+# Advisory-mode action (see NIGHTLY_AUTO_PROPOSE_BAD_DEBT). One row per cycle
+# marks that it crossed the penalty cap while automation was off.
+CAP_ADVISORY_ACTION = "CAP_CROSSED_ADVISORY"
+
+
+def _has_cap_advisory(db: Session, cycle_id: uuid.UUID) -> bool:
+    """Has a cap-crossing advisory ever been recorded for this cycle?
+
+    Unlike the milestone dedup this is not same-day scoped: the cap condition
+    (days_late >= cap_days) stays true every night after it's crossed, so we
+    record the advisory exactly once and stay quiet thereafter.
+    """
+    return (
+        db.query(AuditLog.id)
+        .filter(
+            AuditLog.action_type == CAP_ADVISORY_ACTION,
+            AuditLog.record_id == cycle_id,
+        )
+        .first()
+        is not None
+    )
+
+
+def _record_cap_advisory(
+    db: Session,
+    cycle: DueCycle,
+    loan: Loan,
+    days_late: int,
+    cap_days: int,
+    shortfall: Decimal,
+) -> None:
+    """Append the audit row that flags a cap-crossing for manual review.
+
+    Advisory mode's counterpart to apply_penalty's cap branch: it records the
+    signal (dedup ledger + pattern data + lookback for the frontend nudge)
+    without touching loan or cycle state. Caller controls commit.
+    """
+    write_audit(
+        db,
+        action_type=CAP_ADVISORY_ACTION,
+        target_table="due_cycles",
+        record_id=cycle.id,
+        user_id=None,  # system actor — nightly job
+        new_data={
+            "loan_id": str(loan.id),
+            "loan_number": loan.loan_number,
+            "cycle_number": cycle.cycle_number,
+            "days_late": days_late,
+            "cap_days": cap_days,
+            "shortfall": str(shortfall),
+        },
+    )
+
+
 # --------------------------------------------------
 # N2: same-day idempotency for milestone alerts.
 # --------------------------------------------------
@@ -148,6 +202,7 @@ def process_loan(db: Session, loan: Loan, today: date) -> dict:
         "notify_30_days": 0,
         "notify_60_days": 0,
         "auto_classified_at_cap": 0,
+        "flagged_at_cap_advisory": 0,
     }
 
     cycles = (
@@ -218,24 +273,37 @@ def process_loan(db: Session, loan: Loan, today: date) -> dict:
                 and days_late >= cap_days
                 and not _has_active_event(db, cycle.id)
             ):
-                logger.warning(
-                    "AUTO-CAP loan=%s cycle=#%d days_late=%d cap_days=%d "
-                    "-- applying capped penalty + auto-proposing bad debt",
-                    loan.loan_number, cycle.cycle_number, days_late, cap_days,
-                )
-                # apply_penalty triggers auto_propose_bad_debt internally on cap_hit
-                apply_penalty(
-                    db,
-                    cycle=cycle,
-                    loan=loan,
-                    classified_as_of_date=today,
-                    classified_by=None,  # system actor — column is nullable
-                    classification_note=(
-                        f"Auto-classified by nightly job at penalty cap "
-                        f"({days_late} days late)."
-                    ),
-                )
-                counts["auto_classified_at_cap"] += 1
+                if settings.NIGHTLY_AUTO_PROPOSE_BAD_DEBT:
+                    logger.warning(
+                        "AUTO-CAP loan=%s cycle=#%d days_late=%d cap_days=%d "
+                        "-- applying capped penalty + auto-proposing bad debt",
+                        loan.loan_number, cycle.cycle_number, days_late, cap_days,
+                    )
+                    # apply_penalty triggers auto_propose_bad_debt internally on cap_hit
+                    apply_penalty(
+                        db,
+                        cycle=cycle,
+                        loan=loan,
+                        classified_as_of_date=today,
+                        classified_by=None,  # system actor — column is nullable
+                        classification_note=(
+                            f"Auto-classified by nightly job at penalty cap "
+                            f"({days_late} days late)."
+                        ),
+                    )
+                    counts["auto_classified_at_cap"] += 1
+                elif not _has_cap_advisory(db, cycle.id):
+                    # Advisory mode: record the cap-crossing as a suggestion for
+                    # manual bad-debt review. No penalty applied, no loan/cycle
+                    # state change — the cycle stays AWAITING_REVIEW so a human
+                    # decides. Recorded once (see _has_cap_advisory).
+                    logger.warning(
+                        "CAP-ADVISORY loan=%s cycle=#%d days_late=%d cap_days=%d "
+                        "-- flagged for manual bad-debt review (auto-propose off)",
+                        loan.loan_number, cycle.cycle_number, days_late, cap_days,
+                    )
+                    _record_cap_advisory(db, cycle, loan, days_late, cap_days, shortfall)
+                    counts["flagged_at_cap_advisory"] += 1
 
     return counts
 
@@ -255,6 +323,7 @@ def run_once(db: Optional[Session] = None) -> dict:
         "notify_30_days": 0,
         "notify_60_days": 0,
         "auto_classified_at_cap": 0,
+        "flagged_at_cap_advisory": 0,
         "errors": 0,
     }
 

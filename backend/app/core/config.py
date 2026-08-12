@@ -204,6 +204,16 @@ class Settings(BaseSettings):
     NIGHTLY_JOB_ENABLED: bool = True
     NIGHTLY_JOB_HOUR: int = Field(default=2, ge=0, le=23)     # 02:00 IST
     NIGHTLY_JOB_MINUTE: int = Field(default=0, ge=0, le=59)
+    # When True the nightly job auto-classifies a capped cycle and flips the
+    # loan to BAD_DEBT_PROPOSED (spreading the penalty). When False it runs in
+    # ADVISORY mode: it still records the cap-crossing (an audit row, for
+    # pattern analysis) and surfaces it as a suggestion, but changes no loan or
+    # cycle state — a human proposes bad debt manually.
+    #
+    # Defaults to False: automation stays OFF until the penalty-cap policy
+    # (36%/month default) is validated against real collections. Set
+    # NIGHTLY_AUTO_PROPOSE_BAD_DEBT=true in the environment to enable it.
+    NIGHTLY_AUTO_PROPOSE_BAD_DEBT: bool = False
     # Advisory-lock key. Arbitrary 64-bit int; any deployment that shares
     # a database must share this value so the lock actually serialises.
     NIGHTLY_JOB_LOCK_KEY: int = 0xF1E_C1C_E  # 253_656_270 — "fnce_cyc"
