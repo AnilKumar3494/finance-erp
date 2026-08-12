@@ -1,16 +1,18 @@
 import { useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
 import { serverMessage } from '@/api/errors'
 import { z } from 'zod'
+import dayjs, { type Dayjs } from 'dayjs'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 
 import { useLoan, useUpdateLoan, type LoanUpdate } from '@/api/queries/loans'
-import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
+import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { WizardAssignmentCard } from '@/features/loans/wizard/AssignmentCard'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
@@ -43,6 +45,7 @@ interface FinFormValues {
   principal: string
   interest_rate: string
   tenure: string
+  first_emi_date: Dayjs | null
   down_payment: string
   processing_fee: string
   documentation_fee: string
@@ -89,6 +92,7 @@ function FinancialsForm({
           principal: z.string(),
           interest_rate: z.string(),
           tenure: z.string(),
+          first_emi_date: z.custom<Dayjs | null>().nullable(),
           down_payment: z.string(),
           processing_fee: z.string(),
           documentation_fee: z.string(),
@@ -96,6 +100,15 @@ function FinancialsForm({
           rto_fee: z.string(),
         })
         .superRefine((v, ctx) => {
+          // Optional at creation, but a half-typed date is still a non-null
+          // (invalid) Dayjs — reject it rather than POST "Invalid Date".
+          if (v.first_emi_date !== null && !v.first_emi_date.isValid()) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['first_emi_date'],
+              message: 'Enter a complete date, or clear the field',
+            })
+          }
           if (v.hp_number.trim() === '') {
             ctx.addIssue({ code: 'custom', path: ['hp_number'], message: 'Enter the HP number' })
           } else if (v.hp_number.trim().length > 30) {
@@ -177,6 +190,7 @@ function FinancialsForm({
     handleSubmit,
     reset,
     watch,
+    control,
     formState: { errors, isDirty },
   } = useForm<FinFormValues>({
     resolver: zodResolver(schema),
@@ -185,6 +199,7 @@ function FinancialsForm({
       principal: loan.principal ?? '',
       interest_rate: loan.interest_rate ?? '',
       tenure: loan.tenure != null ? String(loan.tenure) : '',
+      first_emi_date: loan.first_emi_date ? dayjs(loan.first_emi_date) : null,
       down_payment: loan.down_payment ?? '',
       processing_fee: loan.processing_fee ?? '',
       documentation_fee: loan.documentation_fee ?? '',
@@ -220,6 +235,11 @@ function FinancialsForm({
       principal: v.principal.trim(),
       interest_rate: v.interest_rate.trim(),
       tenure: Number(v.tenure),
+      // null clears a previously-set due date; an ISO string sets it.
+      first_emi_date:
+        v.first_emi_date && v.first_emi_date.isValid()
+          ? v.first_emi_date.format('YYYY-MM-DD')
+          : null,
       down_payment: feeOrUndef(v.down_payment),
       processing_fee: feeOrUndef(v.processing_fee),
       documentation_fee: feeOrUndef(v.documentation_fee),
@@ -291,6 +311,45 @@ function FinancialsForm({
               error={errors.tenure?.message}
             />
           </TwoCol>
+          <Controller
+            control={control}
+            name="first_emi_date"
+            render={({ field, fieldState }) => (
+              <Box>
+                <FieldLabel htmlFor="fin_first_emi">Due date</FieldLabel>
+                <DatePicker
+                  value={field.value}
+                  onChange={(d) => field.onChange(d)}
+                  format="DD MMM YYYY"
+                  slotProps={{
+                    textField: {
+                      id: 'fin_first_emi',
+                      size: 'small',
+                      fullWidth: true,
+                      error: !!fieldState.error,
+                    },
+                    field: { clearable: true },
+                  }}
+                />
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mt: 0.5 }}
+                >
+                  When the first instalment is due. Optional now — required to approve, where it
+                  sets the whole repayment schedule.
+                </Typography>
+                {fieldState.error?.message && (
+                  <Typography
+                    role="alert"
+                    sx={{ mt: 0.5, fontSize: 11, fontWeight: 500, color: 'error.main' }}
+                  >
+                    {fieldState.error.message}
+                  </Typography>
+                )}
+              </Box>
+            )}
+          />
           <TwoCol>
             <Input
               id="fin_processing"

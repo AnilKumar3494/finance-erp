@@ -77,6 +77,11 @@ class LoanBase(BaseModel):
     documentation_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     dsc_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     rto_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
+    # Date the first EMI falls due ("Due date"). Optional at create; required at
+    # approval (where an override in the approve body still takes precedence).
+    first_emi_date: Optional[date] = Field(
+        default=None, description="Date the first EMI falls due"
+    )
 
     @field_validator("hp_number")
     @classmethod
@@ -179,6 +184,9 @@ class LoanUpdate(BaseModel):
     dsc_fee: Optional[Decimal] = Field(None, ge=0)
     rto_fee: Optional[Decimal] = Field(None, ge=0)
     penalty_rate: Optional[Decimal] = Field(None, ge=0, le=1000)
+    # Only honoured while DRAFT (service raises on an ACTIVE loan) — the
+    # schedule is already generated once approved.
+    first_emi_date: Optional[date] = Field(None)
 
     model_config = {"extra": "forbid"}
 
