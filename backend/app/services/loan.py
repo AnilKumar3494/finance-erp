@@ -203,6 +203,7 @@ def list_loans(
     search: Optional[str] = None,
     created_after: Optional[date] = None,
     created_before: Optional[date] = None,
+    pending_approval: Optional[bool] = None,
 ) -> tuple[list[Loan], int]:
     """List loans with optional filters, search, sorting, and eager loading.
 
@@ -249,6 +250,20 @@ def list_loans(
 
     if status:
         query = query.filter(Loan.status == status)
+
+    # "Awaiting approval" filter: DRAFT loans whose loan-level required terms
+    # are all filled in — i.e. the ones an admin can actually action now, as
+    # opposed to half-built drafts still being captured. Customer/vehicle
+    # completeness is re-checked at the approve step itself; this single-table
+    # predicate is the cheap, index-friendly signal that a draft is prepared.
+    if pending_approval:
+        query = query.filter(
+            Loan.status == LoanStatus.DRAFT,
+            Loan.principal.isnot(None),
+            Loan.interest_rate.isnot(None),
+            Loan.tenure.isnot(None),
+            Loan.first_emi_date.isnot(None),
+        )
 
     if created_after is not None:
         query = query.filter(Loan.created_at >= datetime.combine(created_after, time.min))

@@ -6,30 +6,28 @@ import type { LoanResponse } from '@/api/queries/loans'
 import { Card } from '@/components/primitives'
 import { loanDisplayId } from '../loanIdentity'
 import { LoanStatusChip } from './LoanStatusChip'
-import { EmiDueChip } from './EmiDueChip'
 import { PrintStatementButton } from './PrintStatementButton'
 
 interface LoanIdentityCardProps {
   loan: LoanResponse
   // Small uppercase label above the id — names the screen the card heads.
+  // Retained for API compatibility; the compact band no longer renders it.
   eyebrow: string
-  // Show the internal LMS number under the HP number.
+  // Retained for API compatibility; the compact band no longer renders it.
   showLmsNumber?: boolean
-  // Makes the status chip clickable (used to jump to loan actions).
+  // When set, a clickable status chip is shown to jump to loan actions. Used
+  // by the collections cockpit for statuses that carry a pending decision.
   onStatusClick?: () => void
 }
 
-// The loan's identity band: id, customer, status chips and Print Customer
-// Statement. It pins under the app top bar so the statement stays one click
-// away no matter how far down the page you are — which is why the header's
-// stats live in a separate card below rather than in here. Pinning those too
-// would eat half the viewport on the collections cockpit.
-export function LoanIdentityCard({
-  loan,
-  eyebrow,
-  showLmsNumber,
-  onStatusClick,
-}: LoanIdentityCardProps) {
+// The loan's identity band, trimmed to one line — HP number | customer name —
+// with the Print Customer Statement action alongside. It pins under the app
+// top bar so the statement stays one click away no matter how far down the
+// page you are; keeping it to a single line stops it eating the viewport while
+// scrolled. The header's stats live in a separate card below. The collections
+// cockpit additionally surfaces a clickable status chip (via `onStatusClick`)
+// when the status carries a pending decision.
+export function LoanIdentityCard({ loan, onStatusClick }: LoanIdentityCardProps) {
   return (
     <Card
       sx={{
@@ -41,77 +39,53 @@ export function LoanIdentityCard({
         // stack the top bar uses — otherwise scrolled content shows through.
         bgcolor: 'var(--bg)',
         backgroundImage: 'linear-gradient(var(--surface), var(--surface))',
-        py: 2,
+        py: 1.25,
       }}
     >
       <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={{ xs: 1.5, sm: 2 }}
-        sx={{
-          alignItems: { xs: 'stretch', sm: 'flex-start' },
-          justifyContent: 'space-between',
-        }}
+        direction="row"
+        spacing={1.5}
+        sx={{ alignItems: 'center', justifyContent: 'space-between' }}
       >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="overline" color="text.secondary">
-            {eyebrow}
-          </Typography>
+        <Box
+          sx={{
+            minWidth: 0,
+            display: 'flex',
+            alignItems: 'baseline',
+            flexWrap: 'wrap',
+            columnGap: 1,
+            rowGap: 0.25,
+          }}
+        >
           <Typography
             variant="h1"
-            sx={{ fontSize: { xs: 20, sm: 24 }, fontFamily: 'var(--font-mono)' }}
+            sx={{ fontSize: { xs: 18, sm: 22 }, fontFamily: 'var(--font-mono)' }}
           >
             {loanDisplayId(loan)}
           </Typography>
-          {showLmsNumber && loan.hp_number && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontFamily: 'var(--font-mono)' }}
-            >
-              LMS: {loan.loan_number}
-            </Typography>
-          )}
           {loan.customer?.full_name && (
-            <Box sx={{ mt: 0.75 }}>
-              <Typography variant="body2">
-                <Box component="span" sx={{ color: 'text.secondary' }}>
-                  Name:{' '}
-                </Box>
-                <Box component="span" sx={{ fontWeight: 600 }}>
-                  {loan.customer.full_name}
-                </Box>
+            <>
+              <Box component="span" sx={{ color: 'text.disabled' }} aria-hidden>
+                |
+              </Box>
+              <Typography variant="h3" sx={{ fontSize: { xs: 15, sm: 18 }, fontWeight: 600 }} noWrap>
+                {loan.customer.full_name}
               </Typography>
-              {loan.customer.mobile_number && (
-                <Typography variant="body2">
-                  <Box component="span" sx={{ color: 'text.secondary' }}>
-                    Phone Number:{' '}
-                  </Box>
-                  <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    {loan.customer.mobile_number}
-                  </Box>
-                </Typography>
-              )}
-            </Box>
+            </>
           )}
         </Box>
         <Stack
-          direction={{ xs: 'row', sm: 'column' }}
-          spacing={{ xs: 1, sm: 0.5 }}
-          sx={{
-            flexShrink: 0,
-            flexWrap: 'wrap',
-            rowGap: { xs: 1, sm: 0.5 },
-            alignItems: { xs: 'flex-start', sm: 'flex-end' },
-            '& .MuiChip-root': { minWidth: { xs: 'auto', sm: 220 }, justifyContent: 'center' },
-          }}
+          direction="row"
+          spacing={1}
+          sx={{ flexShrink: 0, alignItems: 'center' }}
         >
-          <LoanStatusChip
-            status={loan.status}
-            size="medium"
-            onClick={onStatusClick}
-            title={onStatusClick ? 'Go to loan actions' : undefined}
-          />
-          <EmiDueChip status={loan.emi_due_status} size="medium" />
+          {onStatusClick && (
+            <LoanStatusChip
+              status={loan.status}
+              onClick={onStatusClick}
+              title="Go to loan actions"
+            />
+          )}
           {loan.status !== 'DRAFT' && <PrintStatementButton loan={loan} />}
         </Stack>
       </Stack>

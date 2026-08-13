@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import { getRouteApi } from '@tanstack/react-router'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
@@ -11,11 +12,12 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
+import type { SxProps, Theme } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 
 import {
-  useLoans,
+  useInfiniteLoans,
   type LoanResponse,
   type LoanSortField,
   type SortOrder,
@@ -27,7 +29,6 @@ import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
 import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
 import dayjs from 'dayjs'
-import { PagerBar } from '@/components/PagerBar'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
@@ -39,8 +40,14 @@ import { fmtDate } from '@/lib/format'
 
 const routeApi = getRouteApi('/_authed/finances/')
 
-const PAGE_SIZE = 20
+// Rows fetched per network page. Larger than the old 20-per-page pager so a
+// scroll pulls a meaningful chunk without a request per handful of rows.
+const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
+// The scroll container's height — the table/cards scroll inside this while the
+// toolbar and filters stay put above.
+const LIST_MAX_HEIGHT = 'calc(100dvh - 300px)'
+const LIST_MIN_HEIGHT = 340
 
 // Server-side sort (mirrors the customers list). The backend default is
 // created_at desc, which the SNO column reflects when no sort is in the URL.
@@ -95,10 +102,20 @@ const Dash = () => (
   </Typography>
 )
 
+// A sticky table header that stays OPAQUE while virtualized rows scroll under
+// it — in dark mode `background.paper` is a translucent token, so composite it
+// over an opaque base the way the theme's Card override does.
+const headerCellSx: SxProps<Theme> = {
+  fontWeight: 600,
+  backgroundColor: 'background.default',
+  backgroundImage: (theme: Theme) =>
+    `linear-gradient(${theme.palette.background.paper}, ${theme.palette.background.paper})`,
+}
+
 export function LoansListPage() {
   const {
-    page,
     status,
+    pending_approval,
     customer_id,
     assigned_to,
     search: searchTerm,
@@ -120,7 +137,6 @@ export function LoansListPage() {
     navigate({
       search: (prev) => ({
         ...prev,
-        page: 1,
         date_from: isoOrUndefined(next.from),
         date_to: isoOrUndefined(next.to),
       }),
@@ -130,12 +146,7 @@ export function LoansListPage() {
 
   const setSort = (next: { sort_by: LoanSortField; sort_order: SortOrder }) =>
     navigate({
-      search: (prev) => ({
-        ...prev,
-        page: 1,
-        sort_by: next.sort_by,
-        sort_order: next.sort_order,
-      }),
+      search: (prev) => ({ ...prev, sort_by: next.sort_by, sort_order: next.sort_order }),
       replace: true,
     })
 
@@ -155,7 +166,7 @@ export function LoansListPage() {
       const next = draft.trim() || undefined
       lastWrittenSearch.current = next
       navigate({
-        search: (prev) => ({ ...prev, page: 1, search: next }),
+        search: (prev) => ({ ...prev, search: next }),
         replace: true,
       })
     }, SEARCH_DEBOUNCE_MS)
@@ -169,10 +180,10 @@ export function LoansListPage() {
     }
   }, [searchTerm])
 
-  const query = useLoans({
-    page,
+  const query = useInfiniteLoans({
     page_size: PAGE_SIZE,
     status,
+    pending_approval,
     customer_id,
     assigned_employee_id: assigned_to,
     search: searchTerm,
@@ -186,31 +197,43 @@ export function LoansListPage() {
   // Only to label the customer filter chip; cheap and cached.
   const customerQuery = useCustomer(customer_id)
 
-  const total = query.data?.total ?? 0
-  const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  const rows = query.data?.results ?? []
+  const rows = query.data?.pages.flatMap((p) => p.results) ?? []
+  const total = query.data?.pages[0]?.total ?? 0
 
-  const pager = (edge: 'top' | 'bottom') =>
-    total > 0 ? (
-      <PagerBar
-        edge={edge}
-        page={page}
-        totalPages={totalPages}
-        label={`${total} finance${total === 1 ? '' : 's'}`}
-        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
-      />
-    ) : null
+  // Identifies the active query; when it changes the scroll views jump to top.
+  const resetKey = JSON.stringify([
+    status,
+    pending_approval,
+    customer_id,
+    assigned_to,
+    searchTerm,
+    date_from,
+    date_to,
+    sort_by,
+    sort_order,
+  ])
 
   const goToCreate = () => navigate({ to: '/finances/new', search: { step: 0 } })
 
+  // Status and the "Awaiting approval" filter are mutually exclusive — picking
+  // one clears the other so the chip row always reflects a single active view.
   const setStatus = (next: LoanStatus | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, status: next }) })
+    navigate({ search: (prev) => ({ ...prev, status: next, pending_approval: undefined }) })
+
+  const setPendingApproval = (next: boolean) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        status: undefined,
+        pending_approval: next ? true : undefined,
+      }),
+    })
 
   const clearCustomer = () =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, customer_id: undefined }) })
+    navigate({ search: (prev) => ({ ...prev, customer_id: undefined }) })
 
   const setAssignedTo = (next: string | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }) })
+    navigate({ search: (prev) => ({ ...prev, assigned_to: next }) })
 
   return (
     <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
@@ -286,8 +309,15 @@ export function LoansListPage() {
             <Chip
               label="All"
               onClick={() => setStatus(undefined)}
-              color={status ? 'default' : 'primary'}
-              variant={status ? 'outlined' : 'filled'}
+              color={status || pending_approval ? 'default' : 'primary'}
+              variant={status || pending_approval ? 'outlined' : 'filled'}
+              sx={{ height: 36 }}
+            />
+            <Chip
+              label="Awaiting approval"
+              onClick={() => setPendingApproval(!pending_approval)}
+              color={pending_approval ? 'primary' : 'default'}
+              variant={pending_approval ? 'filled' : 'outlined'}
               sx={{ height: 36 }}
             />
             {LOAN_STATUS_ORDER.map((s) => {
@@ -332,53 +362,132 @@ export function LoansListPage() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <Spinner size={28} />
         </Box>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          filtered={
+            !!status ||
+            !!pending_approval ||
+            !!customer_id ||
+            !!assigned_to ||
+            !!searchTerm ||
+            !!date_from ||
+            !!date_to
+          }
+          onCreate={goToCreate}
+        />
       ) : (
         <>
-          {rows.length === 0 ? (
-            <EmptyState
-              filtered={
-                !!status || !!customer_id || !!assigned_to || !!searchTerm || !!date_from || !!date_to
-              }
-              onCreate={goToCreate}
-            />
-          ) : (
-            <>
-              {pager('top')}
-              <DesktopTable
-                rows={rows}
-                page={page}
-                sort_by={sort_by}
-                sort_order={sort_order}
-                onSortChange={setSort}
-              />
-              <MobileCards rows={rows} page={page} />
-              {pager('bottom')}
-            </>
-          )}
+          <CountBar loaded={rows.length} total={total} />
+          <DesktopTable
+            rows={rows}
+            sort_by={sort_by}
+            sort_order={sort_order}
+            onSortChange={setSort}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            fetchNextPage={query.fetchNextPage}
+            resetKey={resetKey}
+          />
+          <MobileCards
+            rows={rows}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            fetchNextPage={query.fetchNextPage}
+            resetKey={resetKey}
+          />
         </>
       )}
     </Box>
   )
 }
 
-function serialNumber(page: number, index: number) {
-  return (page - 1) * PAGE_SIZE + index + 1
+function CountBar({ loaded, total }: { loaded: number; total: number }) {
+  return (
+    <Box sx={{ mb: 1, px: 0.5 }}>
+      <Typography variant="body2" color="text.secondary">
+        Showing {loaded} of {total} finance{total === 1 ? '' : 's'}
+      </Typography>
+    </Box>
+  )
+}
+
+// Shared props for the two infinite-scroll views.
+interface InfiniteProps {
+  rows: LoanResponse[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  fetchNextPage: () => void
+  // Changes whenever the filter/sort set changes — the views scroll back to the
+  // top so a new query doesn't leave you stranded mid-way down the old results.
+  resetKey: string
+}
+
+// Fires `fetchNextPage` once the virtualizer's last mounted row reaches the end
+// of what's loaded. Guarded on `hasNextPage`/`isFetchingNextPage` so it can't
+// stampede requests (React Query dedupes, but this keeps it to one in flight).
+function useAutoLoad(
+  lastIndex: number | undefined,
+  count: number,
+  {
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  }: Pick<InfiniteProps, 'hasNextPage' | 'isFetchingNextPage' | 'fetchNextPage'>,
+) {
+  useEffect(() => {
+    if (lastIndex === undefined) return
+    if (lastIndex >= count - 1 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }, [lastIndex, count, hasNextPage, isFetchingNextPage, fetchNextPage])
 }
 
 // --------------------------------------------------
-// Desktop table — md and up
+// Desktop table — md and up (virtualized + infinite)
 // --------------------------------------------------
 
-interface DesktopTableProps {
-  rows: LoanResponse[]
-  page: number
+interface DesktopTableProps extends InfiniteProps {
   sort_by: LoanSortField | undefined
   sort_order: SortOrder | undefined
   onSortChange: (next: { sort_by: LoanSortField; sort_order: SortOrder }) => void
 }
 
-function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: DesktopTableProps) {
+function DesktopTable({
+  rows,
+  sort_by,
+  sort_order,
+  onSortChange,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [resetKey])
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 53,
+    overscan: 12,
+    getItemKey: (i) => rows[i]!.id,
+  })
+
+  const virtualRows = virtualizer.getVirtualItems()
+  const paddingTop = virtualRows.length ? virtualRows[0]!.start : 0
+  const paddingBottom = virtualRows.length
+    ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+    : 0
+
+  useAutoLoad(virtualRows[virtualRows.length - 1]?.index, rows.length, {
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  })
 
   // Clicking the active column flips direction; clicking an inactive column
   // applies that column's default direction.
@@ -395,11 +504,25 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
   const activeField: LoanSortField = sort_by ?? DEFAULT_SORT_FIELD
   const activeOrder: SortOrder = sort_by === undefined ? DEFAULT_SORT_ORDER : sort_order ?? DEFAULT_SORT_ORDER
 
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={COLUMN_HEADERS.length} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
+
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
+          <Table
+            stickyHeader
+            size="small"
+            sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+          >
             <TableHead>
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
@@ -412,9 +535,10 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                       activeOrder={activeOrder}
                       defaultDir={h.defaultDir}
                       onSort={handleHeaderClick}
+                      sx={headerCellSx}
                     />
                   ) : (
-                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
+                    <TableCell key={h.label} sx={headerCellSx}>
                       {h.label}
                     </TableCell>
                   ),
@@ -422,128 +546,229 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((l, i) => (
-                <TableRow
-                  key={l.id}
-                  hover
-                  onClick={() =>
-                    navigate({ to: '/finances/$loanId', params: { loanId: l.id } })
-                  }
-                  sx={{ cursor: 'pointer' }}
-                >
-                  <TableCell>{serialNumber(page, i)}</TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {loanDisplayId(l)}
-                  </TableCell>
-                  <TableCell>{l.customer?.full_name ?? <Dash />}</TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {l.customer?.mobile_number ?? <Dash />}
-                  </TableCell>
-                  <TableCell>{l.customer?.mandal_village ?? <Dash />}</TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {l.vehicle?.plate_number ?? <Dash />}
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {l.approval_date ? fmtDate(l.approval_date) : <Dash />}
-                  </TableCell>
-                  <TableCell>
-                    {/* Fixed min-width keeps every status/EMI chip the same
-                        width, down the whole column and within each cell. */}
-                    <Stack
-                      spacing={0.5}
-                      sx={{ '& .MuiChip-root': { minWidth: 168, justifyContent: 'center' } }}
-                    >
-                      <LoanStatusChip status={l.status} />
-                      <EmiDueChip status={l.emi_due_status} />
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const l = rows[vr.index]!
+                return (
+                  <TableRow
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    hover
+                    onClick={() =>
+                      navigate({ to: '/finances/$loanId', params: { loanId: l.id } })
+                    }
+                    sx={{ cursor: 'pointer' }}
+                  >
+                    <TableCell>{vr.index + 1}</TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {loanDisplayId(l)}
+                    </TableCell>
+                    <TableCell>{l.customer?.full_name ?? <Dash />}</TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {l.customer?.mobile_number ?? <Dash />}
+                    </TableCell>
+                    <TableCell>{l.customer?.mandal_village ?? <Dash />}</TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {l.vehicle?.plate_number ?? <Dash />}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {l.approval_date ? fmtDate(l.approval_date) : <Dash />}
+                    </TableCell>
+                    <TableCell>
+                      {/* Fixed min-width keeps every status/EMI chip the same
+                          width, down the whole column and within each cell. */}
+                      <Stack
+                        spacing={0.5}
+                        sx={{ '& .MuiChip-root': { minWidth: 168, justifyContent: 'center' } }}
+                      >
+                        <LoanStatusChip status={l.status} />
+                        <EmiDueChip status={l.emi_due_status} />
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
             </TableBody>
           </Table>
         </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
       </Card>
     </Box>
   )
 }
 
 // --------------------------------------------------
-// Mobile cards — below md
+// Mobile cards — below md (virtualized + infinite)
 // --------------------------------------------------
 
-function MobileCards({ rows, page }: { rows: LoanResponse[]; page: number }) {
+function MobileCards({
+  rows,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteProps) {
   const navigate = routeApi.useNavigate()
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [resetKey])
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 196,
+    overscan: 8,
+    getItemKey: (i) => rows[i]!.id,
+  })
+
+  const virtualRows = virtualizer.getVirtualItems()
+
+  useAutoLoad(virtualRows[virtualRows.length - 1]?.index, rows.length, {
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  })
+
   return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((l, i) => (
-        <Card
-          key={l.id}
-          onClick={() => navigate({ to: '/finances/$loanId', params: { loanId: l.id } })}
-          sx={{
-            p: 2,
-            cursor: 'pointer',
-            transition: 'border-color var(--t-fast), box-shadow var(--t-fast)',
-            '&:hover': { borderColor: 'primary.main' },
-            '&:active': { boxShadow: 'var(--shadow-hover)' },
-          }}
-        >
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}
-          >
-            <Typography
-              variant="h3"
-              sx={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)' }}
-            >
-              {loanDisplayId(l)}
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <LoanStatusChip status={l.status} />
-              <Typography variant="caption" color="text.secondary">
-                #{serialNumber(page, i)}
-              </Typography>
-            </Stack>
-          </Stack>
-          <Typography variant="body2" sx={{ mt: 0.75 }}>
-            <Box component="span" sx={{ color: 'text.secondary' }}>
-              Name:{' '}
-            </Box>
-            <Box component="span" sx={{ fontWeight: 600 }}>
-              {l.customer?.full_name ?? '—'}
-            </Box>
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 0.25 }}>
-            <Box component="span" sx={{ color: 'text.secondary' }}>
-              Phone No:{' '}
-            </Box>
-            <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-              {l.customer?.mobile_number ?? '—'}
-            </Box>
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 0.25 }}>
-            <Box component="span" sx={{ color: 'text.secondary' }}>
-              Mandal/Village:{' '}
-            </Box>
-            <Box component="span" sx={{ fontWeight: 600 }}>
-              {l.customer?.mandal_village ?? '—'}
-            </Box>
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{ mt: 0.75, fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-          >
-            REG {l.vehicle?.plate_number ?? '—'}
-          </Typography>
-          {l.emi_due_status && l.emi_due_status !== 'NONE' && (
-            <Box sx={{ mt: 1 }}>
-              <EmiDueChip status={l.emi_due_status} />
-            </Box>
-          )}
-        </Card>
-      ))}
-    </Stack>
+    <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+      <Box
+        ref={scrollRef}
+        sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+      >
+        <Box sx={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+          {virtualRows.map((vr) => {
+            const l = rows[vr.index]!
+            return (
+              <Box
+                key={vr.key}
+                data-index={vr.index}
+                ref={virtualizer.measureElement}
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${vr.start}px)`,
+                  pb: 1.5,
+                }}
+              >
+                <Card
+                  onClick={() => navigate({ to: '/finances/$loanId', params: { loanId: l.id } })}
+                  sx={{
+                    p: 2,
+                    cursor: 'pointer',
+                    transition: 'border-color var(--t-fast), box-shadow var(--t-fast)',
+                    '&:hover': { borderColor: 'primary.main' },
+                    '&:active': { boxShadow: 'var(--shadow-hover)' },
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}
+                  >
+                    <Typography
+                      variant="h3"
+                      sx={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)' }}
+                    >
+                      {loanDisplayId(l)}
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <LoanStatusChip status={l.status} />
+                      <Typography variant="caption" color="text.secondary">
+                        #{vr.index + 1}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 0.75 }}>
+                    <Box component="span" sx={{ color: 'text.secondary' }}>
+                      Name:{' '}
+                    </Box>
+                    <Box component="span" sx={{ fontWeight: 600 }}>
+                      {l.customer?.full_name ?? '—'}
+                    </Box>
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.25 }}>
+                    <Box component="span" sx={{ color: 'text.secondary' }}>
+                      Phone No:{' '}
+                    </Box>
+                    <Box component="span" sx={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      {l.customer?.mobile_number ?? '—'}
+                    </Box>
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.25 }}>
+                    <Box component="span" sx={{ color: 'text.secondary' }}>
+                      Mandal/Village:{' '}
+                    </Box>
+                    <Box component="span" sx={{ fontWeight: 600 }}>
+                      {l.customer?.mandal_village ?? '—'}
+                    </Box>
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{ mt: 0.75, fontWeight: 700, fontFamily: 'var(--font-mono)' }}
+                  >
+                    REG {l.vehicle?.plate_number ?? '—'}
+                  </Typography>
+                  {l.emi_due_status && l.emi_due_status !== 'NONE' && (
+                    <Box sx={{ mt: 1 }}>
+                      <EmiDueChip status={l.emi_due_status} />
+                    </Box>
+                  )}
+                </Card>
+              </Box>
+            )
+          })}
+        </Box>
+      </Box>
+      <LoadMoreFooter
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        count={rows.length}
+      />
+    </Box>
   )
+}
+
+// Bottom strip under either view: a spinner while the next page loads, or an
+// end-of-list marker once everything is in.
+function LoadMoreFooter({
+  hasNextPage,
+  isFetchingNextPage,
+  count,
+}: {
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  count: number
+}) {
+  if (isFetchingNextPage) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1, py: 2 }}>
+        <Spinner size={18} />
+        <Typography variant="caption" color="text.secondary">
+          Loading more…
+        </Typography>
+      </Box>
+    )
+  }
+  if (!hasNextPage && count > 0) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+        <Typography variant="caption" color="text.secondary">
+          End of list
+        </Typography>
+      </Box>
+    )
+  }
+  return null
 }
 
 // --------------------------------------------------
