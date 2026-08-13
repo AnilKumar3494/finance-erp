@@ -191,6 +191,14 @@ def list_all(
         ),
     ),
     status: Optional[LoanStatus] = Query(None),
+    pending_approval: Optional[bool] = Query(
+        None,
+        description=(
+            "When true, return only DRAFT loans whose loan-level required "
+            "terms (principal, interest rate, tenure, due date) are all set "
+            "— i.e. drafts ready for an admin to approve."
+        ),
+    ),
     created_after: Optional[date] = Query(
         None, description="Earliest creation (created_at) date, inclusive"
     ),
@@ -227,6 +235,7 @@ def list_all(
         customer_id=customer_id,
         vehicle_id=vehicle_id,
         status=status,
+        pending_approval=pending_approval,
         page=page,
         page_size=page_size,
         assigned_employee_id=assigned_employee_id,

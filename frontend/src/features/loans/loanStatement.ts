@@ -49,23 +49,7 @@ function daysBetween(earlier: string, later: string): number {
   return Math.max(0, Math.round((b - a) / 86_400_000))
 }
 
-// Compose a printable customer statement in the layout of the old iFinance
-// "file summary" the owner's customers already recognise: customer / guarantor
-// / vehicle blocks, the finance summary line, then the EMI schedule with paid
-// tracking. Handed to the browser's print dialog (save-as-PDF); no backend
-// endpoint and no new dependency — built from data cached on the detail page.
-//
-// The IRR / true-rate view is deliberately NOT here — that stays on-screen
-// (the Interest card). This document is what goes to the customer.
-export function printLoanStatement({
-  loan,
-  cycles,
-  transactions,
-  summary,
-  customer,
-  vehicle,
-  personnel,
-}: {
+export interface LoanStatementData {
   loan: LoanResponse
   cycles: DueCycleResponse[]
   transactions: TransactionResponse[]
@@ -73,7 +57,27 @@ export function printLoanStatement({
   customer?: CustomerResponse | null
   vehicle?: VehicleResponse | null
   personnel?: LoanPersonnelResponse[]
-}): void {
+}
+
+// Compose a printable customer statement in the layout of the old iFinance
+// "file summary" the owner's customers already recognise: customer / guarantor
+// / vehicle blocks, the finance summary line, then the EMI schedule with paid
+// tracking. No backend endpoint and no new dependency — built from data cached
+// on the detail page. Returns a self-contained HTML document string; the caller
+// shows it in an in-app preview (iframe) and prints from there, so there is no
+// pop-up to be blocked.
+//
+// The IRR / true-rate view is deliberately NOT here — that stays on-screen
+// (the Interest card). This document is what goes to the customer.
+export function buildLoanStatementHtml({
+  loan,
+  cycles,
+  transactions,
+  summary,
+  customer,
+  vehicle,
+  personnel,
+}: LoanStatementData): string {
   const customerName = customer?.full_name ?? loan.customer?.full_name ?? '—'
   const customerMobile = customer?.mobile_number ?? loan.customer?.mobile_number ?? '—'
   const customerAddress = customer ? addressOf(customer) : '—'
@@ -273,21 +277,5 @@ export function printLoanStatement({
 </body>
 </html>`
 
-  const win = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1000')
-  if (!win) {
-    // Popup blocked — fall back to a downloadable HTML file the user can open/print.
-    const blob = new Blob([html], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `Statement_${loanDisplayId(loan)}.html`
-    a.click()
-    URL.revokeObjectURL(url)
-    return
-  }
-  win.document.write(html)
-  win.document.close()
-  win.focus()
-  // Let the new document lay out before invoking print.
-  win.onload = () => win.print()
+  return html
 }

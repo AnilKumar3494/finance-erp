@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import Stack from '@mui/material/Stack'
 import PrintIcon from '@mui/icons-material/PrintOutlined'
 
@@ -8,7 +9,8 @@ import { useCustomer } from '@/api/queries/customers'
 import { useVehicle } from '@/api/queries/vehicles'
 import { useLoanPersonnel } from '@/api/queries/personnel'
 import { Btn } from '@/components/primitives'
-import { printLoanStatement } from '../loanStatement'
+import { buildLoanStatementHtml } from '../loanStatement'
+import { StatementPreviewDialog } from './StatementPreviewDialog'
 
 // Prints the customer statement (the iFinance-style file summary) for a loan.
 // The statement needs the full customer address, the guarantor, and the
@@ -25,19 +27,27 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
   const vehicle = useVehicle(loan.vehicle_id ?? undefined)
   const personnel = useLoanPersonnel(loan.id)
 
+  const [previewOpen, setPreviewOpen] = useState(false)
+
   const loading =
     cycles.isLoading || transactions.isLoading || summary.isLoading || personnel.isLoading
 
-  const onPrint = () =>
-    printLoanStatement({
-      loan,
-      cycles: cycles.data?.results ?? [],
-      transactions: transactions.data?.results ?? [],
-      summary: summary.data,
-      customer: customer.data,
-      vehicle: vehicle.data,
-      personnel: personnel.data?.results ?? [],
-    })
+  // Rebuilds only when the underlying cached data changes (React Query hands
+  // back stable references), so opening the preview doesn't re-render the
+  // statement on every parent render.
+  const html = useMemo(
+    () =>
+      buildLoanStatementHtml({
+        loan,
+        cycles: cycles.data?.results ?? [],
+        transactions: transactions.data?.results ?? [],
+        summary: summary.data,
+        customer: customer.data,
+        vehicle: vehicle.data,
+        personnel: personnel.data?.results ?? [],
+      }),
+    [loan, cycles.data, transactions.data, summary.data, customer.data, vehicle.data, personnel.data],
+  )
 
   return (
     <Stack sx={{ flexShrink: 0 }}>
@@ -45,7 +55,7 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
         variant="primary"
         size="sm"
         startIcon={<PrintIcon />}
-        onClick={onPrint}
+        onClick={() => setPreviewOpen(true)}
         disabled={loading}
         // Match the medium status chips it sits beside: same 32px pill, and the
         // same 220px column width on desktop so it aligns flush under them.
@@ -64,6 +74,11 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
       >
         Share to Customer PDF
       </Btn>
+      <StatementPreviewDialog
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        html={html}
+      />
     </Stack>
   )
 }

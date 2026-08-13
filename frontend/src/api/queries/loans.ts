@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
@@ -165,6 +171,9 @@ export interface LoanListParams {
   // always scopes EMPLOYEE callers to themselves).
   assigned_employee_id?: string
   status?: LoanStatus
+  // When true, return only DRAFT loans that are ready for an admin to approve
+  // (all loan-level required terms filled in). Distinct from a status filter.
+  pending_approval?: boolean
   include?: string
   search?: string
   // Creation-date window (ISO yyyy-mm-dd), inclusive — when the finance was written.
@@ -182,6 +191,8 @@ export const loanKeys = {
   all: ['loans'] as const,
   lists: () => [...loanKeys.all, 'list'] as const,
   list: (params: LoanListParams) => [...loanKeys.lists(), params] as const,
+  infiniteLists: () => [...loanKeys.all, 'infiniteList'] as const,
+  infiniteList: (params: LoanInfiniteParams) => [...loanKeys.infiniteLists(), params] as const,
   details: () => [...loanKeys.all, 'detail'] as const,
   detail: (id: string) => [...loanKeys.details(), id] as const,
   byCustomer: (customerId: string) => [...loanKeys.all, 'byCustomer', customerId] as const,
@@ -204,6 +215,31 @@ export function useLoans(params: LoanListParams, enabled = true) {
     },
     enabled,
     placeholderData: (prev) => prev,
+  })
+}
+
+// Infinite (scroll) variant of the list. The page cursor is owned by the query,
+// not the caller — the filter/sort params below are the cache key. Changing any
+// of them starts a fresh page 1; `keepPreviousData` holds the old rows on screen
+// through that refetch so the table doesn't blank out between filters.
+export type LoanInfiniteParams = Omit<LoanListParams, 'page'>
+
+export function useInfiniteLoans(params: LoanInfiniteParams, enabled = true) {
+  const pageSize = params.page_size ?? 50
+  return useInfiniteQuery({
+    queryKey: loanKeys.infiniteList({ ...params, page_size: pageSize }),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<LoanListResponse>('/loans/', {
+        params: { ...params, page_size: pageSize, page: pageParam },
+      })
+      return data
+    },
+    initialPageParam: 1,
+    // Next page exists while we haven't yet loaded `total` rows.
+    getNextPageParam: (lastPage) =>
+      lastPage.page * lastPage.page_size < lastPage.total ? lastPage.page + 1 : undefined,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

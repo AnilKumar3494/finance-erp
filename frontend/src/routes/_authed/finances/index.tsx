@@ -7,6 +7,9 @@ import { LoanStatus } from '@/schemas/enums'
 export interface LoansListSearch {
   page: number
   status?: LoanStatus
+  // Filter to DRAFT loans that are ready to approve. Mutually exclusive with
+  // `status` in the UI (the chips clear one another).
+  pending_approval?: boolean
   customer_id?: string
   assigned_to?: string
   search?: string
@@ -22,6 +25,7 @@ export const Route = createFileRoute('/_authed/finances/')({
   validateSearch: (raw: Record<string, unknown>): LoansListSearch => {
     const page = Number(raw.page)
     const status = LoanStatus.safeParse(raw.status)
+    const pending_approval = raw.pending_approval === true || raw.pending_approval === 'true'
     const customer_id =
       typeof raw.customer_id === 'string' && raw.customer_id.length > 0
         ? raw.customer_id
@@ -48,6 +52,7 @@ export const Route = createFileRoute('/_authed/finances/')({
     return {
       page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1,
       status: status.success ? status.data : undefined,
+      pending_approval: pending_approval ? true : undefined,
       customer_id,
       assigned_to,
       search,
