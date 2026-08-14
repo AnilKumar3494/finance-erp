@@ -1,7 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
 import { employeeKeys } from '@/api/queries/employees'
+import { nextPageParam } from '@/lib/infinitePage'
 import type { UserRole } from '@/schemas/enums'
 
 // --------------------------------------------------
@@ -43,10 +50,14 @@ export interface AccountCreate {
   password: string
 }
 
+export type UserInfiniteParams = Omit<UserListParams, 'page'>
+
 export const userKeys = {
   all: ['users'] as const,
   lists: () => [...userKeys.all, 'list'] as const,
   list: (params: UserListParams) => [...userKeys.lists(), params] as const,
+  infiniteLists: () => [...userKeys.all, 'infiniteList'] as const,
+  infiniteList: (params: UserInfiniteParams) => [...userKeys.infiniteLists(), params] as const,
 }
 
 // Invalidate the team roster AND the employee picker cache (employees.ts) so
@@ -67,6 +78,24 @@ export function useUsers(params: UserListParams) {
       return data
     },
     placeholderData: (prev) => prev,
+  })
+}
+
+// Infinite (scroll) variant of the team roster.
+export function useInfiniteUsers(params: UserInfiniteParams, enabled = true) {
+  const pageSize = params.page_size ?? 50
+  return useInfiniteQuery({
+    queryKey: userKeys.infiniteList({ ...params, page_size: pageSize }),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<UserListResponse>('/auth/users', {
+        params: { ...params, page_size: pageSize, page: pageParam },
+      })
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

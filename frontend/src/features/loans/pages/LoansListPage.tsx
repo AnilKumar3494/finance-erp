@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AxiosError } from 'axios'
 import { getRouteApi } from '@tanstack/react-router'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
@@ -12,7 +11,6 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
-import type { SxProps, Theme } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 
@@ -27,6 +25,13 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
+import {
+  LIST_MAX_HEIGHT,
+  LIST_MIN_HEIGHT,
+  stickyHeaderCellSx,
+  useInfiniteRows,
+} from '@/components/infinite/listScroll'
+import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
 import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
 import dayjs from 'dayjs'
 import type { LoanStatus } from '@/schemas/enums'
@@ -44,10 +49,6 @@ const routeApi = getRouteApi('/_authed/finances/')
 // scroll pulls a meaningful chunk without a request per handful of rows.
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
-// The scroll container's height — the table/cards scroll inside this while the
-// toolbar and filters stay put above.
-const LIST_MAX_HEIGHT = 'calc(100dvh - 300px)'
-const LIST_MIN_HEIGHT = 340
 
 // Server-side sort (mirrors the customers list). The backend default is
 // created_at desc, which the SNO column reflects when no sort is in the URL.
@@ -101,16 +102,6 @@ const Dash = () => (
     —
   </Typography>
 )
-
-// A sticky table header that stays OPAQUE while virtualized rows scroll under
-// it — in dark mode `background.paper` is a translucent token, so composite it
-// over an opaque base the way the theme's Card override does.
-const headerCellSx: SxProps<Theme> = {
-  fontWeight: 600,
-  backgroundColor: 'background.default',
-  backgroundImage: (theme: Theme) =>
-    `linear-gradient(${theme.palette.background.paper}, ${theme.palette.background.paper})`,
-}
 
 export function LoansListPage() {
   const {
@@ -377,7 +368,7 @@ export function LoansListPage() {
         />
       ) : (
         <>
-          <CountBar loaded={rows.length} total={total} />
+          <CountBar loaded={rows.length} total={total} noun="finance" nounPlural="finances" />
           <DesktopTable
             rows={rows}
             sort_by={sort_by}
@@ -401,16 +392,6 @@ export function LoansListPage() {
   )
 }
 
-function CountBar({ loaded, total }: { loaded: number; total: number }) {
-  return (
-    <Box sx={{ mb: 1, px: 0.5 }}>
-      <Typography variant="body2" color="text.secondary">
-        Showing {loaded} of {total} finance{total === 1 ? '' : 's'}
-      </Typography>
-    </Box>
-  )
-}
-
 // Shared props for the two infinite-scroll views.
 interface InfiniteProps {
   rows: LoanResponse[]
@@ -420,26 +401,6 @@ interface InfiniteProps {
   // Changes whenever the filter/sort set changes — the views scroll back to the
   // top so a new query doesn't leave you stranded mid-way down the old results.
   resetKey: string
-}
-
-// Fires `fetchNextPage` once the virtualizer's last mounted row reaches the end
-// of what's loaded. Guarded on `hasNextPage`/`isFetchingNextPage` so it can't
-// stampede requests (React Query dedupes, but this keeps it to one in flight).
-function useAutoLoad(
-  lastIndex: number | undefined,
-  count: number,
-  {
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  }: Pick<InfiniteProps, 'hasNextPage' | 'isFetchingNextPage' | 'fetchNextPage'>,
-) {
-  useEffect(() => {
-    if (lastIndex === undefined) return
-    if (lastIndex >= count - 1 && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage()
-    }
-  }, [lastIndex, count, hasNextPage, isFetchingNextPage, fetchNextPage])
 }
 
 // --------------------------------------------------
@@ -463,30 +424,16 @@ function DesktopTable({
   resetKey,
 }: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
-  const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [resetKey])
-
-  const virtualizer = useVirtualizer({
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
     count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 53,
+    estimateSize: 53,
     overscan: 12,
     getItemKey: (i) => rows[i]!.id,
-  })
-
-  const virtualRows = virtualizer.getVirtualItems()
-  const paddingTop = virtualRows.length ? virtualRows[0]!.start : 0
-  const paddingBottom = virtualRows.length
-    ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
-    : 0
-
-  useAutoLoad(virtualRows[virtualRows.length - 1]?.index, rows.length, {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    resetKey,
   })
 
   // Clicking the active column flips direction; clicking an inactive column
@@ -535,10 +482,10 @@ function DesktopTable({
                       activeOrder={activeOrder}
                       defaultDir={h.defaultDir}
                       onSort={handleHeaderClick}
-                      sx={headerCellSx}
+                      sx={stickyHeaderCellSx}
                     />
                   ) : (
-                    <TableCell key={h.label} sx={headerCellSx}>
+                    <TableCell key={h.label} sx={stickyHeaderCellSx}>
                       {h.label}
                     </TableCell>
                   ),
@@ -615,26 +562,16 @@ function MobileCards({
   resetKey,
 }: InfiniteProps) {
   const navigate = routeApi.useNavigate()
-  const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [resetKey])
-
-  const virtualizer = useVirtualizer({
+  const { scrollRef, virtualizer, virtualRows, totalSize } = useInfiniteRows({
     count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 196,
+    estimateSize: 196,
     overscan: 8,
     getItemKey: (i) => rows[i]!.id,
-  })
-
-  const virtualRows = virtualizer.getVirtualItems()
-
-  useAutoLoad(virtualRows[virtualRows.length - 1]?.index, rows.length, {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    resetKey,
   })
 
   return (
@@ -643,7 +580,7 @@ function MobileCards({
         ref={scrollRef}
         sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
       >
-        <Box sx={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        <Box sx={{ height: totalSize, position: 'relative' }}>
           {virtualRows.map((vr) => {
             const l = rows[vr.index]!
             return (
@@ -736,39 +673,6 @@ function MobileCards({
       />
     </Box>
   )
-}
-
-// Bottom strip under either view: a spinner while the next page loads, or an
-// end-of-list marker once everything is in.
-function LoadMoreFooter({
-  hasNextPage,
-  isFetchingNextPage,
-  count,
-}: {
-  hasNextPage: boolean
-  isFetchingNextPage: boolean
-  count: number
-}) {
-  if (isFetchingNextPage) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1, py: 2 }}>
-        <Spinner size={18} />
-        <Typography variant="caption" color="text.secondary">
-          Loading more…
-        </Typography>
-      </Box>
-    )
-  }
-  if (!hasNextPage && count > 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-        <Typography variant="caption" color="text.secondary">
-          End of list
-        </Typography>
-      </Box>
-    )
-  }
-  return null
 }
 
 // --------------------------------------------------

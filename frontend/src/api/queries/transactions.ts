@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
 import { loanKeys } from '@/api/queries/loans'
 import { dueCycleKeys } from '@/api/queries/dueCycles'
+import { nextPageParam } from '@/lib/infinitePage'
 import type {
   PaymentMethod,
   PunctualityStatus,
@@ -156,6 +163,51 @@ export function usePendingConfirmations(
     },
     enabled,
     placeholderData: (prev) => prev,
+  })
+}
+
+export interface InfinitePendingParams {
+  pageSize?: number
+  sort?: { sort_by?: PendingSortField; sort_order?: 'asc' | 'desc' }
+  assignedEmployeeId?: string
+  window?: PendingConfirmationsWindow
+}
+
+// Infinite (scroll) variant of the pending-confirmations queue.
+export function useInfinitePendingConfirmations(
+  { pageSize = 50, sort, assignedEmployeeId, window }: InfinitePendingParams,
+  enabled = true,
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      ...transactionKeys.pendingConfirmations(),
+      'infinite',
+      pageSize,
+      sort?.sort_by ?? null,
+      sort?.sort_order ?? null,
+      assignedEmployeeId ?? null,
+      window?.paid_after ?? null,
+      window?.paid_before ?? null,
+    ] as const,
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<PendingConfirmationListResponse>(
+        '/transactions/pending-confirmations',
+        {
+          params: {
+            page: pageParam,
+            page_size: pageSize,
+            assigned_employee_id: assignedEmployeeId,
+            ...window,
+            ...sort,
+          },
+        },
+      )
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

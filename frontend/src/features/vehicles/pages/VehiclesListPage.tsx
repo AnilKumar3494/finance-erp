@@ -14,14 +14,20 @@ import TableRow from '@mui/material/TableRow'
 import AddIcon from '@mui/icons-material/Add'
 
 import {
-  useVehicles,
+  useInfiniteVehicles,
   type VehicleListResponse,
   type VehicleResponse,
   type VehicleSortField,
   type SortOrder,
 } from '@/api/queries/vehicles'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
-import { PagerBar } from '@/components/PagerBar'
+import {
+  LIST_MAX_HEIGHT,
+  LIST_MIN_HEIGHT,
+  stickyHeaderCellSx,
+  useInfiniteRows,
+} from '@/components/infinite/listScroll'
+import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
@@ -40,7 +46,7 @@ import { VehicleStatusChip } from '../components/VehicleStatusChip'
 
 const routeApi = getRouteApi('/_authed/vehicles/')
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 // Server-side sort (mirrors the customers/finances lists). The backend default
@@ -92,7 +98,7 @@ const money = (v: string | null | undefined) =>
   v != null && v !== '' ? fmtINR(Number(v)) : '—'
 
 export function VehiclesListPage() {
-  const { page, status, type, search: searchTerm, date_from, date_to, sort_by, sort_order } =
+  const { status, type, search: searchTerm, date_from, date_to, sort_by, sort_order } =
     routeApi.useSearch()
   const navigate = routeApi.useNavigate()
 
@@ -106,7 +112,6 @@ export function VehiclesListPage() {
     navigate({
       search: (prev) => ({
         ...prev,
-        page: 1,
         date_from: isoOrUndefined(next.from),
         date_to: isoOrUndefined(next.to),
       }),
@@ -116,7 +121,7 @@ export function VehiclesListPage() {
 
   const setSort = (next: { sort_by: VehicleSortField; sort_order: SortOrder }) =>
     navigate({
-      search: (prev) => ({ ...prev, page: 1, sort_by: next.sort_by, sort_order: next.sort_order }),
+      search: (prev) => ({ ...prev, sort_by: next.sort_by, sort_order: next.sort_order }),
       replace: true,
     })
 
@@ -133,7 +138,7 @@ export function VehiclesListPage() {
     const t = setTimeout(() => {
       const next = draft.trim() || undefined
       lastWrittenSearch.current = next
-      navigate({ search: (prev) => ({ ...prev, page: 1, search: next }), replace: true })
+      navigate({ search: (prev) => ({ ...prev, search: next }), replace: true })
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [draft, navigate])
@@ -145,8 +150,7 @@ export function VehiclesListPage() {
     }
   }, [searchTerm])
 
-  const query = useVehicles({
-    page,
+  const query = useInfiniteVehicles({
     page_size: PAGE_SIZE,
     search: searchTerm,
     status,
@@ -157,27 +161,26 @@ export function VehiclesListPage() {
     sort_order,
   })
 
-  const total = query.data?.total ?? 0
-  const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  const rows = query.data?.results ?? []
+  const rows = query.data?.pages.flatMap((p) => p.results) ?? []
+  const firstPage = query.data?.pages[0]
+  const total = firstPage?.total ?? 0
 
-  const pager = (edge: 'top' | 'bottom') =>
-    total > 0 ? (
-      <PagerBar
-        edge={edge}
-        page={page}
-        totalPages={totalPages}
-        label={`${total} vehicle${total === 1 ? '' : 's'}`}
-        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
-      />
-    ) : null
+  const resetKey = JSON.stringify([
+    status,
+    type,
+    searchTerm,
+    date_from,
+    date_to,
+    sort_by,
+    sort_order,
+  ])
 
   const goToCreate = () => navigate({ to: '/vehicles/new' })
 
   const setStatus = (next: AssetStatus | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, status: next }) })
+    navigate({ search: (prev) => ({ ...prev, status: next }) })
   const setType = (next: AssetType | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, type: next }) })
+    navigate({ search: (prev) => ({ ...prev, type: next }) })
 
   return (
     <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
@@ -285,7 +288,7 @@ export function VehiclesListPage() {
         )}
       </Box>
 
-      {query.data && <VehiclesKpis data={query.data} />}
+      {firstPage && <VehiclesKpis data={firstPage} />}
 
       {query.isError && (
         <Box sx={{ mb: 2 }}>
@@ -297,27 +300,28 @@ export function VehiclesListPage() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <Spinner size={28} />
         </Box>
+      ) : rows.length === 0 ? (
+        <EmptyState filtered={!!status || !!type || !!searchTerm} onCreate={goToCreate} />
       ) : (
         <>
-          {rows.length === 0 ? (
-            <EmptyState
-              filtered={!!status || !!type || !!searchTerm}
-              onCreate={goToCreate}
-            />
-          ) : (
-            <>
-              {pager('top')}
-              <DesktopTable
-                rows={rows}
-                page={page}
-                sort_by={sort_by}
-                sort_order={sort_order}
-                onSortChange={setSort}
-              />
-              <MobileCards rows={rows} page={page} />
-              {pager('bottom')}
-            </>
-          )}
+          <CountBar loaded={rows.length} total={total} noun="vehicle" nounPlural="vehicles" />
+          <DesktopTable
+            rows={rows}
+            sort_by={sort_by}
+            sort_order={sort_order}
+            onSortChange={setSort}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            fetchNextPage={query.fetchNextPage}
+            resetKey={resetKey}
+          />
+          <MobileCards
+            rows={rows}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            fetchNextPage={query.fetchNextPage}
+            resetKey={resetKey}
+          />
         </>
       )}
     </Box>
@@ -340,29 +344,52 @@ function VehiclesKpis({ data }: { data: VehicleListResponse }) {
   )
 }
 
-function serialNumber(page: number, index: number) {
-  return (page - 1) * PAGE_SIZE + index + 1
-}
-
 function makeModel(v: VehicleResponse): string {
   return [v.make, v.model].filter(Boolean).join(' ') || '—'
 }
 
+// Shared props for the two infinite-scroll views.
+interface InfiniteProps {
+  rows: VehicleResponse[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  fetchNextPage: () => void
+  resetKey: string
+}
+
 // --------------------------------------------------
-// Desktop table — md and up
+// Desktop table — md and up (virtualized + infinite)
 // --------------------------------------------------
 
-interface DesktopTableProps {
-  rows: VehicleResponse[]
-  page: number
+interface DesktopTableProps extends InfiniteProps {
   sort_by: VehicleSortField | undefined
   sort_order: SortOrder | undefined
   onSortChange: (next: { sort_by: VehicleSortField; sort_order: SortOrder }) => void
 }
 
-function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: DesktopTableProps) {
+function DesktopTable({
+  rows,
+  sort_by,
+  sort_order,
+  onSortChange,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
   const goToDetail = (id: string) => navigate({ to: '/vehicles/$vehicleId', params: { vehicleId: id } })
+
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 49,
+    overscan: 12,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
 
   const handleHeaderClick = (field: VehicleSortField, defaultDir: SortOrder) => {
     const isActive = sort_by === field || (sort_by === undefined && field === DEFAULT_SORT_FIELD)
@@ -374,11 +401,21 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
   const activeField: VehicleSortField = sort_by ?? DEFAULT_SORT_FIELD
   const activeOrder: SortOrder = sort_by === undefined ? DEFAULT_SORT_ORDER : sort_order ?? DEFAULT_SORT_ORDER
 
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={COLUMN_HEADERS.length} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
+
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
+          <Table stickyHeader size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
             <TableHead>
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
@@ -392,9 +429,10 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                       defaultDir={h.defaultDir}
                       onSort={handleHeaderClick}
                       align={h.align}
+                      sx={stickyHeaderCellSx}
                     />
                   ) : (
-                    <TableCell key={h.label} align={h.align} sx={{ fontWeight: 600 }}>
+                    <TableCell key={h.label} align={h.align} sx={stickyHeaderCellSx}>
                       {h.label}
                     </TableCell>
                   ),
@@ -402,10 +440,105 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((v, i) => (
-                <TableRow
-                  key={v.id}
-                  hover
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const v = rows[vr.index]!
+                return (
+                  <TableRow
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    hover
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open ${v.plate_number}`}
+                    onClick={() => goToDetail(v.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        goToDetail(v.id)
+                      }
+                    }}
+                    sx={{
+                      cursor: 'pointer',
+                      '&:focus-visible': {
+                        outline: '2px solid',
+                        outlineColor: 'primary.main',
+                        outlineOffset: -2,
+                      },
+                    }}
+                  >
+                    <TableCell>{vr.index + 1}</TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{v.plate_number}</TableCell>
+                    <TableCell>{makeModel(v)}</TableCell>
+                    <TableCell>{v.year ?? '—'}</TableCell>
+                    <TableCell>
+                      <VehicleStatusChip status={v.status} />
+                    </TableCell>
+                    <TableCell>{ASSET_TYPE_LABELS[v.type]}</TableCell>
+                    <TableCell align="right" sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {money(v.market_value)}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
+      </Card>
+    </Box>
+  )
+}
+
+// --------------------------------------------------
+// Mobile cards — below md (virtualized + infinite)
+// --------------------------------------------------
+
+function MobileCards({ rows, hasNextPage, isFetchingNextPage, fetchNextPage, resetKey }: InfiniteProps) {
+  const navigate = routeApi.useNavigate()
+  const goToDetail = (id: string) => navigate({ to: '/vehicles/$vehicleId', params: { vehicleId: id } })
+
+  const { scrollRef, virtualizer, virtualRows, totalSize } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 150,
+    overscan: 8,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+
+  return (
+    <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+      <Box
+        ref={scrollRef}
+        sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+      >
+        <Box sx={{ height: totalSize, position: 'relative' }}>
+          {virtualRows.map((vr) => {
+            const v = rows[vr.index]!
+            return (
+              <Box
+                key={vr.key}
+                data-index={vr.index}
+                ref={virtualizer.measureElement}
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${vr.start}px)`,
+                  pb: 1.5,
+                }}
+              >
+                <Card
                   tabIndex={0}
                   role="button"
                   aria-label={`Open ${v.plate_number}`}
@@ -417,7 +550,11 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     }
                   }}
                   sx={{
+                    p: 2,
                     cursor: 'pointer',
+                    transition: 'border-color var(--t-fast), box-shadow var(--t-fast)',
+                    '&:hover': { borderColor: 'primary.main' },
+                    '&:active': { boxShadow: 'var(--shadow-hover)' },
                     '&:focus-visible': {
                       outline: '2px solid',
                       outlineColor: 'primary.main',
@@ -425,96 +562,49 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     },
                   }}
                 >
-                  <TableCell>{serialNumber(page, i)}</TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{v.plate_number}</TableCell>
-                  <TableCell>{makeModel(v)}</TableCell>
-                  <TableCell>{v.year ?? '—'}</TableCell>
-                  <TableCell>
-                    <VehicleStatusChip status={v.status} />
-                  </TableCell>
-                  <TableCell>{ASSET_TYPE_LABELS[v.type]}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: 'var(--font-mono)' }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Typography variant="h3" sx={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      {v.plate_number}
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <VehicleStatusChip status={v.status} />
+                      <Typography variant="caption" color="text.secondary">
+                        #{vr.index + 1}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 0.75 }}>
+                    <Box component="span" sx={{ color: 'text.secondary' }}>
+                      Make / Model:{' '}
+                    </Box>
+                    <Box component="span" sx={{ fontWeight: 600 }}>
+                      {makeModel(v)}
+                      {v.year != null ? ` · ${v.year}` : ''}
+                    </Box>
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.25 }}>
+                    <Box component="span" sx={{ color: 'text.secondary' }}>
+                      Type:{' '}
+                    </Box>
+                    <Box component="span" sx={{ fontWeight: 600 }}>
+                      {ASSET_TYPE_LABELS[v.type]}
+                    </Box>
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                     {money(v.market_value)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Card>
+                  </Typography>
+                </Card>
+              </Box>
+            )
+          })}
+        </Box>
+      </Box>
+      <LoadMoreFooter
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        count={rows.length}
+      />
     </Box>
-  )
-}
-
-// --------------------------------------------------
-// Mobile cards — below md
-// --------------------------------------------------
-
-function MobileCards({ rows, page }: { rows: VehicleResponse[]; page: number }) {
-  const navigate = routeApi.useNavigate()
-  const goToDetail = (id: string) => navigate({ to: '/vehicles/$vehicleId', params: { vehicleId: id } })
-  return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((v, i) => (
-        <Card
-          key={v.id}
-          tabIndex={0}
-          role="button"
-          aria-label={`Open ${v.plate_number}`}
-          onClick={() => goToDetail(v.id)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              goToDetail(v.id)
-            }
-          }}
-          sx={{
-            p: 2,
-            cursor: 'pointer',
-            transition: 'border-color var(--t-fast), box-shadow var(--t-fast)',
-            '&:hover': { borderColor: 'primary.main' },
-            '&:active': { boxShadow: 'var(--shadow-hover)' },
-            '&:focus-visible': {
-              outline: '2px solid',
-              outlineColor: 'primary.main',
-              outlineOffset: -2,
-            },
-          }}
-        >
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="h3" sx={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-              {v.plate_number}
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <VehicleStatusChip status={v.status} />
-              <Typography variant="caption" color="text.secondary">
-                #{serialNumber(page, i)}
-              </Typography>
-            </Stack>
-          </Stack>
-          <Typography variant="body2" sx={{ mt: 0.75 }}>
-            <Box component="span" sx={{ color: 'text.secondary' }}>
-              Make / Model:{' '}
-            </Box>
-            <Box component="span" sx={{ fontWeight: 600 }}>
-              {makeModel(v)}
-              {v.year != null ? ` · ${v.year}` : ''}
-            </Box>
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 0.25 }}>
-            <Box component="span" sx={{ color: 'text.secondary' }}>
-              Type:{' '}
-            </Box>
-            <Box component="span" sx={{ fontWeight: 600 }}>
-              {ASSET_TYPE_LABELS[v.type]}
-            </Box>
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-            {money(v.market_value)}
-          </Typography>
-        </Card>
-      ))}
-    </Stack>
   )
 }
 
