@@ -16,6 +16,7 @@ from app.models.loan import Loan, LoanStatus
 
 from app.schemas.loan import (
     CustomerNested,
+    HpNumberFamily,
     LoanApproveRequest,
     LoanCreate,
     LoanListResponse,
@@ -33,6 +34,7 @@ from app.services.loan import (
     emi_due_status_map,
     get_active_loans_by_customer,
     get_loan,
+    list_hp_number_families,
     list_loans,
     parse_includes,
     soft_delete_loan,
@@ -253,6 +255,24 @@ def list_all(
         page_size=page_size,
         results=[enrich_loan(l, includes, emi_map.get(l.id)) for l in results],
     )
+
+
+# --------------------------------------------------
+# HP NUMBER FAMILIES (data-entry helper)
+# Declared before GET /{loan_id} so the literal path is not swallowed by the
+# UUID path param.
+# --------------------------------------------------
+@router.get(
+    "/hp-number-families",
+    response_model=list[HpNumberFamily],
+    summary="Recent HP numbers grouped by prefix family",
+)
+def hp_number_families_route(
+    per_family: int = Query(3, ge=1, le=10),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return list_hp_number_families(db, per_family=per_family)
 
 
 # --------------------------------------------------

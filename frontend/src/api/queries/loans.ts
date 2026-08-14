@@ -187,8 +187,18 @@ export interface LoanListParams {
 // Query keys
 // --------------------------------------------------
 
+// One prefix family of HP numbers (data-entry helper) — mirrors
+// backend HpNumberFamily. `recent` is highest-number-first.
+export interface HpNumberFamily {
+  prefix: string
+  count: number
+  last_used: string | null
+  recent: string[]
+}
+
 export const loanKeys = {
   all: ['loans'] as const,
+  hpFamilies: () => [...loanKeys.all, 'hpFamilies'] as const,
   lists: () => [...loanKeys.all, 'list'] as const,
   list: (params: LoanListParams) => [...loanKeys.lists(), params] as const,
   infiniteLists: () => [...loanKeys.all, 'infiniteList'] as const,
@@ -253,6 +263,19 @@ export function useLoan(id: string | undefined) {
       return data
     },
     enabled: !!id,
+  })
+}
+
+// Recent HP numbers grouped by prefix family, for the wizard's data-entry
+// helper. Cached a while — it only shifts when new loans are created.
+export function useHpNumberFamilies() {
+  return useQuery({
+    queryKey: loanKeys.hpFamilies(),
+    queryFn: async () => {
+      const { data } = await apiClient.get<HpNumberFamily[]>('/loans/hp-number-families')
+      return data
+    },
+    staleTime: 60_000,
   })
 }
 

@@ -14,6 +14,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 import { useLoan, useUpdateLoan, type LoanUpdate } from '@/api/queries/loans'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
 import { WizardAssignmentCard } from '@/features/loans/wizard/AssignmentCard'
+import { HpNumberFamilies } from '@/features/loans/wizard/HpNumberFamilies'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { useReportDirty } from '@/features/loans/wizard/wizardGuard'
 import { flatRateProjection } from '@/features/loans/financeMath'
@@ -273,15 +274,18 @@ function FinancialsForm({
           </Box>
         )}
         <Stack spacing={2.5}>
-          <Input
-            id="fin_hp_number"
-            label="HP number"
-            required
-            placeholder="e.g. SAFTNK0401"
-            hint="Hire-purchase number — shown as this finance's ID. Required to approve."
-            {...register('hp_number')}
-            error={errors.hp_number?.message}
-          />
+          <Box>
+            <Input
+              id="fin_hp_number"
+              label="HP number"
+              required
+              placeholder="e.g. SAFTNK0401"
+              hint="Hire-purchase number — shown as this finance's ID. Required to approve."
+              {...register('hp_number')}
+              error={errors.hp_number?.message}
+            />
+            <HpNumberFamilies />
+          </Box>
           <Input
             id="fin_principal"
             label="Principal"
