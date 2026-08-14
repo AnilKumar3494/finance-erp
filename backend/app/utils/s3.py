@@ -81,6 +81,21 @@ def upload_file_to_s3(file_bytes: bytes, s3_key: str, content_type: str) -> str:
 # --------------------------------------------------
 # PRE-SIGNED DOWNLOAD URL (TTL 480s = 8 min, force download)
 # --------------------------------------------------
+# File extensions the browser can safely render in-place. PDFs open in the
+# built-in viewer and images render directly; none of these execute script.
+# HTML/SVG are deliberately absent — they can run script, so they stay
+# forced-download (the XSS hardening this disposition logic exists for), as
+# does any extension we can't vouch for.
+_INLINE_CONTENT_TYPES = {
+    "pdf": "application/pdf",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+
+
 def generate_presigned_url(
     s3_key: str,
     file_name: Optional[str] = None,
@@ -89,15 +104,24 @@ def generate_presigned_url(
     """
     Generate a temporary download URL.
     - Default expiry comes from settings.PRESIGNED_URL_TTL_SECONDS (8 min).
-    - When file_name is given, the URL forces 'attachment' disposition,
-      preventing inline execution of HTML/SVG/PDF inside the browser.
+    - When file_name is given, PDFs and images get 'inline' disposition (so the
+      browser previews them in a new tab) while every other type — notably
+      HTML/SVG, which can execute script — is forced to 'attachment' download.
     """
     client = get_s3_client()
     ttl = expires_in if expires_in is not None else settings.PRESIGNED_URL_TTL_SECONDS
     params = {"Bucket": settings.S3_BUCKET_NAME, "Key": s3_key}
     if file_name:
-        # force download instead of in-browser render — XSS hardening
-        params["ResponseContentDisposition"] = f'attachment; filename="{file_name}"'
+        ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+        inline_type = _INLINE_CONTENT_TYPES.get(ext)
+        if inline_type:
+            # Safe to preview in-browser — render inline and pin the content
+            # type so the viewer opens regardless of the stored object type.
+            params["ResponseContentDisposition"] = f'inline; filename="{file_name}"'
+            params["ResponseContentType"] = inline_type
+        else:
+            # force download instead of in-browser render — XSS hardening
+            params["ResponseContentDisposition"] = f'attachment; filename="{file_name}"'
     try:
         return client.generate_presigned_url("get_object", Params=params, ExpiresIn=ttl)
     except ClientError as e:

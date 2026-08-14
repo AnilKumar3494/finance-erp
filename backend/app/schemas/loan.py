@@ -48,6 +48,20 @@ class VehicleNested(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HpNumberFamily(BaseModel):
+    """The recent HP numbers for one prefix family (data-entry helper).
+
+    `prefix` is the leading-letter run (SAFTNK, SAFNDD, SAF, ...); `recent` is
+    the newest-first HP numbers in that family so the wizard can show where the
+    sequence stands. See services.loan.list_hp_number_families.
+    """
+
+    prefix: str
+    count: int
+    last_used: Optional[date] = None
+    recent: list[str]
+
+
 # --------------------------------------------------
 # BASE
 # --------------------------------------------------

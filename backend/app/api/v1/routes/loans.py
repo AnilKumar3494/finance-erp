@@ -16,6 +16,7 @@ from app.models.loan import Loan, LoanStatus
 
 from app.schemas.loan import (
     CustomerNested,
+    HpNumberFamily,
     LoanApproveRequest,
     LoanCreate,
     LoanListResponse,
@@ -33,6 +34,7 @@ from app.services.loan import (
     emi_due_status_map,
     get_active_loans_by_customer,
     get_loan,
+    list_hp_number_families,
     list_loans,
     parse_includes,
     soft_delete_loan,
@@ -191,6 +193,14 @@ def list_all(
         ),
     ),
     status: Optional[LoanStatus] = Query(None),
+    pending_approval: Optional[bool] = Query(
+        None,
+        description=(
+            "When true, return only DRAFT loans whose loan-level required "
+            "terms (principal, interest rate, tenure, due date) are all set "
+            "— i.e. drafts ready for an admin to approve."
+        ),
+    ),
     created_after: Optional[date] = Query(
         None, description="Earliest creation (created_at) date, inclusive"
     ),
@@ -227,6 +237,7 @@ def list_all(
         customer_id=customer_id,
         vehicle_id=vehicle_id,
         status=status,
+        pending_approval=pending_approval,
         page=page,
         page_size=page_size,
         assigned_employee_id=assigned_employee_id,
@@ -244,6 +255,24 @@ def list_all(
         page_size=page_size,
         results=[enrich_loan(l, includes, emi_map.get(l.id)) for l in results],
     )
+
+
+# --------------------------------------------------
+# HP NUMBER FAMILIES (data-entry helper)
+# Declared before GET /{loan_id} so the literal path is not swallowed by the
+# UUID path param.
+# --------------------------------------------------
+@router.get(
+    "/hp-number-families",
+    response_model=list[HpNumberFamily],
+    summary="Recent HP numbers grouped by prefix family",
+)
+def hp_number_families_route(
+    per_family: int = Query(3, ge=1, le=10),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return list_hp_number_families(db, per_family=per_family)
 
 
 # --------------------------------------------------

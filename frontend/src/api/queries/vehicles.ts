@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import type { LoanListResponse } from '@/api/queries/loans'
+import { nextPageParam } from '@/lib/infinitePage'
 import type { AssetStatus, AssetType } from '@/schemas/enums'
 
 // --------------------------------------------------
@@ -76,10 +83,15 @@ export interface VehicleListParams {
   sort_order?: SortOrder
 }
 
+export type VehicleInfiniteParams = Omit<VehicleListParams, 'page'>
+
 export const vehicleKeys = {
   all: ['vehicles'] as const,
   lists: () => [...vehicleKeys.all, 'list'] as const,
   list: (params: VehicleListParams) => [...vehicleKeys.lists(), params] as const,
+  infiniteLists: () => [...vehicleKeys.all, 'infiniteList'] as const,
+  infiniteList: (params: VehicleInfiniteParams) =>
+    [...vehicleKeys.infiniteLists(), params] as const,
   details: () => [...vehicleKeys.all, 'detail'] as const,
   detail: (id: string) => [...vehicleKeys.details(), id] as const,
 }
@@ -92,6 +104,26 @@ export function useVehicles(params: VehicleListParams) {
       return data
     },
     placeholderData: (prev) => prev,
+  })
+}
+
+// Infinite (scroll) variant of the vehicles list. The KPI fields on the
+// response cover the whole filtered set (identical across pages), so callers
+// read them off the first page.
+export function useInfiniteVehicles(params: VehicleInfiniteParams, enabled = true) {
+  const pageSize = params.page_size ?? 50
+  return useInfiniteQuery({
+    queryKey: vehicleKeys.infiniteList({ ...params, page_size: pageSize }),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<VehicleListResponse>('/vehicles/', {
+        params: { ...params, page_size: pageSize, page: pageParam },
+      })
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

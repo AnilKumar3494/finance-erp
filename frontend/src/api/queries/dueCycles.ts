@@ -1,7 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
 import { transactionKeys } from '@/api/queries/transactions'
+import { nextPageParam } from '@/lib/infinitePage'
 import type { CycleStatus, LoanStatus } from '@/schemas/enums'
 
 // --------------------------------------------------
@@ -39,6 +46,8 @@ export const dueCycleKeys = {
   all: ['dueCycles'] as const,
   byLoan: (loanId: string) => [...dueCycleKeys.all, 'byLoan', loanId] as const,
   worklist: (params: WorklistParams) => [...dueCycleKeys.all, 'worklist', params] as const,
+  worklistInfinite: (params: WorklistInfiniteParams) =>
+    [...dueCycleKeys.all, 'worklistInfinite', params] as const,
 }
 
 export function useDueCycles(loanId: string | undefined, enabled = true) {
@@ -130,6 +139,28 @@ export function useDueCycleWorklist(params: WorklistParams, enabled = true) {
     },
     enabled,
     placeholderData: (prev) => prev,
+  })
+}
+
+export type WorklistInfiniteParams = Omit<WorklistParams, 'page'>
+
+// Infinite (scroll) variant of the cycle worklist. The portfolio KPI fields on
+// the response cover the whole filtered set (identical across pages), so read
+// them off the first page.
+export function useInfiniteDueCycleWorklist(params: WorklistInfiniteParams, enabled = true) {
+  const pageSize = params.page_size ?? 50
+  return useInfiniteQuery({
+    queryKey: dueCycleKeys.worklistInfinite({ ...params, page_size: pageSize }),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<DueCycleWorklistResponse>('/due-cycles/', {
+        params: { ...params, page_size: pageSize, page: pageParam },
+      })
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

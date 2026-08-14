@@ -100,7 +100,8 @@ date — inferable from last payment date for ~99.5% of closed loans.
 - **No emojis** in code or commit messages.
 - **No new markdown docs** unless asked; **don't add dependencies** without
   approval; **no hex colors** outside `tokens.css`.
-- **Don't modify `backend/`** from frontend work unless explicitly asked.
+- **Editing `backend/` is fine** — the running backend is still remote (EC2),
+  so backend code/migration changes only go live when the user deploys them.
 - **Ask, don't guess** on UX/design ambiguity.
 - Confirm before risky/irreversible actions (DB writes, `git push`, deploys,
   force-push).

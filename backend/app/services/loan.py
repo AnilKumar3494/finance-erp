@@ -4,7 +4,7 @@ from typing import Any, Optional
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import Request
-from sqlalchemy import or_
+from sqlalchemy import Date, Integer, desc, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -203,6 +203,7 @@ def list_loans(
     search: Optional[str] = None,
     created_after: Optional[date] = None,
     created_before: Optional[date] = None,
+    pending_approval: Optional[bool] = None,
 ) -> tuple[list[Loan], int]:
     """List loans with optional filters, search, sorting, and eager loading.
 
@@ -249,6 +250,26 @@ def list_loans(
 
     if status:
         query = query.filter(Loan.status == status)
+
+    # "Awaiting approval" filter: DRAFT loans whose loan-level required terms
+    # are all filled in — i.e. the ones an admin can actually action now, as
+    # opposed to half-built drafts still being captured. Customer/vehicle
+    # completeness is re-checked at the approve step itself; this single-table
+    # predicate is the cheap, index-friendly signal that a draft is prepared.
+    if pending_approval:
+        query = query.filter(
+            Loan.status == LoanStatus.DRAFT,
+            Loan.principal.isnot(None),
+            Loan.interest_rate.isnot(None),
+            Loan.tenure.isnot(None),
+            Loan.first_emi_date.isnot(None),
+            # approve_loan hard-rejects a loan with no HP number, so a draft
+            # missing one is not actually actionable. isnot(None) plus the
+            # empty-string guard mirror `if not loan.hp_number` and cover any
+            # legacy rows that stored '' before the schema normalized ''->None.
+            Loan.hp_number.isnot(None),
+            Loan.hp_number != "",
+        )
 
     if created_after is not None:
         query = query.filter(Loan.created_at >= datetime.combine(created_after, time.min))
@@ -655,3 +676,95 @@ def soft_delete_loan(
     )
     db.commit()
     return loan
+
+
+# --------------------------------------------------
+# HP NUMBER FAMILIES (data-entry helper)
+# --------------------------------------------------
+# HP numbers are user-entered and follow a "<letters><zero-padded number>"
+# convention, with several independent prefix families each running its own
+# sequence (e.g. SAFTNK0450/0451/0452, SAFNDD0399, SAF1760). The New Finance
+# wizard surfaces the last few numbers per family so the person assigning a new
+# HP number can see where each sequence stands and pick the next one.
+#
+# The family key is the FULL leading-letter run (so SAF, SAFTNK and SAFNDD stay
+# distinct), upper-cased and stripped of all whitespace so stray-space rows
+# (e.g. "TYRE 0010") fold into their family. Within a family the numbers are
+# ordered by the numeric suffix descending, not by created_at: the legacy
+# created_at does not track the sequence, so this is what puts the highest
+# number (the one that tells you "what's next") first.
+def list_hp_number_families(
+    db: Session, per_family: int = 3
+) -> list[dict[str, Any]]:
+    cleaned = func.upper(func.regexp_replace(Loan.hp_number, r"\s", "", "g"))
+    prefix_expr = func.substring(cleaned, text("'^[^0-9]+'"))
+    # Trailing digit run cast to int, for numeric (not lexical) ordering.
+    seq_expr = func.cast(
+        func.substring(cleaned, text("'[0-9]+$'")), Integer
+    )
+
+    base_filters = (
+        Loan.is_deleted.is_(False),
+        Loan.hp_number.isnot(None),
+        Loan.hp_number != "",
+        prefix_expr.isnot(None),
+    )
+
+    # Per-family totals and recency, newest family first.
+    aggregates = {
+        row.prefix: {"count": row.count, "last_used": row.last_used}
+        for row in (
+            db.query(
+                prefix_expr.label("prefix"),
+                func.count().label("count"),
+                # Cast to Date: created_at is a datetime, but last_used is typed
+                # as a date and pydantic rejects a datetime carrying a time.
+                func.cast(func.max(Loan.created_at), Date).label("last_used"),
+            )
+            .filter(*base_filters)
+            .group_by(prefix_expr)
+            .all()
+        )
+    }
+
+    # The highest-numbered `per_family` HP numbers within each family.
+    rn = (
+        func.row_number()
+        .over(
+            partition_by=prefix_expr,
+            order_by=(desc(seq_expr), desc(Loan.created_at), desc(Loan.id)),
+        )
+        .label("rn")
+    )
+    ranked = (
+        db.query(
+            prefix_expr.label("prefix"),
+            Loan.hp_number.label("hp_number"),
+            rn,
+        )
+        .filter(*base_filters)
+        .subquery()
+    )
+    recent: dict[str, list[str]] = {}
+    for row in (
+        db.query(ranked.c.prefix, ranked.c.hp_number)
+        .filter(ranked.c.rn <= per_family)
+        .order_by(ranked.c.prefix, ranked.c.rn)
+        .all()
+    ):
+        recent.setdefault(row.prefix, []).append(row.hp_number)
+
+    families = [
+        {
+            "prefix": prefix,
+            "count": agg["count"],
+            "last_used": agg["last_used"],
+            "recent": recent.get(prefix, []),
+        }
+        for prefix, agg in aggregates.items()
+    ]
+    # Most recently used family first; the wizard shows the active ones on top.
+    families.sort(
+        key=lambda f: (f["last_used"] is not None, f["last_used"]), reverse=True
+    )
+    return families

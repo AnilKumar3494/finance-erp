@@ -14,7 +14,7 @@ import TableRow from '@mui/material/TableRow'
 import AddIcon from '@mui/icons-material/Add'
 
 import {
-  useCustomers,
+  useInfiniteCustomers,
   type CustomerResponse,
   type CustomerSortField,
   type SortOrder,
@@ -23,15 +23,21 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
+import {
+  LIST_MAX_HEIGHT,
+  LIST_MIN_HEIGHT,
+  stickyHeaderCellSx,
+  useInfiniteRows,
+} from '@/components/infinite/listScroll'
+import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
 import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
-import { PagerBar } from '@/components/PagerBar'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { fmtDate } from '@/lib/format'
 
 const routeApi = getRouteApi('/_authed/customers/')
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 function mapListError(error: unknown): string {
@@ -44,7 +50,6 @@ function mapListError(error: unknown): string {
 
 export function CustomersListPage() {
   const {
-    page,
     search: searchTerm,
     assigned_to,
     date_from,
@@ -57,7 +62,7 @@ export function CustomersListPage() {
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const setAssignedTo = (next: string | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }), replace: true })
+    navigate({ search: (prev) => ({ ...prev, assigned_to: next }), replace: true })
 
   // Created-date window, dayjs for the pickers and ISO for the API.
   const range: DateRangeValue = {
@@ -68,7 +73,6 @@ export function CustomersListPage() {
     navigate({
       search: (prev) => ({
         ...prev,
-        page: 1,
         date_from: isoOrUndefined(next.from),
         date_to: isoOrUndefined(next.to),
       }),
@@ -78,12 +82,7 @@ export function CustomersListPage() {
 
   const setSort = (next: { sort_by: CustomerSortField; sort_order: SortOrder }) =>
     navigate({
-      search: (prev) => ({
-        ...prev,
-        page: 1,
-        sort_by: next.sort_by,
-        sort_order: next.sort_order,
-      }),
+      search: (prev) => ({ ...prev, sort_by: next.sort_by, sort_order: next.sort_order }),
       replace: true,
     })
 
@@ -104,7 +103,7 @@ export function CustomersListPage() {
       const next = draft.trim() || undefined
       lastWrittenSearch.current = next
       navigate({
-        search: (prev) => ({ ...prev, page: 1, search: next }),
+        search: (prev) => ({ ...prev, search: next }),
         replace: true,
       })
     }, SEARCH_DEBOUNCE_MS)
@@ -120,9 +119,8 @@ export function CustomersListPage() {
     }
   }, [searchTerm])
 
-  const query = useCustomers(
+  const query = useInfiniteCustomers(
     {
-      page,
       page_size: PAGE_SIZE,
       search: searchTerm,
       assigned_employee_id: assigned_to,
@@ -136,28 +134,23 @@ export function CustomersListPage() {
     !dateError,
   )
 
-  const total = query.data?.total ?? 0
-  const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  const rows = query.data?.results ?? []
+  const rows = query.data?.pages.flatMap((p) => p.results) ?? []
+  const total = query.data?.pages[0]?.total ?? 0
 
-  const pager = (edge: 'top' | 'bottom') =>
-    total > 0 ? (
-      <PagerBar
-        edge={edge}
-        page={page}
-        totalPages={totalPages}
-        label={`${total} customer${total === 1 ? '' : 's'}`}
-        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
-      />
-    ) : null
+  // Identifies the active query; when it changes the scroll views jump to top.
+  const resetKey = JSON.stringify([
+    searchTerm,
+    assigned_to,
+    date_from,
+    date_to,
+    sort_by,
+    sort_order,
+  ])
 
   const goToCreate = () => navigate({ to: '/customers/new' })
 
   return (
     <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
-      {/* AKK-LATER-TODO: metrics dashboard above the search row — totals,
-          active loans count, overdue cycles, customers added this month, etc.
-          Needs a backend aggregate endpoint and a small Stat-tile primitive. */}
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         spacing={1.5}
@@ -224,45 +217,52 @@ export function CustomersListPage() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <Spinner size={28} />
         </Box>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          searchTerm={searchTerm}
+          filtered={!!assigned_to || !!date_from || !!date_to}
+          onCreate={goToCreate}
+        />
       ) : (
         <>
-          {rows.length === 0 ? (
-            <EmptyState
-              searchTerm={searchTerm}
-              filtered={!!assigned_to || !!date_from || !!date_to}
-              onCreate={goToCreate}
-            />
-          ) : (
-            <>
-              {pager('top')}
-              <DesktopTable
-                rows={rows}
-                page={page}
-                sort_by={sort_by}
-                sort_order={sort_order}
-                onSortChange={setSort}
-              />
-              <MobileCards rows={rows} page={page} />
-              {pager('bottom')}
-            </>
-          )}
+          <CountBar loaded={rows.length} total={total} noun="customer" nounPlural="customers" />
+          <DesktopTable
+            rows={rows}
+            sort_by={sort_by}
+            sort_order={sort_order}
+            onSortChange={setSort}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            fetchNextPage={query.fetchNextPage}
+            resetKey={resetKey}
+          />
+          <MobileCards
+            rows={rows}
+            hasNextPage={query.hasNextPage}
+            isFetchingNextPage={query.isFetchingNextPage}
+            fetchNextPage={query.fetchNextPage}
+            resetKey={resetKey}
+          />
         </>
       )}
     </Box>
   )
 }
 
-// --------------------------------------------------
-// Desktop table — md and up
-// --------------------------------------------------
-
-function serialNumber(page: number, index: number) {
-  return (page - 1) * PAGE_SIZE + index + 1
+// Shared props for the two infinite-scroll views.
+interface InfiniteProps {
+  rows: CustomerResponse[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  fetchNextPage: () => void
+  resetKey: string
 }
 
-interface DesktopTableProps {
-  rows: CustomerResponse[]
-  page: number
+// --------------------------------------------------
+// Desktop table — md and up (virtualized + infinite)
+// --------------------------------------------------
+
+interface DesktopTableProps extends InfiniteProps {
   sort_by: CustomerSortField | undefined
   sort_order: SortOrder | undefined
   onSortChange: (next: { sort_by: CustomerSortField; sort_order: SortOrder }) => void
@@ -304,18 +304,35 @@ const SORT_OPTIONS: readonly SortOption<CustomerSortField>[] = [
   { value: 'assigned_employee_name:desc', label: 'Assigned (Z → A)', sort_by: 'assigned_employee_name', sort_order: 'desc' },
 ]
 
-function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: DesktopTableProps) {
+function DesktopTable({
+  rows,
+  sort_by,
+  sort_order,
+  onSortChange,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: DesktopTableProps) {
   const navigate = routeApi.useNavigate()
   const goToDetail = (id: string) =>
     navigate({ to: '/customers/$customerId', params: { customerId: id } })
 
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 49,
+    overscan: 12,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+
   // Clicking the active column flips the direction. Clicking an inactive
   // column applies that field's default direction (asc for names, desc
   // for created).
-  const handleHeaderClick = (
-    field: CustomerSortField,
-    defaultDir: SortOrder,
-  ) => {
+  const handleHeaderClick = (field: CustomerSortField, defaultDir: SortOrder) => {
     const isActive =
       sort_by === field || (sort_by === undefined && field === 'created_at')
     const effectiveOrder = sort_by === undefined ? 'desc' : sort_order ?? 'desc'
@@ -332,11 +349,21 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
   const activeField: CustomerSortField = sort_by ?? 'created_at'
   const activeOrder: SortOrder = sort_by === undefined ? 'desc' : sort_order ?? 'desc'
 
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={COLUMN_HEADERS.length} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
+
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small">
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
+          <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
                 {COLUMN_HEADERS.map((h) =>
@@ -349,9 +376,10 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                       activeOrder={activeOrder}
                       defaultDir={h.defaultDir}
                       onSort={handleHeaderClick}
+                      sx={stickyHeaderCellSx}
                     />
                   ) : (
-                    <TableCell key={h.label} sx={{ fontWeight: 600 }}>
+                    <TableCell key={h.label} sx={stickyHeaderCellSx}>
                       {h.label}
                     </TableCell>
                   ),
@@ -359,10 +387,112 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((c, i) => (
-                <TableRow
-                  key={c.id}
-                  hover
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const c = rows[vr.index]!
+                return (
+                  <TableRow
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    hover
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open ${c.full_name}`}
+                    onClick={() => goToDetail(c.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        goToDetail(c.id)
+                      }
+                    }}
+                    sx={{
+                      cursor: 'pointer',
+                      '&:focus-visible': {
+                        outline: '2px solid',
+                        outlineColor: 'primary.main',
+                        outlineOffset: -2,
+                      },
+                    }}
+                  >
+                    <TableCell>{vr.index + 1}</TableCell>
+                    <TableCell>{c.full_name}</TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                      {c.mobile_number}
+                    </TableCell>
+                    <TableCell>
+                      {c.assigned_employee_name ?? (
+                        <Typography
+                          component="span"
+                          variant="body2"
+                          color="text.secondary"
+                        >
+                          Unassigned
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>{fmtDate(c.created_at)}</TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
+      </Card>
+    </Box>
+  )
+}
+
+// --------------------------------------------------
+// Mobile cards — below md (virtualized + infinite)
+// --------------------------------------------------
+
+function MobileCards({ rows, hasNextPage, isFetchingNextPage, fetchNextPage, resetKey }: InfiniteProps) {
+  const navigate = routeApi.useNavigate()
+  const goToDetail = (id: string) =>
+    navigate({ to: '/customers/$customerId', params: { customerId: id } })
+
+  const { scrollRef, virtualizer, virtualRows, totalSize } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 132,
+    overscan: 8,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+
+  return (
+    <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+      <Box
+        ref={scrollRef}
+        sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+      >
+        <Box sx={{ height: totalSize, position: 'relative' }}>
+          {virtualRows.map((vr) => {
+            const c = rows[vr.index]!
+            return (
+              <Box
+                key={vr.key}
+                data-index={vr.index}
+                ref={virtualizer.measureElement}
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${vr.start}px)`,
+                  pb: 1.5,
+                }}
+              >
+                <Card
                   tabIndex={0}
                   role="button"
                   aria-label={`Open ${c.full_name}`}
@@ -374,7 +504,15 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     }
                   }}
                   sx={{
+                    p: 2,
                     cursor: 'pointer',
+                    transition: 'border-color var(--t-fast), box-shadow var(--t-fast)',
+                    '&:hover': {
+                      borderColor: 'primary.main',
+                    },
+                    '&:active': {
+                      boxShadow: 'var(--shadow-hover)',
+                    },
                     '&:focus-visible': {
                       outline: '2px solid',
                       outlineColor: 'primary.main',
@@ -382,104 +520,46 @@ function DesktopTable({ rows, page, sort_by, sort_order, onSortChange }: Desktop
                     },
                   }}
                 >
-                  <TableCell>{serialNumber(page, i)}</TableCell>
-                  <TableCell>{c.full_name}</TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                    {c.mobile_number}
-                  </TableCell>
-                  <TableCell>
-                    {c.assigned_employee_name ?? (
-                      <Typography
-                        component="span"
-                        variant="body2"
-                        color="text.secondary"
-                      >
-                        Unassigned
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}
+                  >
+                    <Typography variant="h3" sx={{ fontSize: 16, fontWeight: 600 }}>
+                      {c.full_name}
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        {fmtDate(c.created_at)}
                       </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>{fmtDate(c.created_at)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Card>
+                      <Typography variant="caption" color="text.secondary">
+                        #{vr.index + 1}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                  <Typography
+                    variant="body2"
+                    sx={{ mt: 0.5, fontFamily: 'var(--font-mono)' }}
+                  >
+                    {c.mobile_number}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    {c.assigned_employee_name
+                      ? `Assigned: ${c.assigned_employee_name}`
+                      : 'Unassigned'}
+                  </Typography>
+                </Card>
+              </Box>
+            )
+          })}
+        </Box>
+      </Box>
+      <LoadMoreFooter
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        count={rows.length}
+      />
     </Box>
-  )
-}
-
-// --------------------------------------------------
-// Mobile cards — below md
-// --------------------------------------------------
-
-function MobileCards({ rows, page }: { rows: CustomerResponse[]; page: number }) {
-  const navigate = routeApi.useNavigate()
-  const goToDetail = (id: string) =>
-    navigate({ to: '/customers/$customerId', params: { customerId: id } })
-  return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((c, i) => (
-        <Card
-          key={c.id}
-          tabIndex={0}
-          role="button"
-          aria-label={`Open ${c.full_name}`}
-          onClick={() => goToDetail(c.id)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              goToDetail(c.id)
-            }
-          }}
-          sx={{
-            p: 2,
-            cursor: 'pointer',
-            transition: 'border-color var(--t-fast), box-shadow var(--t-fast)',
-            '&:hover': {
-              borderColor: 'primary.main',
-            },
-            '&:active': {
-              boxShadow: 'var(--shadow-hover)',
-            },
-            '&:focus-visible': {
-              outline: '2px solid',
-              outlineColor: 'primary.main',
-              outlineOffset: -2,
-            },
-          }}
-        >
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}
-          >
-            <Typography variant="h3" sx={{ fontSize: 16, fontWeight: 600 }}>
-              {c.full_name}
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <Typography variant="caption" color="text.secondary">
-                {fmtDate(c.created_at)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                #{serialNumber(page, i)}
-              </Typography>
-            </Stack>
-          </Stack>
-          <Typography
-            variant="body2"
-            sx={{ mt: 0.5, fontFamily: 'var(--font-mono)' }}
-          >
-            {c.mobile_number}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {c.assigned_employee_name
-              ? `Assigned: ${c.assigned_employee_name}`
-              : 'Unassigned'}
-          </Typography>
-        </Card>
-      ))}
-    </Stack>
   )
 }
 

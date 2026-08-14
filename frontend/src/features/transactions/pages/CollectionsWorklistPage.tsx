@@ -16,23 +16,25 @@ import AddIcon from '@mui/icons-material/AddOutlined'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForwardOutlined'
 
 import {
-  useDueCycleWorklist,
+  useInfiniteDueCycleWorklist,
   type DueCycleWorklistItem,
   type DueCycleWorklistResponse,
-  type WorklistParams,
+  type WorklistInfiniteParams,
   type WorklistSortField,
 } from '@/api/queries/dueCycles'
 import {
   useConfirmPendingTransaction,
   useFailPendingTransaction,
+  useInfinitePendingConfirmations,
   usePendingConfirmations,
   type PendingConfirmationItem,
   type PendingSortField,
 } from '@/api/queries/transactions'
-import { useLoans, type LoanResponse } from '@/api/queries/loans'
+import { useInfiniteLoans, type LoanResponse } from '@/api/queries/loans'
 import { serverMessage } from '@/api/errors'
 import {
   useBadDebtProposals,
+  useInfiniteBadDebtProposals,
   type BadDebtProposalListItem,
   type BadDebtSortField,
 } from '@/api/queries/badDebt'
@@ -42,7 +44,14 @@ import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
 import { AssignedToSelect } from '@/components/filters/AssignedToSelect'
 import { DateRangeFilter } from '@/components/filters/DateRangeFilter'
 import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
-import { PagerBar } from '@/components/PagerBar'
+import {
+  LIST_MAX_HEIGHT,
+  LIST_MIN_HEIGHT,
+  stickyHeaderCellSx,
+  useInfiniteRows,
+} from '@/components/infinite/listScroll'
+import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
+import { InfiniteCardList } from '@/components/infinite/InfiniteCardList'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
 import { toggleSort, type SortOrder, type SortState } from '@/components/sort/useTableSort'
@@ -62,7 +71,7 @@ import {
 
 const routeApi = getRouteApi('/_authed/transactions')
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 const inr = (s: string) => fmtINR(Number(s))
@@ -192,8 +201,16 @@ interface PendingQuickActions {
   acting: boolean
 }
 
+// Infinite-scroll wiring passed from the page down into each lens's table.
+interface InfiniteBits {
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  fetchNextPage: () => void
+  resetKey: string
+}
+
 export function CollectionsWorklistPage() {
-  const { view, search: searchTerm, assigned_to, date_from, date_to, page } = routeApi.useSearch()
+  const { view, search: searchTerm, assigned_to, date_from, date_to } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
   const { user } = useAuth()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
@@ -205,7 +222,7 @@ export function CollectionsWorklistPage() {
   // admin-gated proposals endpoint for them.
   useEffect(() => {
     if (isBadDebt && user && !isAdmin) {
-      navigate({ search: (prev) => ({ ...prev, page: 1, view: 'due' }), replace: true })
+      navigate({ search: (prev) => ({ ...prev, view: 'due' }), replace: true })
     }
   }, [isBadDebt, isAdmin, user, navigate])
 
@@ -223,7 +240,7 @@ export function CollectionsWorklistPage() {
     const t = setTimeout(() => {
       const next = draft.trim() || undefined
       lastWritten.current = next
-      navigate({ search: (prev) => ({ ...prev, page: 1, search: next }), replace: true })
+      navigate({ search: (prev) => ({ ...prev, search: next }), replace: true })
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [draft, navigate])
@@ -250,19 +267,15 @@ export function CollectionsWorklistPage() {
     sort_by: 'proposed_at',
     sort_order: 'desc',
   })
-  const resetPage = () => navigate({ search: (prev) => ({ ...prev, page: 1 }), replace: true })
-  const onCycleSort = (f: WorklistSortField, d: SortOrder) => {
+  // Sort lives in local state and is part of each infinite query's key, so
+  // changing it restarts the list at page 1; the tables scroll back to the top
+  // via their resetKey. No page URL to reset anymore.
+  const onCycleSort = (f: WorklistSortField, d: SortOrder) =>
     setCycleSort((s) => toggleSort(s, f, d))
-    resetPage()
-  }
-  const onPendingSort = (f: PendingSortField, d: SortOrder) => {
+  const onPendingSort = (f: PendingSortField, d: SortOrder) =>
     setPendingSort((s) => toggleSort(s, f, d))
-    resetPage()
-  }
-  const onBadDebtSort = (f: BadDebtSortField, d: SortOrder) => {
+  const onBadDebtSort = (f: BadDebtSortField, d: SortOrder) =>
     setBadDebtSort((s) => toggleSort(s, f, d))
-    resetPage()
-  }
 
   // The date window the user picked, as dayjs for the pickers and ISO for the
   // API. One window is shared by every lens; which date it filters on differs
@@ -276,7 +289,6 @@ export function CollectionsWorklistPage() {
     navigate({
       search: (prev) => ({
         ...prev,
-        page: 1,
         date_from: isoOrUndefined(next.from),
         date_to: isoOrUndefined(next.to),
       }),
@@ -287,7 +299,7 @@ export function CollectionsWorklistPage() {
   // the user would read it as "no data" rather than "bad input".
   const rangeOk = !dateError
 
-  const cycleParams: WorklistParams = {
+  const cycleParams: WorklistInfiniteParams = {
     ...viewToParams(view),
     // A picked window overrides the lens's own default window (e.g. Upcoming's
     // next-7-days), which is the point of picking one.
@@ -295,20 +307,20 @@ export function CollectionsWorklistPage() {
     ...(date_to ? { due_before: date_to } : {}),
     search: searchTerm,
     assigned_employee_id: assigned_to,
-    page,
     page_size: PAGE_SIZE,
     sort_by: cycleSort.sort_by,
     sort_order: cycleSort.sort_order,
   }
-  const cycleQuery = useDueCycleWorklist(cycleParams, rangeOk)
-  // Pending confirmations: fetch the active page when on that view, else page 1
-  // — `total` is page-independent so the tab badge is correct either way.
-  const pendingQuery = usePendingConfirmations(
-    isConfirmations ? page : 1,
-    PAGE_SIZE,
-    pendingSort,
-    assigned_to,
-    isConfirmations ? { paid_after: date_from, paid_before: date_to } : undefined,
+  const cycleQuery = useInfiniteDueCycleWorklist(cycleParams, rangeOk)
+  // Pending confirmations run even off the confirmations lens (first page only)
+  // to power the tab badge; `total` is page-independent so the badge is correct.
+  const pendingQuery = useInfinitePendingConfirmations(
+    {
+      pageSize: PAGE_SIZE,
+      sort: pendingSort,
+      assignedEmployeeId: assigned_to,
+      window: isConfirmations ? { paid_after: date_from, paid_before: date_to } : undefined,
+    },
     rangeOk,
   )
   // The window scopes the visible table, but the tab badge means "you have N
@@ -324,7 +336,9 @@ export function CollectionsWorklistPage() {
     isConfirmations && hasWindow,
   )
   const confirmationsCount =
-    (isConfirmations && hasWindow ? pendingCountQuery.data?.total : pendingQuery.data?.total) ?? 0
+    (isConfirmations && hasWindow
+      ? pendingCountQuery.data?.total
+      : pendingQuery.data?.pages[0]?.total) ?? 0
   // Bad-debt proposals (admin-only). The chip badge always reflects the
   // pending (PROPOSED) count, regardless of which sub-tab is shown — so a
   // lightweight PROPOSED count query runs for any admin (deduped with the
@@ -336,19 +350,20 @@ export function CollectionsWorklistPage() {
   // reset to page 1 on toggle.
   const [badDebtTab, setBadDebtTab] = useState<BadDebtTab>('PROPOSED')
   const isWrittenOff = isBadDebt && badDebtTab === 'WRITTEN_OFF'
-  const badDebtQuery = useBadDebtProposals(
-    isBadDebt ? page : 1,
-    badDebtTab === 'WRITTEN_OFF' ? 'APPROVED' : badDebtTab,
+  const badDebtQuery = useInfiniteBadDebtProposals(
+    {
+      status: badDebtTab === 'WRITTEN_OFF' ? 'APPROVED' : badDebtTab,
+      pageSize: PAGE_SIZE,
+      sort: badDebtSort,
+      window: { proposed_after: date_from, proposed_before: date_to },
+    },
     isAdmin && isBadDebt && rangeOk && !isWrittenOff,
-    badDebtSort,
-    { proposed_after: date_from, proposed_before: date_to },
   )
   // Written-off loans are loans, not proposals — a loan can reach BAD_DEBT
   // without ever having a proposal row (the legacy import did exactly that), so
   // the proposals queue can never show it. Sourced from the loans list instead.
-  const writtenOffQuery = useLoans(
+  const writtenOffQuery = useInfiniteLoans(
     {
-      page: isWrittenOff ? page : 1,
       page_size: PAGE_SIZE,
       status: 'BAD_DEBT',
       include: 'customer,vehicle',
@@ -376,6 +391,12 @@ export function CollectionsWorklistPage() {
     decision: BadDebtDecision
   } | null>(null)
 
+  // Flattened rows per lens (only one is visible at a time).
+  const cycleRows = cycleQuery.data?.pages.flatMap((p) => p.results) ?? []
+  const pendingRows = pendingQuery.data?.pages.flatMap((p) => p.results) ?? []
+  const badDebtRows = badDebtQuery.data?.pages.flatMap((p) => p.results) ?? []
+  const writtenOffRows = writtenOffQuery.data?.pages.flatMap((p) => p.results) ?? []
+
   const activeQuery = isWrittenOff
     ? writtenOffQuery
     : isBadDebt
@@ -383,42 +404,52 @@ export function CollectionsWorklistPage() {
       : isConfirmations
         ? pendingQuery
         : cycleQuery
-  const total = activeQuery.data?.total ?? 0
-  const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  const pagerLabel = `${total} ${
-    isWrittenOff
-      ? `loan${total === 1 ? '' : 's'} written off`
-      : isBadDebt
-        ? badDebtTab === 'APPROVED'
-          ? `approved proposal${total === 1 ? '' : 's'}`
-          : `proposal${total === 1 ? '' : 's'} to review`
-        : isConfirmations
-          ? `payment${total === 1 ? '' : 's'} to confirm`
-          : `cycle${total === 1 ? '' : 's'} due`
-  }`
-  const pager = (edge: 'top' | 'bottom') =>
-    total > 0 ? (
-      <PagerBar
-        edge={edge}
-        page={page}
-        totalPages={totalPages}
-        label={pagerLabel}
-        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
-      />
-    ) : null
+  const total = activeQuery.data?.pages[0]?.total ?? 0
+  const [countNoun, countNounPlural] = isWrittenOff
+    ? ['loan written off', 'loans written off']
+    : isBadDebt
+      ? badDebtTab === 'APPROVED'
+        ? ['approved proposal', 'approved proposals']
+        : ['proposal to review', 'proposals to review']
+      : isConfirmations
+        ? ['payment to confirm', 'payments to confirm']
+        : ['cycle due', 'cycles due']
+
+  // Per-lens reset key — changes when the active query's filters/sort change so
+  // the scroll views jump back to the top.
+  const cycleResetKey = JSON.stringify([
+    view,
+    searchTerm,
+    assigned_to,
+    date_from,
+    date_to,
+    cycleSort.sort_by,
+    cycleSort.sort_order,
+  ])
+  const pendingResetKey = JSON.stringify([
+    assigned_to,
+    date_from,
+    date_to,
+    pendingSort.sort_by,
+    pendingSort.sort_order,
+  ])
+  const badDebtResetKey = JSON.stringify([
+    badDebtTab,
+    date_from,
+    date_to,
+    badDebtSort.sort_by,
+    badDebtSort.sort_order,
+  ])
+  const writtenOffResetKey = JSON.stringify([assigned_to])
 
   const setView = (next: WorklistView) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, view: next }), replace: true })
+    navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
 
   const setAssignedTo = (next: string | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, assigned_to: next }), replace: true })
+    navigate({ search: (prev) => ({ ...prev, assigned_to: next }), replace: true })
 
-  // Switch the Bad debt sub-tab (review queue / approved / written off) and
-  // reset paging.
-  const onBadDebtTab = (next: BadDebtTab) => {
-    setBadDebtTab(next)
-    navigate({ search: (prev) => ({ ...prev, page: 1 }), replace: true })
-  }
+  // Switch the Bad debt sub-tab (review queue / approved / written off).
+  const onBadDebtTab = (next: BadDebtTab) => setBadDebtTab(next)
 
   return (
     <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
@@ -519,7 +550,9 @@ export function CollectionsWorklistPage() {
       {/* Portfolio KPIs — cycle views only (the aggregates come from the
           due-cycle query; the confirmations / bad-debt lenses source their own
           data and show their counts on the chips instead). */}
-      {isCycleView(view) && cycleQuery.data && <CollectionsKpis data={cycleQuery.data} />}
+      {isCycleView(view) && cycleQuery.data?.pages[0] && (
+        <CollectionsKpis data={cycleQuery.data.pages[0]} />
+      )}
 
       {/* Written off has no server-side sort of its own, so no sort control. */}
       <Box sx={{ display: { xs: isWrittenOff ? 'none' : 'block', md: 'none' }, mb: 2 }}>
@@ -528,10 +561,7 @@ export function CollectionsWorklistPage() {
             options={BADDEBT_SORT_OPTIONS}
             sort_by={badDebtSort.sort_by}
             sort_order={badDebtSort.sort_order}
-            onChange={(next) => {
-              setBadDebtSort(next)
-              resetPage()
-            }}
+            onChange={setBadDebtSort}
             sx={{ width: '100%' }}
           />
         ) : isConfirmations ? (
@@ -539,10 +569,7 @@ export function CollectionsWorklistPage() {
             options={PENDING_SORT_OPTIONS}
             sort_by={pendingSort.sort_by}
             sort_order={pendingSort.sort_order}
-            onChange={(next) => {
-              setPendingSort(next)
-              resetPage()
-            }}
+            onChange={setPendingSort}
             sx={{ width: '100%' }}
           />
         ) : (
@@ -550,10 +577,7 @@ export function CollectionsWorklistPage() {
             options={CYCLE_SORT_OPTIONS}
             sort_by={cycleSort.sort_by}
             sort_order={cycleSort.sort_order}
-            onChange={(next) => {
-              setCycleSort(next)
-              resetPage()
-            }}
+            onChange={setCycleSort}
             sx={{ width: '100%' }}
           />
         )}
@@ -573,31 +597,43 @@ export function CollectionsWorklistPage() {
         <>
           <BadDebtSubtabs tab={badDebtTab} reviewCount={badDebtCount} onChange={onBadDebtTab} />
           {isWrittenOff ? (
-            (writtenOffQuery.data?.results.length ?? 0) === 0 ? (
+            writtenOffRows.length === 0 ? (
               <WrittenOffEmpty />
             ) : (
               <>
-                {pager('top')}
-                <WrittenOffTable rows={writtenOffQuery.data!.results} />
-                {pager('bottom')}
+                <CountBar loaded={writtenOffRows.length} total={total} noun={countNoun} nounPlural={countNounPlural} />
+                <WrittenOffTable
+                  rows={writtenOffRows}
+                  hasNextPage={writtenOffQuery.hasNextPage}
+                  isFetchingNextPage={writtenOffQuery.isFetchingNextPage}
+                  fetchNextPage={writtenOffQuery.fetchNextPage}
+                  resetKey={writtenOffResetKey}
+                />
               </>
             )
-          ) : (badDebtQuery.data?.results.length ?? 0) === 0 ? (
+          ) : badDebtRows.length === 0 ? (
             <BadDebtEmpty tab={badDebtTab} />
           ) : (
             <>
-              {pager('top')}
+              <CountBar loaded={badDebtRows.length} total={total} noun={countNoun} nounPlural={countNounPlural} />
               <BadDebtDesktop
-                rows={badDebtQuery.data!.results}
+                rows={badDebtRows}
                 onReview={(proposal, decision) => setReview({ proposal, decision })}
                 sort={badDebtSort}
                 onSort={onBadDebtSort}
+                hasNextPage={badDebtQuery.hasNextPage}
+                isFetchingNextPage={badDebtQuery.isFetchingNextPage}
+                fetchNextPage={badDebtQuery.fetchNextPage}
+                resetKey={badDebtResetKey}
               />
               <BadDebtMobile
-                rows={badDebtQuery.data!.results}
+                rows={badDebtRows}
                 onReview={(proposal, decision) => setReview({ proposal, decision })}
+                hasNextPage={badDebtQuery.hasNextPage}
+                isFetchingNextPage={badDebtQuery.isFetchingNextPage}
+                fetchNextPage={badDebtQuery.fetchNextPage}
+                resetKey={badDebtResetKey}
               />
-              {pager('bottom')}
             </>
           )}
         </>
@@ -608,35 +644,55 @@ export function CollectionsWorklistPage() {
               <ErrorBanner message={mapActionError(quickError)} />
             </Box>
           )}
-          {(pendingQuery.data?.results.length ?? 0) === 0 ? (
+          {pendingRows.length === 0 ? (
             <ConfirmationsEmpty filtered={!!assigned_to} />
           ) : (
             <>
-              {pager('top')}
+              <CountBar loaded={pendingRows.length} total={total} noun={countNoun} nounPlural={countNounPlural} />
               <ConfirmationsDesktop
-                rows={pendingQuery.data!.results}
+                rows={pendingRows}
                 sort={pendingSort}
                 onSort={onPendingSort}
                 quick={quick}
+                hasNextPage={pendingQuery.hasNextPage}
+                isFetchingNextPage={pendingQuery.isFetchingNextPage}
+                fetchNextPage={pendingQuery.fetchNextPage}
+                resetKey={pendingResetKey}
               />
-              <ConfirmationsMobile rows={pendingQuery.data!.results} quick={quick} />
-              {pager('bottom')}
+              <ConfirmationsMobile
+                rows={pendingRows}
+                quick={quick}
+                hasNextPage={pendingQuery.hasNextPage}
+                isFetchingNextPage={pendingQuery.isFetchingNextPage}
+                fetchNextPage={pendingQuery.fetchNextPage}
+                resetKey={pendingResetKey}
+              />
             </>
           )}
         </>
-      ) : (cycleQuery.data?.results.length ?? 0) === 0 ? (
+      ) : cycleRows.length === 0 ? (
         <CyclesEmpty filtered={!!searchTerm || !!assigned_to || hasWindow} view={view} />
       ) : (
         <>
-          {pager('top')}
+          <CountBar loaded={cycleRows.length} total={total} noun={countNoun} nounPlural={countNounPlural} />
           <DesktopTable
-            rows={cycleQuery.data!.results}
+            rows={cycleRows}
             onRecord={setRecord}
             sort={cycleSort}
             onSort={onCycleSort}
+            hasNextPage={cycleQuery.hasNextPage}
+            isFetchingNextPage={cycleQuery.isFetchingNextPage}
+            fetchNextPage={cycleQuery.fetchNextPage}
+            resetKey={cycleResetKey}
           />
-          <MobileCards rows={cycleQuery.data!.results} onRecord={setRecord} />
-          {pager('bottom')}
+          <MobileCards
+            rows={cycleRows}
+            onRecord={setRecord}
+            hasNextPage={cycleQuery.hasNextPage}
+            isFetchingNextPage={cycleQuery.isFetchingNextPage}
+            fetchNextPage={cycleQuery.fetchNextPage}
+            resetKey={cycleResetKey}
+          />
         </>
       )}
 
@@ -712,20 +768,48 @@ function DesktopTable({
   onRecord,
   sort,
   onSort,
-}: {
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
   rows: DueCycleWorklistItem[]
   onRecord: (row: DueCycleWorklistItem) => void
   sort: SortState<WorklistSortField>
   onSort: (field: WorklistSortField, defaultDir: SortOrder) => void
 }) {
   const navigate = routeApi.useNavigate()
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 64,
+    overscan: 10,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={7} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer sx={{ overflowX: 'auto' }}>
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
           <Table
+            stickyHeader
             size="small"
-            sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+            sx={{
+              minWidth: 820,
+              '& .MuiTableCell-root': { whiteSpace: 'nowrap' },
+              '& thead .MuiTableCell-root': stickyHeaderCellSx,
+            }}
           >
             <TableHead>
               <TableRow>
@@ -784,65 +868,77 @@ function DesktopTable({
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((r) => (
-                <TableRow
-                  key={r.id}
-                  hover
-                  sx={{ cursor: 'pointer' }}
-                  onClick={() =>
-                    navigate({
-                      to: '/finances/$loanId/collections',
-                      params: { loanId: r.loan_id },
-                    })
-                  }
-                >
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                      {r.customer_name}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ fontFamily: 'var(--font-mono)' }}
-                    >
-                      {r.customer_mobile}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
-                  <TableCell>#{r.cycle_number}</TableCell>
-                  <TableCell>
-                    <Stack spacing={0.25}>
-                      <span>{fmtDate(r.due_date)}</span>
-                      <OverdueBadge days={r.days_overdue} />
-                    </Stack>
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600, color: 'error.main' }}>
-                    {inr(r.shortfall)}
-                  </TableCell>
-                  <TableCell>
-                    <Stack spacing={0} sx={{ alignItems: 'flex-start' }}>
-                      <CycleStatusChip status={r.cycle_status} />
-                      <PendingChip count={r.pending_count} total={r.pending_total} />
-                    </Stack>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Btn
-                      variant="primary"
-                      size="sm"
-                      startIcon={<AddIcon />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onRecord(r)
-                      }}
-                    >
-                      Record
-                    </Btn>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const r = rows[vr.index]!
+                return (
+                  <TableRow
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    hover
+                    sx={{ cursor: 'pointer' }}
+                    onClick={() =>
+                      navigate({
+                        to: '/finances/$loanId/collections',
+                        params: { loanId: r.loan_id },
+                      })
+                    }
+                  >
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                        {r.customer_name}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontFamily: 'var(--font-mono)' }}
+                      >
+                        {r.customer_mobile}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
+                    <TableCell>#{r.cycle_number}</TableCell>
+                    <TableCell>
+                      <Stack spacing={0.25}>
+                        <span>{fmtDate(r.due_date)}</span>
+                        <OverdueBadge days={r.days_overdue} />
+                      </Stack>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600, color: 'error.main' }}>
+                      {inr(r.shortfall)}
+                    </TableCell>
+                    <TableCell>
+                      <Stack spacing={0} sx={{ alignItems: 'flex-start' }}>
+                        <CycleStatusChip status={r.cycle_status} />
+                        <PendingChip count={r.pending_count} total={r.pending_total} />
+                      </Stack>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Btn
+                        variant="primary"
+                        size="sm"
+                        startIcon={<AddIcon />}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRecord(r)
+                        }}
+                      >
+                        Record
+                      </Btn>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
             </TableBody>
           </Table>
         </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
       </Card>
     </Box>
   )
@@ -851,16 +947,26 @@ function DesktopTable({
 function MobileCards({
   rows,
   onRecord,
-}: {
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
   rows: DueCycleWorklistItem[]
   onRecord: (row: DueCycleWorklistItem) => void
 }) {
   const navigate = routeApi.useNavigate()
   return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((r) => (
+    <InfiniteCardList
+      rows={rows}
+      getKey={(r) => r.id}
+      estimateSize={188}
+      hasNextPage={hasNextPage}
+      isFetchingNextPage={isFetchingNextPage}
+      fetchNextPage={fetchNextPage}
+      resetKey={resetKey}
+      renderItem={(r) => (
         <Card
-          key={r.id}
           onClick={() =>
             navigate({
               to: '/finances/$loanId/collections',
@@ -914,8 +1020,8 @@ function MobileCards({
             </Btn>
           </Box>
         </Card>
-      ))}
-    </Stack>
+      )}
+    />
   )
 }
 
@@ -953,7 +1059,11 @@ function ConfirmationsDesktop({
   sort,
   onSort,
   quick,
-}: {
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
   rows: PendingConfirmationItem[]
   sort: SortState<PendingSortField>
   onSort: (field: PendingSortField, defaultDir: SortOrder) => void
@@ -966,13 +1076,37 @@ function ConfirmationsDesktop({
       params: { loanId: r.loan_id },
       search: { focusTxn: r.id },
     })
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 62,
+    overscan: 10,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={7} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer sx={{ overflowX: 'auto' }}>
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
           <Table
+            stickyHeader
             size="small"
-            sx={{ minWidth: 820, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+            sx={{
+              minWidth: 820,
+              '& .MuiTableCell-root': { whiteSpace: 'nowrap' },
+              '& thead .MuiTableCell-root': stickyHeaderCellSx,
+            }}
           >
             <TableHead>
               <TableRow>
@@ -1024,80 +1158,97 @@ function ConfirmationsDesktop({
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => open(r)}>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                      {r.customer_name}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ fontFamily: 'var(--font-mono)' }}
-                    >
-                      {r.customer_mobile}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    {inr(r.amount)}
-                  </TableCell>
-                  <TableCell>{r.cycle_number != null ? `#${r.cycle_number}` : '—'}</TableCell>
-                  <TableCell>{fmtDate(r.effective_payment_date)}</TableCell>
-                  <TableCell>{fmtDate(r.created_at)}</TableCell>
-                  <TableCell align="right">
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      sx={{
-                        justifyContent: 'flex-end',
-                        '& .MuiButton-root': { whiteSpace: 'nowrap' },
-                      }}
-                    >
-                      {quick && (
-                        <>
-                          <Btn
-                            variant="success"
-                            size="sm"
-                            disabled={quick.acting}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              quick.onReceived(r)
-                            }}
-                          >
-                            Received
-                          </Btn>
-                          <Btn
-                            variant="danger"
-                            size="sm"
-                            disabled={quick.acting}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              quick.onCancel(r)
-                            }}
-                          >
-                            Cancel
-                          </Btn>
-                        </>
-                      )}
-                      <Btn
-                        variant={quick ? 'ghost' : 'primary'}
-                        size="sm"
-                        endIcon={<ArrowForwardIcon />}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          open(r)
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const r = rows[vr.index]!
+                return (
+                  <TableRow
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    hover
+                    sx={{ cursor: 'pointer' }}
+                    onClick={() => open(r)}
+                  >
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                        {r.customer_name}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontFamily: 'var(--font-mono)' }}
+                      >
+                        {r.customer_mobile}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {inr(r.amount)}
+                    </TableCell>
+                    <TableCell>{r.cycle_number != null ? `#${r.cycle_number}` : '—'}</TableCell>
+                    <TableCell>{fmtDate(r.effective_payment_date)}</TableCell>
+                    <TableCell>{fmtDate(r.created_at)}</TableCell>
+                    <TableCell align="right">
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{
+                          justifyContent: 'flex-end',
+                          '& .MuiButton-root': { whiteSpace: 'nowrap' },
                         }}
                       >
-                        Review
-                      </Btn>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))}
+                        {quick && (
+                          <>
+                            <Btn
+                              variant="success"
+                              size="sm"
+                              disabled={quick.acting}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                quick.onReceived(r)
+                              }}
+                            >
+                              Received
+                            </Btn>
+                            <Btn
+                              variant="danger"
+                              size="sm"
+                              disabled={quick.acting}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                quick.onCancel(r)
+                              }}
+                            >
+                              Cancel
+                            </Btn>
+                          </>
+                        )}
+                        <Btn
+                          variant={quick ? 'ghost' : 'primary'}
+                          size="sm"
+                          endIcon={<ArrowForwardIcon />}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            open(r)
+                          }}
+                        >
+                          Review
+                        </Btn>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
             </TableBody>
           </Table>
         </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
       </Card>
     </Box>
   )
@@ -1106,7 +1257,11 @@ function ConfirmationsDesktop({
 function ConfirmationsMobile({
   rows,
   quick,
-}: {
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
   rows: PendingConfirmationItem[]
   quick: PendingQuickActions | null
 }) {
@@ -1118,10 +1273,16 @@ function ConfirmationsMobile({
       search: { focusTxn: r.id },
     })
   return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((r) => (
+    <InfiniteCardList
+      rows={rows}
+      getKey={(r) => r.id}
+      estimateSize={196}
+      hasNextPage={hasNextPage}
+      isFetchingNextPage={isFetchingNextPage}
+      fetchNextPage={fetchNextPage}
+      resetKey={resetKey}
+      renderItem={(r) => (
         <Card
-          key={r.id}
           onClick={() => open(r)}
           sx={{ p: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }}
         >
@@ -1202,8 +1363,8 @@ function ConfirmationsMobile({
             )}
           </Box>
         </Card>
-      ))}
-    </Stack>
+      )}
+    />
   )
 }
 
@@ -1326,17 +1487,44 @@ function BadDebtDesktop({
   onReview,
   sort,
   onSort,
-}: {
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
   rows: BadDebtProposalListItem[]
   onReview: ReviewHandler
   sort: SortState<BadDebtSortField>
   onSort: (field: BadDebtSortField, defaultDir: SortOrder) => void
 }) {
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 62,
+    overscan: 10,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={6} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 820 }}>
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
+          <Table
+            stickyHeader
+            size="small"
+            sx={{ minWidth: 820, '& thead .MuiTableCell-root': stickyHeaderCellSx }}
+          >
             <TableHead>
               <TableRow sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                 <SortableTh
@@ -1379,45 +1567,55 @@ function BadDebtDesktop({
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.id} hover>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                      {r.customer_name}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ fontFamily: 'var(--font-mono)' }}
-                    >
-                      {r.customer_mobile}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                    {loanDisplayId(r)}
-                  </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                    {inr(r.principal)}
-                  </TableCell>
-                  <TableCell sx={{ maxWidth: 280 }}>
-                    <Typography
-                      variant="body2"
-                      sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      title={r.proposed_reason}
-                    >
-                      {r.auto_proposed ? '⚙ ' : ''}
-                      {r.proposed_reason}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(r.proposed_at)}</TableCell>
-                  <TableCell align="right">
-                    <ReviewButtons proposal={r} onReview={onReview} />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const r = rows[vr.index]!
+                return (
+                  <TableRow key={vr.key} data-index={vr.index} ref={virtualizer.measureElement} hover>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                        {r.customer_name}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontFamily: 'var(--font-mono)' }}
+                      >
+                        {r.customer_mobile}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                      {loanDisplayId(r)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      {inr(r.principal)}
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 280 }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={r.proposed_reason}
+                      >
+                        {r.auto_proposed ? '⚙ ' : ''}
+                        {r.proposed_reason}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(r.proposed_at)}</TableCell>
+                    <TableCell align="right">
+                      <ReviewButtons proposal={r} onReview={onReview} />
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
             </TableBody>
           </Table>
         </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
       </Card>
     </Box>
   )
@@ -1426,14 +1624,25 @@ function BadDebtDesktop({
 function BadDebtMobile({
   rows,
   onReview,
-}: {
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
   rows: BadDebtProposalListItem[]
   onReview: ReviewHandler
 }) {
   return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((r) => (
-        <Card key={r.id} sx={{ p: 2 }}>
+    <InfiniteCardList
+      rows={rows}
+      getKey={(r) => r.id}
+      estimateSize={176}
+      hasNextPage={hasNextPage}
+      isFetchingNextPage={isFetchingNextPage}
+      fetchNextPage={fetchNextPage}
+      resetKey={resetKey}
+      renderItem={(r) => (
+        <Card sx={{ p: 2 }}>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
             <Typography variant="body1" sx={{ fontWeight: 600 }}>
               {r.customer_name}
@@ -1460,8 +1669,8 @@ function BadDebtMobile({
             <ReviewButtons proposal={r} onReview={onReview} fullWidth />
           </Box>
         </Card>
-      ))}
-    </Stack>
+      )}
+    />
   )
 }
 
@@ -1500,62 +1709,115 @@ function WrittenOffEmpty() {
 // propose/review flow, which is why this reads the loans list rather than the
 // proposals queue. Read-only: reversing a write-off is a loan-level action, so
 // the row links through to the loan.
-function WrittenOffTable({ rows }: { rows: LoanResponse[] }) {
+function WrittenOffTable({
+  rows,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & { rows: LoanResponse[] }) {
   const navigate = routeApi.useNavigate()
   const go = (loanId: string) => navigate({ to: '/finances/$loanId', params: { loanId } })
+
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 58,
+    overscan: 10,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={4} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
 
   return (
     <>
       <Box sx={{ display: { xs: 'none', md: 'block' } }}>
         <Card sx={{ p: 0, overflow: 'hidden' }}>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer
+            ref={scrollRef}
+            sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+          >
             <Table
+              stickyHeader
               size="small"
-              sx={{ minWidth: 720, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
+              sx={{
+                minWidth: 720,
+                '& .MuiTableCell-root': { whiteSpace: 'nowrap' },
+                '& thead .MuiTableCell-root': stickyHeaderCellSx,
+              }}
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Loan</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }} align="right">
-                    Principal
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>Approved</TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell>Loan</TableCell>
+                  <TableCell align="right">Principal</TableCell>
+                  <TableCell>Approved</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.map((l) => (
-                  <TableRow key={l.id} hover sx={{ cursor: 'pointer' }} onClick={() => go(l.id)}>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                        {l.customer?.full_name ?? '—'}
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ fontFamily: 'var(--font-mono)' }}
-                      >
-                        {l.customer?.mobile_number ?? ''}
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
-                      {loanDisplayId(l)}
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 600 }}>
-                      {l.principal ? inr(l.principal) : '—'}
-                    </TableCell>
-                    <TableCell>{l.approval_date ? fmtDate(l.approval_date) : '—'}</TableCell>
-                  </TableRow>
-                ))}
+                {spacer(paddingTop)}
+                {virtualRows.map((vr) => {
+                  const l = rows[vr.index]!
+                  return (
+                    <TableRow
+                      key={vr.key}
+                      data-index={vr.index}
+                      ref={virtualizer.measureElement}
+                      hover
+                      sx={{ cursor: 'pointer' }}
+                      onClick={() => go(l.id)}
+                    >
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                          {l.customer?.full_name ?? '—'}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontFamily: 'var(--font-mono)' }}
+                        >
+                          {l.customer?.mobile_number ?? ''}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>
+                        {loanDisplayId(l)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>
+                        {l.principal ? inr(l.principal) : '—'}
+                      </TableCell>
+                      <TableCell>{l.approval_date ? fmtDate(l.approval_date) : '—'}</TableCell>
+                    </TableRow>
+                  )
+                })}
+                {spacer(paddingBottom)}
               </TableBody>
             </Table>
           </TableContainer>
+          <LoadMoreFooter
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            count={rows.length}
+          />
         </Card>
       </Box>
 
-      <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-        {rows.map((l) => (
-          <Card key={l.id} sx={{ p: 2, cursor: 'pointer' }} onClick={() => go(l.id)}>
+      <InfiniteCardList
+        rows={rows}
+        getKey={(l) => l.id}
+        estimateSize={104}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        resetKey={resetKey}
+        renderItem={(l) => (
+          <Card sx={{ p: 2, cursor: 'pointer' }} onClick={() => go(l.id)}>
             <Stack spacing={0.5}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 {l.customer?.full_name ?? '—'}
@@ -1572,8 +1834,8 @@ function WrittenOffTable({ rows }: { rows: LoanResponse[] }) {
               </Typography>
             </Stack>
           </Card>
-        ))}
-      </Stack>
+        )}
+      />
     </>
   )
 }
