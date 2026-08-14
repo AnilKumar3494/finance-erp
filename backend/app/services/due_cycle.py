@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import List, Optional, Tuple
 
 from sqlalchemy import and_, case, func, not_, or_
-from sqlalchemy.orm import Query, Session, aliased
+from sqlalchemy.orm import Query, Session
 
 from app.models.customer import Customer
 from app.models.due_cycle import CycleStatus, DueCycle
@@ -247,25 +247,31 @@ def _worklist_filtered_query(
         #
         # Exception: a late cycle with NO later cycle on the same loan (e.g. the
         # final cycle, cases.md Case 26) had nowhere to spread the recovery to,
-        # so it stays a genuine outstanding and remains on the worklist. The
-        # NOT EXISTS(later cycle) guard encodes exactly that.
-        later_cycle = aliased(DueCycle)
-        has_later_cycle = (
-            db.query(later_cycle.id)
-            .filter(
-                later_cycle.loan_id == DueCycle.loan_id,
-                later_cycle.is_deleted.is_(False),
-                later_cycle.cycle_number > DueCycle.cycle_number,
+        # so it stays a genuine outstanding and remains on the worklist.
+        #
+        # "Has a later cycle" is equivalent to "this cycle isn't the loan's
+        # highest-numbered active cycle". We express it as a join to the per-loan
+        # MAX(cycle_number) rather than a correlated NOT EXISTS: the subplan form
+        # is mis-costed by the planner (it estimates the never-taken subplan as
+        # enormous), which forced a catastrophic nested-loop join to `customers`
+        # — ~5 s per request. The grouped-max join costs correctly and the same
+        # query drops to well under a second, with identical results.
+        max_cycle = (
+            db.query(
+                DueCycle.loan_id.label("loan_id"),
+                func.max(DueCycle.cycle_number).label("max_cycle_number"),
             )
-            .exists()
+            .filter(DueCycle.is_deleted.is_(False))
+            .group_by(DueCycle.loan_id)
+            .subquery()
         )
-        query = query.filter(
+        query = query.join(max_cycle, max_cycle.c.loan_id == DueCycle.loan_id).filter(
             not_(
                 and_(
                     DueCycle.cycle_status.in_(
                         (CycleStatus.LATE_PAYMENT, CycleStatus.MISSED_CAPPED)
                     ),
-                    has_later_cycle,
+                    DueCycle.cycle_number < max_cycle.c.max_cycle_number,
                 )
             )
         )
