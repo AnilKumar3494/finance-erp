@@ -64,7 +64,7 @@ export function LoanCollectionsPage({ loanId }: { loanId: string }) {
           variant="ghost"
           size="sm"
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate({ to: '/transactions', search: { view: 'due', page: 1 } })}
+          onClick={() => navigate({ to: '/transactions', search: { view: 'overdue', page: 1 } })}
         >
           Collections
         </Btn>

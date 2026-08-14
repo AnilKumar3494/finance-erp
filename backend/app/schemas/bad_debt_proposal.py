@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
@@ -66,3 +66,33 @@ class BadDebtProposalListResponse(BaseModel):
     page: int = 1
     page_size: int
     results: list[BadDebtProposalListItem]
+
+
+class BadDebtCandidateItem(BaseModel):
+    """One ACTIVE loan whose lateness has crossed the penalty cap but which has
+    no proposal yet — a suggestion for the admin to Propose. Keyed to the loan's
+    worst (earliest-due) cap-crossed cycle, with the count of such cycles and
+    their summed shortfall."""
+
+    loan_id: uuid.UUID
+    loan_number: str
+    hp_number: Optional[str] = None
+    principal: Decimal
+    customer_id: uuid.UUID
+    customer_name: str
+    customer_mobile: str
+    mandal_village: Optional[str] = None
+    worst_cycle_number: int
+    worst_due_date: date
+    days_overdue: int
+    cap_cycles: int
+    shortfall: Decimal
+
+
+class BadDebtCandidateListResponse(BaseModel):
+    """Paginated bad-debt candidate list (Collections → Bad debt → Candidates)."""
+
+    total: int
+    page: int = 1
+    page_size: int
+    results: list[BadDebtCandidateItem]

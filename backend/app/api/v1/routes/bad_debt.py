@@ -13,6 +13,8 @@ from app.models.customer import Customer
 from app.models.loan import Loan
 from app.models.user import User
 from app.schemas.bad_debt_proposal import (
+    BadDebtCandidateItem,
+    BadDebtCandidateListResponse,
     BadDebtProposalListItem,
     BadDebtProposalListResponse,
     BadDebtProposalResponse,
@@ -21,12 +23,13 @@ from app.schemas.bad_debt_proposal import (
 )
 from app.services.bad_debt import (
     get_open_proposal,
+    list_bad_debt_candidates,
     propose_bad_debt,
     reopen_proposal,
     review_proposal,
 )
 from app.utils.audit import write_audit
-from app.utils.time import local_midnight
+from app.utils.time import local_midnight, today_in_tz
 
 # Two routers — one under /loans/{id}/bad-debt for create, one under
 # /bad-debt-proposals for list/get/review.
@@ -237,6 +240,47 @@ def list_proposals(
     ]
     return BadDebtProposalListResponse(
         total=total, page=page, page_size=page_size, results=results
+    )
+
+
+@review_router.get(
+    "/candidates",
+    response_model=BadDebtCandidateListResponse,
+    summary="List bad-debt candidates — ACTIVE loans past the penalty cap (admin)",
+)
+def list_candidates(
+    assigned_employee_id: Optional[uuid.UUID] = Query(
+        None, description="Filter by the customer's assigned employee."
+    ),
+    search: Optional[str] = Query(None, max_length=120),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    sort_by: Optional[str] = Query(
+        None,
+        description="Sort column: days_overdue | shortfall | principal | customer_name | loan",
+    ),
+    sort_order: Optional[str] = Query(None, description="asc | desc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    # Declared BEFORE the /{proposal_id} route so "candidates" is not parsed as
+    # a proposal id. Admin-only, matching the rest of the Bad debt lens.
+    today = today_in_tz(settings.REPORTS_TIMEZONE)
+    total, rows = list_bad_debt_candidates(
+        db,
+        today,
+        assigned_employee_id=assigned_employee_id,
+        search=search,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    return BadDebtCandidateListResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        results=[BadDebtCandidateItem(**r) for r in rows],
     )
 
 
