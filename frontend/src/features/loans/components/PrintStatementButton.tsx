@@ -29,8 +29,16 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
 
   const [previewOpen, setPreviewOpen] = useState(false)
 
+  // Customer and vehicle carry the address and chassis/engine the statement
+  // prints; gate on them too, or the button enables while they're still
+  // fetching and the statement builds with those blocks blank.
   const loading =
-    cycles.isLoading || transactions.isLoading || summary.isLoading || personnel.isLoading
+    cycles.isLoading ||
+    transactions.isLoading ||
+    summary.isLoading ||
+    personnel.isLoading ||
+    customer.isLoading ||
+    vehicle.isLoading
 
   // Rebuilds only when the underlying cached data changes (React Query hands
   // back stable references), so opening the preview doesn't re-render the
