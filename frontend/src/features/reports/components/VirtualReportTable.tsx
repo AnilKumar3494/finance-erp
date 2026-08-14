@@ -11,6 +11,7 @@ import type { SxProps, Theme } from '@mui/material/styles'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { Card } from '@/components/primitives'
+import { TopScrollbar } from '@/components/infinite/TopScrollbar'
 import { SortableTh } from '@/components/sort/SortableTh'
 import type { SortOrder, SortState } from '@/components/sort/useTableSort'
 
@@ -175,6 +176,8 @@ export function VirtualReportTable<T, F extends string>({
           <TotalsStrip columns={columns} />
         </Box>
       )}
+
+      <TopScrollbar targetRef={scrollRef} />
 
       <TableContainer ref={scrollRef} sx={{ maxHeight, overflow: 'auto' }}>
         <Table

@@ -32,6 +32,7 @@ import {
   useInfiniteRows,
 } from '@/components/infinite/listScroll'
 import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
+import { TopScrollbar } from '@/components/infinite/TopScrollbar'
 import { isoOrUndefined, rangeError, type DateRangeValue } from '@/lib/dateRange'
 import dayjs from 'dayjs'
 import type { LoanStatus } from '@/schemas/enums'
@@ -476,6 +477,7 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TopScrollbar targetRef={scrollRef} />
         <TableContainer
           ref={scrollRef}
           sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
