@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
 import { loanKeys } from '@/api/queries/loans'
+import { nextPageParam } from '@/lib/infinitePage'
 import type { BadDebtProposalStatus, LoanStatus } from '@/schemas/enums'
 
 // --------------------------------------------------
@@ -70,6 +77,20 @@ export const badDebtKeys = {
       window?.proposed_after ?? null,
       window?.proposed_before ?? null,
     ] as const,
+  worklistInfinite: (
+    status: BadDebtProposalStatus,
+    sort?: BadDebtSort,
+    window?: ProposalWindow,
+  ) =>
+    [
+      ...badDebtKeys.all,
+      'worklistInfinite',
+      status,
+      sort?.sort_by ?? null,
+      sort?.sort_order ?? null,
+      window?.proposed_after ?? null,
+      window?.proposed_before ?? null,
+    ] as const,
 }
 
 // Inclusive window on when the proposal was raised.
@@ -97,6 +118,33 @@ export function useBadDebtProposals(
     },
     enabled,
     placeholderData: (prev) => prev,
+  })
+}
+
+export interface InfiniteBadDebtParams {
+  status?: BadDebtProposalStatus
+  pageSize?: number
+  sort?: BadDebtSort
+  window?: ProposalWindow
+}
+
+// Infinite (scroll) variant of the bad-debt review queue.
+export function useInfiniteBadDebtProposals(
+  { status = 'PROPOSED', pageSize = 50, sort, window }: InfiniteBadDebtParams,
+  enabled = true,
+) {
+  return useInfiniteQuery({
+    queryKey: badDebtKeys.worklistInfinite(status, sort, window),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<BadDebtProposalListResponse>('/bad-debt-proposals/', {
+        params: { status, page: pageParam, page_size: pageSize, ...window, ...sort },
+      })
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

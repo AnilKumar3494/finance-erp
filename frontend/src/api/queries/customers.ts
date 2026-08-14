@@ -1,6 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
+import { nextPageParam } from '@/lib/infinitePage'
 
 // --------------------------------------------------
 // Types — mirror backend/app/schemas/customer.py
@@ -118,10 +125,15 @@ export interface CustomerListParams {
 // Query keys
 // --------------------------------------------------
 
+export type CustomerInfiniteParams = Omit<CustomerListParams, 'page'>
+
 export const customerKeys = {
   all: ['customers'] as const,
   lists: () => [...customerKeys.all, 'list'] as const,
   list: (params: CustomerListParams) => [...customerKeys.lists(), params] as const,
+  infiniteLists: () => [...customerKeys.all, 'infiniteList'] as const,
+  infiniteList: (params: CustomerInfiniteParams) =>
+    [...customerKeys.infiniteLists(), params] as const,
   details: () => [...customerKeys.all, 'detail'] as const,
   detail: (id: string) => [...customerKeys.details(), id] as const,
   unmask: (id: string) => [...customerKeys.detail(id), 'unmask'] as const,
@@ -142,6 +154,26 @@ export function useCustomers(params: CustomerListParams, enabled = true) {
     },
     enabled,
     placeholderData: (prev) => prev,
+  })
+}
+
+// Infinite (scroll) variant of the customers list. The page cursor is owned by
+// the query; the filter/sort params are the cache key, so changing any of them
+// restarts at page 1 with `keepPreviousData` holding the old rows on screen.
+export function useInfiniteCustomers(params: CustomerInfiniteParams, enabled = true) {
+  const pageSize = params.page_size ?? 50
+  return useInfiniteQuery({
+    queryKey: customerKeys.infiniteList({ ...params, page_size: pageSize }),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<CustomerListResponse>('/customers/', {
+        params: { ...params, page_size: pageSize, page: pageParam },
+      })
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 

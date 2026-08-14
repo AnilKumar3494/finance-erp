@@ -13,10 +13,16 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import AddIcon from '@mui/icons-material/Add'
 
-import { useUsers, type UserAccount } from '@/api/queries/users'
+import { useInfiniteUsers, useUsers, type UserAccount } from '@/api/queries/users'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Input, Spinner } from '@/components/primitives'
-import { PagerBar } from '@/components/PagerBar'
+import {
+  LIST_MAX_HEIGHT,
+  LIST_MIN_HEIGHT,
+  stickyHeaderCellSx,
+  useInfiniteRows,
+} from '@/components/infinite/listScroll'
+import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
 import type { UserRole } from '@/schemas/enums'
 import { USER_ROLE_META, USER_ROLE_ORDER } from '../userRoleMeta'
 import { RoleChip } from '../components/RoleChip'
@@ -27,7 +33,7 @@ import { ResetPasswordDialog } from '../components/ResetPasswordDialog'
 
 const routeApi = getRouteApi('/_authed/team')
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 function mapListError(error: unknown): string {
@@ -72,7 +78,7 @@ export function TeamPage() {
     currentUserId: user?.id,
   }
 
-  const { page, search: searchTerm, role } = routeApi.useSearch()
+  const { search: searchTerm, role } = routeApi.useSearch()
   const navigate = routeApi.useNavigate()
 
   const [draft, setDraft] = useState(() => searchTerm ?? '')
@@ -87,7 +93,7 @@ export function TeamPage() {
     const t = setTimeout(() => {
       const next = draft.trim() || undefined
       lastWrittenSearch.current = next
-      navigate({ search: (prev) => ({ ...prev, page: 1, search: next }), replace: true })
+      navigate({ search: (prev) => ({ ...prev, search: next }), replace: true })
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
   }, [draft, navigate])
@@ -105,33 +111,25 @@ export function TeamPage() {
   const [roleTarget, setRoleTarget] = useState<UserAccount | null>(null)
   const [resetTarget, setResetTarget] = useState<UserAccount | null>(null)
 
-  const query = useUsers({ page, page_size: PAGE_SIZE, search: searchTerm, role })
+  const query = useInfiniteUsers({ page_size: PAGE_SIZE, search: searchTerm, role })
 
   // Super admins are hidden from the roster (they can't be managed here). We
   // filter them out of the rows, and subtract their count from the paginated
-  // total so the "X members" count + page count stay accurate. The count query
-  // is tiny (page_size 1, we only read `total`) and cached. Skipped while a
-  // role filter is active, since EMPLOYEE/ADMIN results never include them.
+  // total so the "X members" count stays accurate. The count query is tiny
+  // (page_size 1, we only read `total`) and cached. Skipped while a role filter
+  // is active, since EMPLOYEE/ADMIN results never include them.
   const saCountQuery = useUsers({ role: 'SUPER_ADMIN', page: 1, page_size: 1 })
   const hiddenCount = role ? 0 : saCountQuery.data?.total ?? 0
 
-  const total = Math.max(0, (query.data?.total ?? 0) - hiddenCount)
-  const totalPages = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1
-  const rows = (query.data?.results ?? []).filter((u) => u.role !== 'SUPER_ADMIN')
+  const total = Math.max(0, (query.data?.pages[0]?.total ?? 0) - hiddenCount)
+  const rows = (query.data?.pages.flatMap((p) => p.results) ?? []).filter(
+    (u) => u.role !== 'SUPER_ADMIN',
+  )
 
-  const pager = (edge: 'top' | 'bottom') =>
-    total > 0 ? (
-      <PagerBar
-        edge={edge}
-        page={page}
-        totalPages={totalPages}
-        label={`${total} ${total === 1 ? 'member' : 'members'}`}
-        onPage={(next) => navigate({ search: (prev) => ({ ...prev, page: next }) })}
-      />
-    ) : null
+  const resetKey = JSON.stringify([searchTerm, role])
 
   const setRole = (next: UserRole | undefined) =>
-    navigate({ search: (prev) => ({ ...prev, page: 1, role: next }) })
+    navigate({ search: (prev) => ({ ...prev, role: next }) })
 
   if (!isAdmin) {
     return (
@@ -147,6 +145,18 @@ export function TeamPage() {
         </Card>
       </Box>
     )
+  }
+
+  const tableProps: TableProps = {
+    rows,
+    perms,
+    onChangeRole: setRoleTarget,
+    onRemove: setRemoveTarget,
+    onResetPassword: setResetTarget,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+    resetKey,
   }
 
   return (
@@ -226,22 +236,9 @@ export function TeamPage() {
         <EmptyState filtered={!!searchTerm || !!role} onCreate={() => setCreateOpen(true)} />
       ) : (
         <>
-          {pager('top')}
-          <DesktopTable
-            rows={rows}
-            perms={perms}
-            onChangeRole={setRoleTarget}
-            onRemove={setRemoveTarget}
-            onResetPassword={setResetTarget}
-          />
-          <MobileCards
-            rows={rows}
-            perms={perms}
-            onChangeRole={setRoleTarget}
-            onRemove={setRemoveTarget}
-            onResetPassword={setResetTarget}
-          />
-          {pager('bottom')}
+          <CountBar loaded={rows.length} total={total} noun="member" nounPlural="members" />
+          <DesktopTable {...tableProps} />
+          <MobileCards {...tableProps} />
         </>
       )}
 
@@ -263,12 +260,16 @@ export function TeamPage() {
   )
 }
 
-interface RowActionsProps {
+interface TableProps {
   rows: UserAccount[]
   perms: Perms
   onChangeRole: (u: UserAccount) => void
   onRemove: (u: UserAccount) => void
   onResetPassword: (u: UserAccount) => void
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  fetchNextPage: () => void
+  resetKey: string
 }
 
 function RowActions({
@@ -316,95 +317,186 @@ function RowActions({
 }
 
 // --------------------------------------------------
-// Desktop table — md and up
+// Desktop table — md and up (virtualized + infinite)
 // --------------------------------------------------
 
-function DesktopTable({ rows, perms, onChangeRole, onRemove, onResetPassword }: RowActionsProps) {
+function DesktopTable({
+  rows,
+  perms,
+  onChangeRole,
+  onRemove,
+  onResetPassword,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: TableProps) {
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 57,
+    overscan: 12,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={5} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
+
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small">
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
+          <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Username</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Email</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Role</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 600 }}>
+                <TableCell sx={stickyHeaderCellSx}>Name</TableCell>
+                <TableCell sx={stickyHeaderCellSx}>Username</TableCell>
+                <TableCell sx={stickyHeaderCellSx}>Email</TableCell>
+                <TableCell sx={stickyHeaderCellSx}>Role</TableCell>
+                <TableCell align="right" sx={stickyHeaderCellSx}>
                   Actions
                 </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>
-                    {u.full_name?.trim() || (
-                      <Typography component="span" variant="body2" color="text.secondary">
-                        —
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{u.username}</TableCell>
-                  <TableCell>{u.email}</TableCell>
-                  <TableCell>
-                    <RoleChip role={u.role} />
-                  </TableCell>
-                  <TableCell align="right">
-                    <RowActions
-                      user={u}
-                      perms={perms}
-                      onChangeRole={onChangeRole}
-                      onRemove={onRemove}
-                      onResetPassword={onResetPassword}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const u = rows[vr.index]!
+                return (
+                  <TableRow key={vr.key} data-index={vr.index} ref={virtualizer.measureElement}>
+                    <TableCell>
+                      {u.full_name?.trim() || (
+                        <Typography component="span" variant="body2" color="text.secondary">
+                          —
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{u.username}</TableCell>
+                    <TableCell>{u.email}</TableCell>
+                    <TableCell>
+                      <RoleChip role={u.role} />
+                    </TableCell>
+                    <TableCell align="right">
+                      <RowActions
+                        user={u}
+                        perms={perms}
+                        onChangeRole={onChangeRole}
+                        onRemove={onRemove}
+                        onResetPassword={onResetPassword}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
             </TableBody>
           </Table>
         </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
       </Card>
     </Box>
   )
 }
 
 // --------------------------------------------------
-// Mobile cards — below md
+// Mobile cards — below md (virtualized + infinite)
 // --------------------------------------------------
 
-function MobileCards({ rows, perms, onChangeRole, onRemove, onResetPassword }: RowActionsProps) {
+function MobileCards({
+  rows,
+  perms,
+  onChangeRole,
+  onRemove,
+  onResetPassword,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: TableProps) {
+  const { scrollRef, virtualizer, virtualRows, totalSize } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 150,
+    overscan: 8,
+    getItemKey: (i) => rows[i]!.id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+
   return (
-    <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
-      {rows.map((u) => (
-        <Card key={u.id} sx={{ p: 2 }}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="h3" sx={{ fontSize: 15, fontWeight: 600 }}>
-              {u.full_name?.trim() || u.username}
-            </Typography>
-            <RoleChip role={u.role} />
-          </Stack>
-          <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'var(--font-mono)' }}>
-            {u.username}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, wordBreak: 'break-all' }}>
-            {u.email}
-          </Typography>
-          {(canChangeRole(u, perms) || canRemove(u, perms) || canResetPassword(u, perms)) && (
-            <Box sx={{ mt: 1.5 }}>
-              <RowActions
-                user={u}
-                perms={perms}
-                onChangeRole={onChangeRole}
-                onRemove={onRemove}
-                onResetPassword={onResetPassword}
-              />
-            </Box>
-          )}
-        </Card>
-      ))}
-    </Stack>
+    <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+      <Box
+        ref={scrollRef}
+        sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+      >
+        <Box sx={{ height: totalSize, position: 'relative' }}>
+          {virtualRows.map((vr) => {
+            const u = rows[vr.index]!
+            return (
+              <Box
+                key={vr.key}
+                data-index={vr.index}
+                ref={virtualizer.measureElement}
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${vr.start}px)`,
+                  pb: 1.5,
+                }}
+              >
+                <Card sx={{ p: 2 }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Typography variant="h3" sx={{ fontSize: 15, fontWeight: 600 }}>
+                      {u.full_name?.trim() || u.username}
+                    </Typography>
+                    <RoleChip role={u.role} />
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'var(--font-mono)' }}>
+                    {u.username}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, wordBreak: 'break-all' }}>
+                    {u.email}
+                  </Typography>
+                  {(canChangeRole(u, perms) || canRemove(u, perms) || canResetPassword(u, perms)) && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <RowActions
+                        user={u}
+                        perms={perms}
+                        onChangeRole={onChangeRole}
+                        onRemove={onRemove}
+                        onResetPassword={onResetPassword}
+                      />
+                    </Box>
+                  )}
+                </Card>
+              </Box>
+            )
+          })}
+        </Box>
+      </Box>
+      <LoadMoreFooter
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        count={rows.length}
+      />
+    </Box>
   )
 }
 
