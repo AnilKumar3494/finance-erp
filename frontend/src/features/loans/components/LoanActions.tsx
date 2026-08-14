@@ -109,12 +109,16 @@ export function LoanActions({
 // Approve (DRAFT -> ACTIVE)
 // --------------------------------------------------
 
-function ApproveAction({
+export function ApproveAction({
   loan,
   onGuide,
+  compact = false,
 }: {
   loan: LoanResponse
   onGuide?: (key: ApprovalSectionKey) => void
+  // Card variant (approval queue): drop the descriptive paragraph and render a
+  // small, block button. The gaps checklist + confirm dialog are unchanged.
+  compact?: boolean
 }) {
   const approve = useApproveLoan(loan.id)
   const customerQuery = useCustomer(loan.customer_id)
@@ -202,22 +206,38 @@ function ApproveAction({
     )
   }
 
+  const gapCount = gaps.reduce((n, g) => n + g.missing.length, 0)
+
   return (
     <Box>
-      <Stack spacing={0.5} sx={{ mb: 1.5 }}>
-        <Typography variant="body2" color="text.secondary">
-          Approving generates the repayment schedule and records the down payment.
-          This is logged in the audit trail.
-        </Typography>
-        {!checking && gaps.length > 0 && (
-          <Typography variant="body2" sx={{ color: 'warning.main' }}>
-            {gaps.reduce((n, g) => n + g.missing.length, 0)} required detail
-            {gaps.reduce((n, g) => n + g.missing.length, 0) === 1 ? '' : 's'} still needed before
-            approval.
+      {!compact && (
+        <Stack spacing={0.5} sx={{ mb: 1.5 }}>
+          <Typography variant="body2" color="text.secondary">
+            Approving generates the repayment schedule and records the down payment.
+            This is logged in the audit trail.
           </Typography>
-        )}
-      </Stack>
-      <Btn variant="success" onClick={handleApprove} loading={checking}>
+          {!checking && gaps.length > 0 && (
+            <Typography variant="body2" sx={{ color: 'warning.main' }}>
+              {gapCount} required detail{gapCount === 1 ? '' : 's'} still needed before approval.
+            </Typography>
+          )}
+        </Stack>
+      )}
+      {compact && !checking && gaps.length > 0 && (
+        <Typography
+          variant="caption"
+          sx={{ display: 'block', mb: 0.75, color: 'warning.main', fontWeight: 500 }}
+        >
+          {gapCount} detail{gapCount === 1 ? '' : 's'} needed before approval
+        </Typography>
+      )}
+      <Btn
+        variant="success"
+        size={compact ? 'sm' : 'md'}
+        onClick={handleApprove}
+        loading={checking}
+        sx={compact ? { width: '100%' } : undefined}
+      >
         Approve loan
       </Btn>
 
