@@ -37,6 +37,7 @@ import dayjs from 'dayjs'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
+import { ApprovalQueue } from '../components/ApprovalQueue'
 import { EmiDueChip } from '../components/EmiDueChip'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
@@ -369,23 +370,37 @@ export function LoansListPage() {
       ) : (
         <>
           <CountBar loaded={rows.length} total={total} noun="finance" nounPlural="finances" />
-          <DesktopTable
-            rows={rows}
-            sort_by={sort_by}
-            sort_order={sort_order}
-            onSortChange={setSort}
-            hasNextPage={query.hasNextPage}
-            isFetchingNextPage={query.isFetchingNextPage}
-            fetchNextPage={query.fetchNextPage}
-            resetKey={resetKey}
-          />
-          <MobileCards
-            rows={rows}
-            hasNextPage={query.hasNextPage}
-            isFetchingNextPage={query.isFetchingNextPage}
-            fetchNextPage={query.fetchNextPage}
-            resetKey={resetKey}
-          />
+          {pending_approval ? (
+            // Awaiting approval: glanceable cards with the Approve action on each,
+            // in place of the table (every row here is a DRAFT, so the status
+            // column carried no signal).
+            <ApprovalQueue
+              rows={rows}
+              hasNextPage={query.hasNextPage}
+              isFetchingNextPage={query.isFetchingNextPage}
+              fetchNextPage={query.fetchNextPage}
+            />
+          ) : (
+            <>
+              <DesktopTable
+                rows={rows}
+                sort_by={sort_by}
+                sort_order={sort_order}
+                onSortChange={setSort}
+                hasNextPage={query.hasNextPage}
+                isFetchingNextPage={query.isFetchingNextPage}
+                fetchNextPage={query.fetchNextPage}
+                resetKey={resetKey}
+              />
+              <MobileCards
+                rows={rows}
+                hasNextPage={query.hasNextPage}
+                isFetchingNextPage={query.isFetchingNextPage}
+                fetchNextPage={query.fetchNextPage}
+                resetKey={resetKey}
+              />
+            </>
+          )}
         </>
       )}
     </Box>
