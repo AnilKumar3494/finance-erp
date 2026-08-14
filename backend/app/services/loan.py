@@ -263,6 +263,12 @@ def list_loans(
             Loan.interest_rate.isnot(None),
             Loan.tenure.isnot(None),
             Loan.first_emi_date.isnot(None),
+            # approve_loan hard-rejects a loan with no HP number, so a draft
+            # missing one is not actually actionable. isnot(None) plus the
+            # empty-string guard mirror `if not loan.hp_number` and cover any
+            # legacy rows that stored '' before the schema normalized ''->None.
+            Loan.hp_number.isnot(None),
+            Loan.hp_number != "",
         )
 
     if created_after is not None:

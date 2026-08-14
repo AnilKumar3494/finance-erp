@@ -43,6 +43,9 @@ export function computeApprovalGaps(
   if (loan.principal == null) finance.push({ field: 'principal', label: 'Principal' })
   if (loan.interest_rate == null) finance.push({ field: 'interest_rate', label: 'Interest rate' })
   if (loan.tenure == null) finance.push({ field: 'tenure', label: 'Tenure' })
+  // The server refuses to approve a loan without an HP number, so surface it in
+  // the checklist rather than letting it fail only at the confirm step.
+  if (!loan.hp_number) finance.push({ field: 'hp_number', label: 'HP number' })
   if (finance.length) gaps.push({ key: 'finance', title: 'Finance terms', missing: finance })
 
   if (customer) {

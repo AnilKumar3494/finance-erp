@@ -41,6 +41,13 @@ export function StatementPreviewDialog({
           ref={iframeRef}
           title="Customer statement preview"
           srcDoc={html}
+          // Neutralize any script that slips past the statement builder's
+          // escaping: no allow-scripts means injected <script> never runs.
+          // allow-same-origin keeps the frame reachable so the parent's
+          // handlePrint can call contentWindow.print(); allow-modals lets that
+          // print dialog open. (allow-modals alone would make the frame a
+          // cross-origin opaque origin and break the print call.)
+          sandbox="allow-same-origin allow-modals"
           // Statements are printed on white paper — pin a white backdrop so the
           // preview matches the printout regardless of the app theme.
           sx={{ width: '100%', height: '72vh', border: 0, display: 'block', bgcolor: '#fff' }}
