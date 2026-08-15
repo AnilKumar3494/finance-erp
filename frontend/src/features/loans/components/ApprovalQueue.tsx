@@ -86,6 +86,10 @@ function ApprovalCard({ loan }: { loan: LoanResponse }) {
         </Typography>
       </Stack>
 
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+        Created {loan.created_at ? fmtDate(loan.created_at) : '—'}
+      </Typography>
+
       <Typography variant="body1" sx={{ mt: 1, fontWeight: 600 }}>
         {loan.customer?.full_name ?? '—'}
       </Typography>

@@ -99,6 +99,111 @@ export interface ProposalWindow {
   proposed_before?: string
 }
 
+// --------------------------------------------------
+// Bad-debt candidates — ACTIVE loans past the penalty cap, not yet proposed.
+// Mirrors backend/app/schemas/bad_debt_proposal.py BadDebtCandidateItem. Money
+// fields are strings. One row per loan, keyed to its worst cap-crossed cycle.
+// --------------------------------------------------
+
+export interface BadDebtCandidateItem {
+  loan_id: string
+  loan_number: string
+  hp_number: string | null
+  principal: string
+  customer_id: string
+  customer_name: string
+  customer_mobile: string
+  mandal_village: string | null
+  worst_cycle_number: number
+  worst_due_date: string
+  days_overdue: number
+  cap_cycles: number
+  shortfall: string
+}
+
+export interface BadDebtCandidateListResponse {
+  total: number
+  page: number
+  page_size: number
+  results: BadDebtCandidateItem[]
+}
+
+export type BadDebtCandidateSortField =
+  | 'days_overdue'
+  | 'shortfall'
+  | 'principal'
+  | 'customer_name'
+  | 'loan'
+
+export interface BadDebtCandidateSort {
+  sort_by?: BadDebtCandidateSortField
+  sort_order?: 'asc' | 'desc'
+}
+
+export interface BadDebtCandidateParams {
+  assigned_employee_id?: string
+  search?: string
+  sort?: BadDebtCandidateSort
+  pageSize?: number
+}
+
+const candidateKeys = {
+  count: (assignedTo?: string) =>
+    [...badDebtKeys.all, 'candidatesCount', assignedTo ?? null] as const,
+  infinite: (params: BadDebtCandidateParams) =>
+    [
+      ...badDebtKeys.all,
+      'candidatesInfinite',
+      params.assigned_employee_id ?? null,
+      params.search ?? null,
+      params.sort?.sort_by ?? null,
+      params.sort?.sort_order ?? null,
+    ] as const,
+}
+
+// Lightweight count for the Candidates subtab badge (page 1, total only).
+export function useBadDebtCandidatesCount(assignedTo: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: candidateKeys.count(assignedTo),
+    queryFn: async () => {
+      const { data } = await apiClient.get<BadDebtCandidateListResponse>(
+        '/bad-debt-proposals/candidates',
+        { params: { page: 1, page_size: 1, assigned_employee_id: assignedTo } },
+      )
+      return data.total
+    },
+    enabled,
+    placeholderData: (prev) => prev,
+  })
+}
+
+// Infinite (scroll) candidate list for the Bad debt → Candidates subtab.
+export function useInfiniteBadDebtCandidates(params: BadDebtCandidateParams, enabled = true) {
+  const pageSize = params.pageSize ?? 50
+  return useInfiniteQuery({
+    queryKey: candidateKeys.infinite(params),
+    queryFn: async ({ pageParam }) => {
+      const { data } = await apiClient.get<BadDebtCandidateListResponse>(
+        '/bad-debt-proposals/candidates',
+        {
+          params: {
+            page: pageParam,
+            page_size: pageSize,
+            assigned_employee_id: params.assigned_employee_id,
+            search: params.search,
+            ...params.sort,
+          },
+        },
+      )
+      return data
+    },
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    enabled,
+    placeholderData: keepPreviousData,
+  })
+}
+
 // Cross-loan bad-debt review queue (Collections → Bad debt lens, admin-only).
 // Defaults to PROPOSED — the proposals awaiting an admin's approve/reject.
 export function useBadDebtProposals(

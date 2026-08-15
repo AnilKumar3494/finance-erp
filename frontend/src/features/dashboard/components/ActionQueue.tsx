@@ -46,7 +46,7 @@ export function ActionQueue({ isAdmin }: { isAdmin: boolean }) {
       count: due.data?.total ?? 0,
       icon: PaymentsOutlined,
       tone: 'error.main',
-      go: () => navigate({ to: '/transactions', search: { view: 'due', page: 1 } }),
+      go: () => navigate({ to: '/transactions', search: { view: 'overdue', page: 1 } }),
     },
     {
       key: 'confirm',

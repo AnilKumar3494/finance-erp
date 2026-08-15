@@ -25,7 +25,7 @@ export const Route = createFileRoute('/_authed/transactions')({
     const view =
       typeof raw.view === 'string' && (WORKLIST_VIEWS as readonly string[]).includes(raw.view)
         ? (raw.view as WorklistView)
-        : 'due'
+        : 'overdue'
     const search = typeof raw.search === 'string' && raw.search.length > 0 ? raw.search : undefined
     const assigned_to =
       typeof raw.assigned_to === 'string' && raw.assigned_to.length > 0

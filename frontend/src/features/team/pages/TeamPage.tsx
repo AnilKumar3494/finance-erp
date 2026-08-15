@@ -23,6 +23,7 @@ import {
   useInfiniteRows,
 } from '@/components/infinite/listScroll'
 import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
+import { TopScrollbar } from '@/components/infinite/TopScrollbar'
 import type { UserRole } from '@/schemas/enums'
 import { USER_ROLE_META, USER_ROLE_ORDER } from '../userRoleMeta'
 import { RoleChip } from '../components/RoleChip'
@@ -352,6 +353,7 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TopScrollbar targetRef={scrollRef} />
         <TableContainer
           ref={scrollRef}
           sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}

@@ -33,8 +33,12 @@ import {
 import { useInfiniteLoans, type LoanResponse } from '@/api/queries/loans'
 import { serverMessage } from '@/api/errors'
 import {
+  useBadDebtCandidatesCount,
   useBadDebtProposals,
+  useInfiniteBadDebtCandidates,
   useInfiniteBadDebtProposals,
+  type BadDebtCandidateItem,
+  type BadDebtCandidateSortField,
   type BadDebtProposalListItem,
   type BadDebtSortField,
 } from '@/api/queries/badDebt'
@@ -51,6 +55,7 @@ import {
   useInfiniteRows,
 } from '@/components/infinite/listScroll'
 import { CountBar, LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
+import { TopScrollbar } from '@/components/infinite/TopScrollbar'
 import { InfiniteCardList } from '@/components/infinite/InfiniteCardList'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
@@ -61,6 +66,7 @@ import { KPI_GRID_SX, KpiCard } from '@/features/reports/components/KpiCard'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
 import { RecordPaymentDialog } from '@/features/loans/components/RecordPaymentDialog'
 import { BadDebtReviewDialog, type BadDebtDecision } from '../components/BadDebtReviewDialog'
+import { ProposeCandidateDialog } from '../components/ProposeCandidateDialog'
 import {
   WORKLIST_VIEWS,
   WORKLIST_VIEW_LABELS,
@@ -159,13 +165,43 @@ const BADDEBT_SORT_OPTIONS: readonly SortOption<BadDebtSortField>[] = [
   { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
 ]
 
-// Bad-debt sub-lenses. The first two read the proposals queue; WRITTEN_OFF
-// reads the loans list, because a loan can be in BAD_DEBT with no proposal row.
-type BadDebtTab = BadDebtProposalStatus | 'WRITTEN_OFF'
+// Bad-debt sub-lenses. PROPOSED/APPROVED read the proposals queue; WRITTEN_OFF
+// reads the loans list (a loan can be in BAD_DEBT with no proposal row);
+// CANDIDATES reads the cap-crossed candidate list (loans not yet proposed).
+type BadDebtTab = BadDebtProposalStatus | 'WRITTEN_OFF' | 'CANDIDATES'
+
+const CANDIDATE_SORT_OPTIONS: readonly SortOption<BadDebtCandidateSortField>[] = [
+  {
+    value: 'days_overdue:desc',
+    label: 'Days overdue (high → low)',
+    sort_by: 'days_overdue',
+    sort_order: 'desc',
+  },
+  {
+    value: 'shortfall:desc',
+    label: 'Shortfall (high → low)',
+    sort_by: 'shortfall',
+    sort_order: 'desc',
+  },
+  {
+    value: 'principal:desc',
+    label: 'Principal (high → low)',
+    sort_by: 'principal',
+    sort_order: 'desc',
+  },
+  {
+    value: 'customer_name:asc',
+    label: 'Customer (A → Z)',
+    sort_by: 'customer_name',
+    sort_order: 'asc',
+  },
+  { value: 'loan:asc', label: 'Loan (A → Z)', sort_by: 'loan', sort_order: 'asc' },
+]
 
 // What the shared date window actually filters on, per lens — used to label the
 // pickers so "From / To" is never ambiguous.
 const DATE_FILTER_NOUN: Record<WorklistView, string> = {
+  overdue: 'Due',
   due: 'Due',
   upcoming: 'Due',
   all: 'Due',
@@ -222,7 +258,7 @@ export function CollectionsWorklistPage() {
   // admin-gated proposals endpoint for them.
   useEffect(() => {
     if (isBadDebt && user && !isAdmin) {
-      navigate({ search: (prev) => ({ ...prev, view: 'due' }), replace: true })
+      navigate({ search: (prev) => ({ ...prev, view: 'overdue' }), replace: true })
     }
   }, [isBadDebt, isAdmin, user, navigate])
 
@@ -267,6 +303,10 @@ export function CollectionsWorklistPage() {
     sort_by: 'proposed_at',
     sort_order: 'desc',
   })
+  const [candidateSort, setCandidateSort] = useState<SortState<BadDebtCandidateSortField>>({
+    sort_by: 'days_overdue',
+    sort_order: 'desc',
+  })
   // Sort lives in local state and is part of each infinite query's key, so
   // changing it restarts the list at page 1; the tables scroll back to the top
   // via their resetKey. No page URL to reset anymore.
@@ -276,6 +316,8 @@ export function CollectionsWorklistPage() {
     setPendingSort((s) => toggleSort(s, f, d))
   const onBadDebtSort = (f: BadDebtSortField, d: SortOrder) =>
     setBadDebtSort((s) => toggleSort(s, f, d))
+  const onCandidateSort = (f: BadDebtCandidateSortField, d: SortOrder) =>
+    setCandidateSort((s) => toggleSort(s, f, d))
 
   // The date window the user picked, as dayjs for the pickers and ISO for the
   // API. One window is shared by every lens; which date it filters on differs
@@ -350,14 +392,32 @@ export function CollectionsWorklistPage() {
   // reset to page 1 on toggle.
   const [badDebtTab, setBadDebtTab] = useState<BadDebtTab>('PROPOSED')
   const isWrittenOff = isBadDebt && badDebtTab === 'WRITTEN_OFF'
+  const isCandidates = isBadDebt && badDebtTab === 'CANDIDATES'
+  // Candidate count powers the Candidates subtab badge for any admin on the
+  // Bad debt lens (lightweight page-1 total). Ignores the date window —
+  // candidates have no proposal date.
+  const candidateCountQuery = useBadDebtCandidatesCount(assigned_to, isAdmin && isBadDebt)
+  const candidateCount = candidateCountQuery.data ?? 0
   const badDebtQuery = useInfiniteBadDebtProposals(
     {
-      status: badDebtTab === 'WRITTEN_OFF' ? 'APPROVED' : badDebtTab,
+      // CANDIDATES/WRITTEN_OFF aren't proposal statuses; the query is disabled
+      // for them, so any valid status placeholder is fine here.
+      status: badDebtTab === 'PROPOSED' || badDebtTab === 'APPROVED' ? badDebtTab : 'APPROVED',
       pageSize: PAGE_SIZE,
       sort: badDebtSort,
       window: { proposed_after: date_from, proposed_before: date_to },
     },
-    isAdmin && isBadDebt && rangeOk && !isWrittenOff,
+    isAdmin && isBadDebt && rangeOk && !isWrittenOff && !isCandidates,
+  )
+  // Cap-crossed candidates — ACTIVE loans an admin could Propose. Its own list
+  // + sort; no date window (a candidate has no proposal date yet).
+  const candidatesQuery = useInfiniteBadDebtCandidates(
+    {
+      assigned_employee_id: assigned_to,
+      sort: candidateSort,
+      pageSize: PAGE_SIZE,
+    },
+    isAdmin && isCandidates,
   )
   // Written-off loans are loans, not proposals — a loan can reach BAD_DEBT
   // without ever having a proposal row (the legacy import did exactly that), so
@@ -390,30 +450,36 @@ export function CollectionsWorklistPage() {
     proposal: BadDebtProposalListItem
     decision: BadDebtDecision
   } | null>(null)
+  const [proposeCandidate, setProposeCandidate] = useState<BadDebtCandidateItem | null>(null)
 
   // Flattened rows per lens (only one is visible at a time).
   const cycleRows = cycleQuery.data?.pages.flatMap((p) => p.results) ?? []
   const pendingRows = pendingQuery.data?.pages.flatMap((p) => p.results) ?? []
   const badDebtRows = badDebtQuery.data?.pages.flatMap((p) => p.results) ?? []
   const writtenOffRows = writtenOffQuery.data?.pages.flatMap((p) => p.results) ?? []
+  const candidateRows = candidatesQuery.data?.pages.flatMap((p) => p.results) ?? []
 
-  const activeQuery = isWrittenOff
-    ? writtenOffQuery
-    : isBadDebt
-      ? badDebtQuery
-      : isConfirmations
-        ? pendingQuery
-        : cycleQuery
+  const activeQuery = isCandidates
+    ? candidatesQuery
+    : isWrittenOff
+      ? writtenOffQuery
+      : isBadDebt
+        ? badDebtQuery
+        : isConfirmations
+          ? pendingQuery
+          : cycleQuery
   const total = activeQuery.data?.pages[0]?.total ?? 0
-  const [countNoun, countNounPlural] = isWrittenOff
-    ? ['loan written off', 'loans written off']
-    : isBadDebt
-      ? badDebtTab === 'APPROVED'
-        ? ['approved proposal', 'approved proposals']
-        : ['proposal to review', 'proposals to review']
-      : isConfirmations
-        ? ['payment to confirm', 'payments to confirm']
-        : ['cycle due', 'cycles due']
+  const [countNoun, countNounPlural] = isCandidates
+    ? ['candidate', 'candidates']
+    : isWrittenOff
+      ? ['loan written off', 'loans written off']
+      : isBadDebt
+        ? badDebtTab === 'APPROVED'
+          ? ['approved proposal', 'approved proposals']
+          : ['proposal to review', 'proposals to review']
+        : isConfirmations
+          ? ['payment to confirm', 'payments to confirm']
+          : ['cycle due', 'cycles due']
 
   // Per-lens reset key — changes when the active query's filters/sort change so
   // the scroll views jump back to the top.
@@ -441,6 +507,11 @@ export function CollectionsWorklistPage() {
     badDebtSort.sort_order,
   ])
   const writtenOffResetKey = JSON.stringify([assigned_to])
+  const candidateResetKey = JSON.stringify([
+    assigned_to,
+    candidateSort.sort_by,
+    candidateSort.sort_order,
+  ])
 
   const setView = (next: WorklistView) =>
     navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
@@ -528,8 +599,9 @@ export function CollectionsWorklistPage() {
           which one — and only the cycle views allow future dates, since EMIs
           are scheduled ahead while payments and proposals are always past.
           Hidden on Written off: nothing records when a loan was written off, so
-          there is no date to filter on (see the closure-history gap). */}
-      {!isWrittenOff && (
+          there is no date to filter on (see the closure-history gap). Hidden on
+          Candidates too — a candidate has no proposal date yet. */}
+      {!isWrittenOff && !isCandidates && (
         <Box sx={{ mb: 2 }}>
           <DateRangeFilter
             idPrefix="worklist"
@@ -556,7 +628,15 @@ export function CollectionsWorklistPage() {
 
       {/* Written off has no server-side sort of its own, so no sort control. */}
       <Box sx={{ display: { xs: isWrittenOff ? 'none' : 'block', md: 'none' }, mb: 2 }}>
-        {isBadDebt ? (
+        {isCandidates ? (
+          <SortSelect
+            options={CANDIDATE_SORT_OPTIONS}
+            sort_by={candidateSort.sort_by}
+            sort_order={candidateSort.sort_order}
+            onChange={setCandidateSort}
+            sx={{ width: '100%' }}
+          />
+        ) : isBadDebt ? (
           <SortSelect
             options={BADDEBT_SORT_OPTIONS}
             sort_by={badDebtSort.sort_by}
@@ -595,8 +675,44 @@ export function CollectionsWorklistPage() {
         </Box>
       ) : isBadDebt ? (
         <>
-          <BadDebtSubtabs tab={badDebtTab} reviewCount={badDebtCount} onChange={onBadDebtTab} />
-          {isWrittenOff ? (
+          <BadDebtSubtabs
+            tab={badDebtTab}
+            reviewCount={badDebtCount}
+            candidateCount={candidateCount}
+            onChange={onBadDebtTab}
+          />
+          {isCandidates ? (
+            candidateRows.length === 0 ? (
+              <CandidatesEmpty />
+            ) : (
+              <>
+                <CountBar
+                  loaded={candidateRows.length}
+                  total={total}
+                  noun={countNoun}
+                  nounPlural={countNounPlural}
+                />
+                <CandidateDesktop
+                  rows={candidateRows}
+                  onPropose={setProposeCandidate}
+                  sort={candidateSort}
+                  onSort={onCandidateSort}
+                  hasNextPage={candidatesQuery.hasNextPage}
+                  isFetchingNextPage={candidatesQuery.isFetchingNextPage}
+                  fetchNextPage={candidatesQuery.fetchNextPage}
+                  resetKey={candidateResetKey}
+                />
+                <CandidateMobile
+                  rows={candidateRows}
+                  onPropose={setProposeCandidate}
+                  hasNextPage={candidatesQuery.hasNextPage}
+                  isFetchingNextPage={candidatesQuery.isFetchingNextPage}
+                  fetchNextPage={candidatesQuery.fetchNextPage}
+                  resetKey={candidateResetKey}
+                />
+              </>
+            )
+          ) : isWrittenOff ? (
             writtenOffRows.length === 0 ? (
               <WrittenOffEmpty />
             ) : (
@@ -711,6 +827,11 @@ export function CollectionsWorklistPage() {
         decision={review?.decision ?? 'APPROVE'}
         onClose={() => setReview(null)}
       />
+
+      <ProposeCandidateDialog
+        candidate={proposeCandidate}
+        onClose={() => setProposeCandidate(null)}
+      />
     </Box>
   )
 }
@@ -798,6 +919,7 @@ function DesktopTable({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TopScrollbar targetRef={scrollRef} />
         <TableContainer
           ref={scrollRef}
           sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
@@ -1034,9 +1156,11 @@ function CyclesEmpty({ filtered, view }: { filtered: boolean; view: WorklistView
     ? 'No cycles match your filters in this view.'
     : view === 'upcoming'
       ? 'Nothing falls due in the next 7 days. Pick a wider date range to look further ahead.'
-      : view === 'due'
-        ? 'Nothing is due or overdue right now.'
-        : 'No unpaid cycles in this view right now.'
+      : view === 'overdue'
+        ? 'Nothing is overdue right now.'
+        : view === 'due'
+          ? 'Nothing is due today.'
+          : 'No unpaid cycles in this view right now.'
 
   return (
     <Card>
@@ -1095,6 +1219,7 @@ function ConfirmationsDesktop({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TopScrollbar targetRef={scrollRef} />
         <TableContainer
           ref={scrollRef}
           sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
@@ -1395,13 +1520,20 @@ type ReviewHandler = (proposal: BadDebtProposalListItem, decision: BadDebtDecisi
 function BadDebtSubtabs({
   tab,
   reviewCount,
+  candidateCount,
   onChange,
 }: {
   tab: BadDebtTab
   reviewCount: number
+  candidateCount: number
   onChange: (t: BadDebtTab) => void
 }) {
   const tabs: { value: BadDebtTab; label: string }[] = [
+    {
+      value: 'CANDIDATES',
+      label:
+        candidateCount > 0 ? `Suggested Bad Debt (${candidateCount})` : 'Suggested Bad Debt',
+    },
     { value: 'PROPOSED', label: reviewCount > 0 ? `To review (${reviewCount})` : 'To review' },
     { value: 'APPROVED', label: 'Approved' },
     { value: 'WRITTEN_OFF', label: 'Written off' },
@@ -1516,6 +1648,7 @@ function BadDebtDesktop({
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
       <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TopScrollbar targetRef={scrollRef} />
         <TableContainer
           ref={scrollRef}
           sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
@@ -1674,6 +1807,274 @@ function BadDebtMobile({
   )
 }
 
+// --------------------------------------------------
+// Bad-debt candidates — ACTIVE loans past the penalty cap, not yet proposed
+// --------------------------------------------------
+
+function CandidatesEmpty() {
+  return (
+    <Card>
+      <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+        <Typography variant="h3">No suggested bad debt</Typography>
+        <Typography variant="body2" color="text.secondary">
+          No active loans have crossed the penalty cap. Loans already flagged are under To
+          review.
+        </Typography>
+      </Stack>
+    </Card>
+  )
+}
+
+// A small "N cycles past cap" chip — the candidate's core signal.
+function CapCyclesChip({ count }: { count: number }) {
+  return (
+    <Chip
+      size="small"
+      color="warning"
+      variant="outlined"
+      label={`${count} past cap`}
+      sx={{ height: 20 }}
+    />
+  )
+}
+
+function CandidateDesktop({
+  rows,
+  onPropose,
+  sort,
+  onSort,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
+  rows: BadDebtCandidateItem[]
+  onPropose: (row: BadDebtCandidateItem) => void
+  sort: SortState<BadDebtCandidateSortField>
+  onSort: (field: BadDebtCandidateSortField, defaultDir: SortOrder) => void
+}) {
+  const navigate = routeApi.useNavigate()
+  const { scrollRef, virtualizer, virtualRows, paddingTop, paddingBottom } = useInfiniteRows({
+    count: rows.length,
+    estimateSize: 64,
+    overscan: 10,
+    getItemKey: (i) => rows[i]!.loan_id,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    resetKey,
+  })
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <TableRow style={{ height }}>
+        <TableCell colSpan={7} sx={{ p: 0, border: 0 }} />
+      </TableRow>
+    ) : null
+  const open = (r: BadDebtCandidateItem) =>
+    navigate({ to: '/finances/$loanId/collections', params: { loanId: r.loan_id } })
+  return (
+    <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+      <Card sx={{ p: 0, overflow: 'hidden' }}>
+        <TopScrollbar targetRef={scrollRef} />
+        <TableContainer
+          ref={scrollRef}
+          sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
+        >
+          <Table
+            stickyHeader
+            size="small"
+            sx={{
+              minWidth: 900,
+              '& .MuiTableCell-root': { whiteSpace: 'nowrap' },
+              '& thead .MuiTableCell-root': stickyHeaderCellSx,
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                <SortableTh
+                  field="customer_name"
+                  label="Customer"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="loan"
+                  label="Loan"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="asc"
+                  onSort={onSort}
+                />
+                <TableCell sx={{ fontWeight: 600 }}>Past cap</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Oldest due</TableCell>
+                <SortableTh
+                  field="days_overdue"
+                  label="Days overdue"
+                  align="right"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
+                <SortableTh
+                  field="shortfall"
+                  label="Shortfall"
+                  align="right"
+                  activeField={sort.sort_by}
+                  activeOrder={sort.sort_order}
+                  defaultDir="desc"
+                  onSort={onSort}
+                />
+                <TableCell sx={{ fontWeight: 600 }} align="right">
+                  Action
+                </TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {spacer(paddingTop)}
+              {virtualRows.map((vr) => {
+                const r = rows[vr.index]!
+                return (
+                  <TableRow
+                    key={vr.key}
+                    data-index={vr.index}
+                    ref={virtualizer.measureElement}
+                    hover
+                    sx={{ cursor: 'pointer' }}
+                    onClick={() => open(r)}
+                  >
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                        {r.customer_name}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontFamily: 'var(--font-mono)' }}
+                      >
+                        {r.customer_mobile}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'var(--font-mono)' }}>{loanDisplayId(r)}</TableCell>
+                    <TableCell>
+                      <CapCyclesChip count={r.cap_cycles} />
+                    </TableCell>
+                    <TableCell>
+                      {fmtDate(r.worst_due_date)} · #{r.worst_cycle_number}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: 'error.main', fontWeight: 600 }}>
+                      {r.days_overdue}d
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600, color: 'error.main' }}>
+                      {inr(r.shortfall)}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Btn
+                        variant="danger"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onPropose(r)
+                        }}
+                      >
+                        Propose
+                      </Btn>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {spacer(paddingBottom)}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <LoadMoreFooter
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          count={rows.length}
+        />
+      </Card>
+    </Box>
+  )
+}
+
+function CandidateMobile({
+  rows,
+  onPropose,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  resetKey,
+}: InfiniteBits & {
+  rows: BadDebtCandidateItem[]
+  onPropose: (row: BadDebtCandidateItem) => void
+}) {
+  const navigate = routeApi.useNavigate()
+  const open = (r: BadDebtCandidateItem) =>
+    navigate({ to: '/finances/$loanId/collections', params: { loanId: r.loan_id } })
+  return (
+    <InfiniteCardList
+      rows={rows}
+      getKey={(r) => r.loan_id}
+      estimateSize={196}
+      hasNextPage={hasNextPage}
+      isFetchingNextPage={isFetchingNextPage}
+      fetchNextPage={fetchNextPage}
+      resetKey={resetKey}
+      renderItem={(r) => (
+        <Card
+          onClick={() => open(r)}
+          sx={{ p: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }}
+        >
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <Typography variant="body1" sx={{ fontWeight: 600 }}>
+              {r.customer_name}
+            </Typography>
+            <CapCyclesChip count={r.cap_cycles} />
+          </Stack>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'var(--font-mono)' }}
+          >
+            {r.customer_mobile} · {loanDisplayId(r)}
+          </Typography>
+          <Stack
+            direction="row"
+            sx={{ mt: 1, justifyContent: 'space-between', alignItems: 'flex-end' }}
+          >
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Oldest #{r.worst_cycle_number} · due {fmtDate(r.worst_due_date)}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 600 }}>
+                {r.days_overdue}d overdue
+              </Typography>
+            </Box>
+            <Typography variant="body1" sx={{ fontWeight: 700, color: 'error.main' }}>
+              {inr(r.shortfall)}
+            </Typography>
+          </Stack>
+          <Box sx={{ mt: 1.5 }}>
+            <Btn
+              variant="danger"
+              size="sm"
+              fullWidth
+              onClick={(e) => {
+                e.stopPropagation()
+                onPropose(r)
+              }}
+            >
+              Propose bad debt
+            </Btn>
+          </Box>
+        </Card>
+      )}
+    />
+  )
+}
+
 function BadDebtEmpty({ tab }: { tab: BadDebtTab }) {
   const approved = tab === 'APPROVED'
   return (
@@ -1740,6 +2141,7 @@ function WrittenOffTable({
     <>
       <Box sx={{ display: { xs: 'none', md: 'block' } }}>
         <Card sx={{ p: 0, overflow: 'hidden' }}>
+          <TopScrollbar targetRef={scrollRef} />
           <TableContainer
             ref={scrollRef}
             sx={{ maxHeight: LIST_MAX_HEIGHT, minHeight: LIST_MIN_HEIGHT, overflow: 'auto' }}
