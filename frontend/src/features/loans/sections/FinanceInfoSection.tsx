@@ -15,6 +15,7 @@ import { useAuth } from '@/app/auth-context'
 import { Btn, ErrorBanner, FieldLabel, Input } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
+import { HpNumberFamilies } from '@/features/loans/wizard/HpNumberFamilies'
 import { EditableSection } from '../components/EditableSection'
 import { FieldGrid, FieldRow } from '../components/DetailFields'
 import type { SectionPermission } from '../financePermissions'
@@ -344,6 +345,7 @@ function FinanceEditForm({
           {...register('hp_number')}
           error={errors.hp_number?.message}
         />
+        <HpNumberFamilies />
         {canEditSensitive ? (
           <>
             <Input
