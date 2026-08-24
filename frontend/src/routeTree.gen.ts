@@ -9,33 +9,33 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedRouteRouteImport } from './routes/_authed/route'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
-import { Route as AuthedTransactionsRouteImport } from './routes/_authed/transactions'
-import { Route as AuthedTeamRouteImport } from './routes/_authed/team'
-import { Route as AuthedReportsRouteImport } from './routes/_authed/reports'
 import { Route as AuthedIrrSheetRouteImport } from './routes/_authed/irr-sheet'
-import { Route as AuthedVehiclesIndexRouteImport } from './routes/_authed/vehicles/index'
-import { Route as AuthedFinancesIndexRouteImport } from './routes/_authed/finances/index'
+import { Route as AuthedReportsRouteImport } from './routes/_authed/reports'
+import { Route as AuthedTeamRouteImport } from './routes/_authed/team'
+import { Route as AuthedTransactionsRouteImport } from './routes/_authed/transactions'
 import { Route as AuthedCustomersIndexRouteImport } from './routes/_authed/customers/index'
-import { Route as AuthedVehiclesNewRouteImport } from './routes/_authed/vehicles/new'
-import { Route as AuthedFinancesNewRouteImport } from './routes/_authed/finances/new'
 import { Route as AuthedCustomersNewRouteImport } from './routes/_authed/customers/new'
-import { Route as AuthedVehiclesVehicleIdIndexRouteImport } from './routes/_authed/vehicles/$vehicleId/index'
-import { Route as AuthedFinancesLoanIdIndexRouteImport } from './routes/_authed/finances/$loanId/index'
+import { Route as AuthedFinancesIndexRouteImport } from './routes/_authed/finances/index'
+import { Route as AuthedFinancesNewRouteImport } from './routes/_authed/finances/new'
+import { Route as AuthedVehiclesIndexRouteImport } from './routes/_authed/vehicles/index'
+import { Route as AuthedVehiclesNewRouteImport } from './routes/_authed/vehicles/new'
 import { Route as AuthedCustomersCustomerIdIndexRouteImport } from './routes/_authed/customers/$customerId/index'
-import { Route as AuthedFinancesLoanIdEditRouteImport } from './routes/_authed/finances/$loanId/edit'
-import { Route as AuthedFinancesLoanIdCollectionsRouteImport } from './routes/_authed/finances/$loanId/collections'
 import { Route as AuthedCustomersCustomerIdEditRouteImport } from './routes/_authed/customers/$customerId/edit'
+import { Route as AuthedFinancesLoanIdIndexRouteImport } from './routes/_authed/finances/$loanId/index'
+import { Route as AuthedFinancesLoanIdCollectionsRouteImport } from './routes/_authed/finances/$loanId/collections'
+import { Route as AuthedFinancesLoanIdEditRouteImport } from './routes/_authed/finances/$loanId/edit'
+import { Route as AuthedVehiclesVehicleIdIndexRouteImport } from './routes/_authed/vehicles/$vehicleId/index'
 
+const AuthedRouteRoute = AuthedRouteRouteImport.update({
+  id: '/_authed',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthedRouteRoute = AuthedRouteRouteImport.update({
-  id: '/_authed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthedIndexRoute = AuthedIndexRouteImport.update({
@@ -43,14 +43,9 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
-const AuthedTransactionsRoute = AuthedTransactionsRouteImport.update({
-  id: '/transactions',
-  path: '/transactions',
-  getParentRoute: () => AuthedRouteRoute,
-} as any)
-const AuthedTeamRoute = AuthedTeamRouteImport.update({
-  id: '/team',
-  path: '/team',
+const AuthedIrrSheetRoute = AuthedIrrSheetRouteImport.update({
+  id: '/irr-sheet',
+  path: '/irr-sheet',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
 const AuthedReportsRoute = AuthedReportsRouteImport.update({
@@ -58,19 +53,14 @@ const AuthedReportsRoute = AuthedReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
-const AuthedIrrSheetRoute = AuthedIrrSheetRouteImport.update({
-  id: '/irr-sheet',
-  path: '/irr-sheet',
+const AuthedTeamRoute = AuthedTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
-const AuthedVehiclesIndexRoute = AuthedVehiclesIndexRouteImport.update({
-  id: '/vehicles/',
-  path: '/vehicles/',
-  getParentRoute: () => AuthedRouteRoute,
-} as any)
-const AuthedFinancesIndexRoute = AuthedFinancesIndexRouteImport.update({
-  id: '/finances/',
-  path: '/finances/',
+const AuthedTransactionsRoute = AuthedTransactionsRouteImport.update({
+  id: '/transactions',
+  path: '/transactions',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
 const AuthedCustomersIndexRoute = AuthedCustomersIndexRouteImport.update({
@@ -78,9 +68,14 @@ const AuthedCustomersIndexRoute = AuthedCustomersIndexRouteImport.update({
   path: '/customers/',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
-const AuthedVehiclesNewRoute = AuthedVehiclesNewRouteImport.update({
-  id: '/vehicles/new',
-  path: '/vehicles/new',
+const AuthedCustomersNewRoute = AuthedCustomersNewRouteImport.update({
+  id: '/customers/new',
+  path: '/customers/new',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedFinancesIndexRoute = AuthedFinancesIndexRouteImport.update({
+  id: '/finances/',
+  path: '/finances/',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
 const AuthedFinancesNewRoute = AuthedFinancesNewRouteImport.update({
@@ -88,15 +83,26 @@ const AuthedFinancesNewRoute = AuthedFinancesNewRouteImport.update({
   path: '/finances/new',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
-const AuthedCustomersNewRoute = AuthedCustomersNewRouteImport.update({
-  id: '/customers/new',
-  path: '/customers/new',
+const AuthedVehiclesIndexRoute = AuthedVehiclesIndexRouteImport.update({
+  id: '/vehicles/',
+  path: '/vehicles/',
   getParentRoute: () => AuthedRouteRoute,
 } as any)
-const AuthedVehiclesVehicleIdIndexRoute =
-  AuthedVehiclesVehicleIdIndexRouteImport.update({
-    id: '/vehicles/$vehicleId/',
-    path: '/vehicles/$vehicleId/',
+const AuthedVehiclesNewRoute = AuthedVehiclesNewRouteImport.update({
+  id: '/vehicles/new',
+  path: '/vehicles/new',
+  getParentRoute: () => AuthedRouteRoute,
+} as any)
+const AuthedCustomersCustomerIdIndexRoute =
+  AuthedCustomersCustomerIdIndexRouteImport.update({
+    id: '/customers/$customerId/',
+    path: '/customers/$customerId/',
+    getParentRoute: () => AuthedRouteRoute,
+  } as any)
+const AuthedCustomersCustomerIdEditRoute =
+  AuthedCustomersCustomerIdEditRouteImport.update({
+    id: '/customers/$customerId/edit',
+    path: '/customers/$customerId/edit',
     getParentRoute: () => AuthedRouteRoute,
   } as any)
 const AuthedFinancesLoanIdIndexRoute =
@@ -105,10 +111,10 @@ const AuthedFinancesLoanIdIndexRoute =
     path: '/finances/$loanId/',
     getParentRoute: () => AuthedRouteRoute,
   } as any)
-const AuthedCustomersCustomerIdIndexRoute =
-  AuthedCustomersCustomerIdIndexRouteImport.update({
-    id: '/customers/$customerId/',
-    path: '/customers/$customerId/',
+const AuthedFinancesLoanIdCollectionsRoute =
+  AuthedFinancesLoanIdCollectionsRouteImport.update({
+    id: '/finances/$loanId/collections',
+    path: '/finances/$loanId/collections',
     getParentRoute: () => AuthedRouteRoute,
   } as any)
 const AuthedFinancesLoanIdEditRoute =
@@ -117,16 +123,10 @@ const AuthedFinancesLoanIdEditRoute =
     path: '/finances/$loanId/edit',
     getParentRoute: () => AuthedRouteRoute,
   } as any)
-const AuthedFinancesLoanIdCollectionsRoute =
-  AuthedFinancesLoanIdCollectionsRouteImport.update({
-    id: '/finances/$loanId/collections',
-    path: '/finances/$loanId/collections',
-    getParentRoute: () => AuthedRouteRoute,
-  } as any)
-const AuthedCustomersCustomerIdEditRoute =
-  AuthedCustomersCustomerIdEditRouteImport.update({
-    id: '/customers/$customerId/edit',
-    path: '/customers/$customerId/edit',
+const AuthedVehiclesVehicleIdIndexRoute =
+  AuthedVehiclesVehicleIdIndexRouteImport.update({
+    id: '/vehicles/$vehicleId/',
+    path: '/vehicles/$vehicleId/',
     getParentRoute: () => AuthedRouteRoute,
   } as any)
 
@@ -263,18 +263,18 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_authed': {
       id: '/_authed'
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AuthedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authed/': {
@@ -284,18 +284,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/transactions': {
-      id: '/_authed/transactions'
-      path: '/transactions'
-      fullPath: '/transactions'
-      preLoaderRoute: typeof AuthedTransactionsRouteImport
-      parentRoute: typeof AuthedRouteRoute
-    }
-    '/_authed/team': {
-      id: '/_authed/team'
-      path: '/team'
-      fullPath: '/team'
-      preLoaderRoute: typeof AuthedTeamRouteImport
+    '/_authed/irr-sheet': {
+      id: '/_authed/irr-sheet'
+      path: '/irr-sheet'
+      fullPath: '/irr-sheet'
+      preLoaderRoute: typeof AuthedIrrSheetRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/reports': {
@@ -305,25 +298,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedReportsRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/irr-sheet': {
-      id: '/_authed/irr-sheet'
-      path: '/irr-sheet'
-      fullPath: '/irr-sheet'
-      preLoaderRoute: typeof AuthedIrrSheetRouteImport
+    '/_authed/team': {
+      id: '/_authed/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof AuthedTeamRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/vehicles/': {
-      id: '/_authed/vehicles/'
-      path: '/vehicles'
-      fullPath: '/vehicles/'
-      preLoaderRoute: typeof AuthedVehiclesIndexRouteImport
-      parentRoute: typeof AuthedRouteRoute
-    }
-    '/_authed/finances/': {
-      id: '/_authed/finances/'
-      path: '/finances'
-      fullPath: '/finances/'
-      preLoaderRoute: typeof AuthedFinancesIndexRouteImport
+    '/_authed/transactions': {
+      id: '/_authed/transactions'
+      path: '/transactions'
+      fullPath: '/transactions'
+      preLoaderRoute: typeof AuthedTransactionsRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/customers/': {
@@ -333,11 +319,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedCustomersIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/vehicles/new': {
-      id: '/_authed/vehicles/new'
-      path: '/vehicles/new'
-      fullPath: '/vehicles/new'
-      preLoaderRoute: typeof AuthedVehiclesNewRouteImport
+    '/_authed/customers/new': {
+      id: '/_authed/customers/new'
+      path: '/customers/new'
+      fullPath: '/customers/new'
+      preLoaderRoute: typeof AuthedCustomersNewRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/finances/': {
+      id: '/_authed/finances/'
+      path: '/finances'
+      fullPath: '/finances/'
+      preLoaderRoute: typeof AuthedFinancesIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/finances/new': {
@@ -347,25 +340,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedFinancesNewRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/customers/new': {
-      id: '/_authed/customers/new'
-      path: '/customers/new'
-      fullPath: '/customers/new'
-      preLoaderRoute: typeof AuthedCustomersNewRouteImport
+    '/_authed/vehicles/': {
+      id: '/_authed/vehicles/'
+      path: '/vehicles'
+      fullPath: '/vehicles/'
+      preLoaderRoute: typeof AuthedVehiclesIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/vehicles/$vehicleId/': {
-      id: '/_authed/vehicles/$vehicleId/'
-      path: '/vehicles/$vehicleId'
-      fullPath: '/vehicles/$vehicleId/'
-      preLoaderRoute: typeof AuthedVehiclesVehicleIdIndexRouteImport
-      parentRoute: typeof AuthedRouteRoute
-    }
-    '/_authed/finances/$loanId/': {
-      id: '/_authed/finances/$loanId/'
-      path: '/finances/$loanId'
-      fullPath: '/finances/$loanId/'
-      preLoaderRoute: typeof AuthedFinancesLoanIdIndexRouteImport
+    '/_authed/vehicles/new': {
+      id: '/_authed/vehicles/new'
+      path: '/vehicles/new'
+      fullPath: '/vehicles/new'
+      preLoaderRoute: typeof AuthedVehiclesNewRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/customers/$customerId/': {
@@ -375,11 +361,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedCustomersCustomerIdIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/finances/$loanId/edit': {
-      id: '/_authed/finances/$loanId/edit'
-      path: '/finances/$loanId/edit'
-      fullPath: '/finances/$loanId/edit'
-      preLoaderRoute: typeof AuthedFinancesLoanIdEditRouteImport
+    '/_authed/customers/$customerId/edit': {
+      id: '/_authed/customers/$customerId/edit'
+      path: '/customers/$customerId/edit'
+      fullPath: '/customers/$customerId/edit'
+      preLoaderRoute: typeof AuthedCustomersCustomerIdEditRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/finances/$loanId/': {
+      id: '/_authed/finances/$loanId/'
+      path: '/finances/$loanId'
+      fullPath: '/finances/$loanId/'
+      preLoaderRoute: typeof AuthedFinancesLoanIdIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
     '/_authed/finances/$loanId/collections': {
@@ -389,11 +382,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedFinancesLoanIdCollectionsRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
-    '/_authed/customers/$customerId/edit': {
-      id: '/_authed/customers/$customerId/edit'
-      path: '/customers/$customerId/edit'
-      fullPath: '/customers/$customerId/edit'
-      preLoaderRoute: typeof AuthedCustomersCustomerIdEditRouteImport
+    '/_authed/finances/$loanId/edit': {
+      id: '/_authed/finances/$loanId/edit'
+      path: '/finances/$loanId/edit'
+      fullPath: '/finances/$loanId/edit'
+      preLoaderRoute: typeof AuthedFinancesLoanIdEditRouteImport
+      parentRoute: typeof AuthedRouteRoute
+    }
+    '/_authed/vehicles/$vehicleId/': {
+      id: '/_authed/vehicles/$vehicleId/'
+      path: '/vehicles/$vehicleId'
+      fullPath: '/vehicles/$vehicleId/'
+      preLoaderRoute: typeof AuthedVehiclesVehicleIdIndexRouteImport
       parentRoute: typeof AuthedRouteRoute
     }
   }
