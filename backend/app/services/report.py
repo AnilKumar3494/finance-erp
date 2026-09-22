@@ -147,6 +147,29 @@ def _loan_net_outstanding_subq(db: Session, statuses=OPEN_LOAN_STATUSES):
 # supply the funding-side terms. See get_balance_sheet / get_pnl.
 
 
+def _lifetime_emi_collected(db: Session) -> Decimal:
+    """Lifetime EMI collected — REGULAR, SUCCESS, non-deleted transactions across
+    all (non-deleted) loans.
+
+    Down-payments are excluded because they represent loan-origination cash, not
+    EMI collection. CLOSED loans are included so historical collections don't
+    disappear when a loan closes — a cycle-based sum restricted to open loans
+    silently drops a finance's entire payment history the moment it is closed.
+    This is the single definition of "collected"; every caller uses it.
+    """
+    return _d(
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Loan, Loan.id == Transaction.loan_id)
+        .filter(
+            Transaction.status == TransactionStatus.SUCCESS,
+            Transaction.transaction_type == TransactionType.REGULAR,
+            Transaction.is_deleted == False,
+            Loan.is_deleted == False,
+        )
+        .scalar()
+    )
+
+
 def _fee_income_total(
     db: Session, date1: Optional[date] = None, date2: Optional[date] = None
 ) -> Decimal:
@@ -265,21 +288,7 @@ def get_dashboard_summary(db: Session) -> dict:
         db.query(func.coalesce(func.sum(_net_sq.c.outstanding), 0)).scalar()
     )
 
-    # Lifetime EMI collected — REGULAR, SUCCESS, non-deleted transactions
-    # across all (non-deleted) loans. Down-payments are excluded because they
-    # represent loan-origination cash, not EMI collection. CLOSED loans are
-    # included so historical collections don't disappear when a loan closes.
-    total_collected = (
-        db.query(func.coalesce(func.sum(Transaction.amount), 0))
-        .join(Loan, Loan.id == Transaction.loan_id)
-        .filter(
-            Transaction.status == TransactionStatus.SUCCESS,
-            Transaction.transaction_type == TransactionType.REGULAR,
-            Transaction.is_deleted == False,
-            Loan.is_deleted == False,
-        )
-        .scalar()
-    )
+    total_collected = _lifetime_emi_collected(db)
 
     return {
         "total_customers": total_customers or 0,
@@ -333,12 +342,14 @@ def get_loan_portfolio(db: Session) -> dict:
     )
 
     # Open-loan ledger totals (source of truth — see get_dashboard_summary).
-    # payable/collected are portfolio-wide cycle sums; outstanding is netted per
-    # loan (see _loan_net_outstanding) so it agrees with HP Outstanding.
+    # payable is an open-loan cycle sum (nothing is still payable on a closed
+    # finance) and outstanding is netted per loan (see _loan_net_outstanding) so
+    # it agrees with HP Outstanding. "collected" deliberately does NOT come from
+    # this query: cash already collected stays collected after a loan closes, so
+    # it uses the same lifetime definition as the dashboard KPI.
     cycle_totals = (
         db.query(
             func.coalesce(func.sum(DueCycle.total_due), 0).label("payable"),
-            func.coalesce(func.sum(DueCycle.total_received), 0).label("collected"),
         )
         .join(Loan, Loan.id == DueCycle.loan_id)
         .filter(
@@ -370,7 +381,7 @@ def get_loan_portfolio(db: Session) -> dict:
         # Real "payable" = principal + interest + penalty add-ons, sourced
         # from due_cycles.total_due for currently-open loans.
         "total_payable": _d(cycle_totals.payable if cycle_totals else 0),
-        "total_collected": _d(cycle_totals.collected if cycle_totals else 0),
+        "total_collected": _lifetime_emi_collected(db),
         "total_outstanding": total_outstanding,
         "average_interest_rate": Decimal(str(avg_rate)).quantize(Decimal("0.01")),
         "average_tenure": Decimal(str(avg_tenure)).quantize(Decimal("0.1")),
