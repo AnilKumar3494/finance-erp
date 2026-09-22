@@ -4,7 +4,7 @@ import Typography from '@mui/material/Typography'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
+import { ScrollableTable } from '@/components/ScrollableTable'
 import TableRow from '@mui/material/TableRow'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
@@ -233,7 +233,7 @@ export function BalanceSheetTab() {
             }}
           >
             <Card sx={{ p: 0, overflow: 'hidden' }}>
-              <TableContainer sx={{ overflowX: 'auto' }}>
+              <ScrollableTable sx={{ overflowX: 'auto' }}>
                 <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                   <TableBody>
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
@@ -258,11 +258,11 @@ export function BalanceSheetTab() {
                     <Line label="TOTAL ASSETS" value={String(view.totalAssets)} bold />
                   </TableBody>
                 </Table>
-              </TableContainer>
+              </ScrollableTable>
             </Card>
 
             <Card sx={{ p: 0, overflow: 'hidden' }}>
-              <TableContainer sx={{ overflowX: 'auto' }}>
+              <ScrollableTable sx={{ overflowX: 'auto' }}>
                 <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                   <TableBody>
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
@@ -295,7 +295,7 @@ export function BalanceSheetTab() {
                     )}
                   </TableBody>
                 </Table>
-              </TableContainer>
+              </ScrollableTable>
             </Card>
           </Box>
 
