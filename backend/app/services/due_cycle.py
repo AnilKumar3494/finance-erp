@@ -281,6 +281,10 @@ def _worklist_filtered_query(
         query = query.filter(
             or_(
                 Loan.loan_number.ilike(f"%{s}%", escape="\\"),
+                # The worklist shows the HP number as the finance's id, so it has
+                # to be searchable too — otherwise typing what is on screen
+                # returns nothing. Mirrors the finances list (services/loan.py).
+                Loan.hp_number.ilike(f"%{s}%", escape="\\"),
                 Customer.full_name.ilike(f"%{s}%", escape="\\"),
                 Customer.mobile_number.ilike(f"%{s}%", escape="\\"),
             )
