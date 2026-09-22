@@ -17,7 +17,7 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { HpNumberFamilies } from '@/features/loans/wizard/HpNumberFamilies'
 import { EditableSection } from '../components/EditableSection'
-import { FieldGrid, FieldRow } from '../components/DetailFields'
+import { FieldGrid, FieldRow } from '@/components/DetailFields'
 import type { SectionPermission } from '../financePermissions'
 import type { ApprovalMissingField } from '../approvalReadiness'
 
@@ -174,6 +174,9 @@ function FinanceEditForm({
 }) {
   const update = useUpdateLoan(loan.id)
   const isActive = loan.status === 'ACTIVE'
+  // Flagged by the approval walk-through as missing — draw the same warning
+  // outline Input gives its own highlighted fields.
+  const dueDateFlagged = !!highlight?.has('first_emi_date')
 
   const schema = useMemo(
     () =>
@@ -342,6 +345,7 @@ function FinanceEditForm({
           required
           placeholder="e.g. SAFTNK0401"
           hint="Hire-purchase number — shown as this finance's ID."
+          highlight={highlight?.has('hp_number')}
           {...register('hp_number')}
           error={errors.hp_number?.message}
         />
@@ -399,7 +403,10 @@ function FinanceEditForm({
             name="first_emi_date"
             render={({ field, fieldState }) => (
               <Box>
-                <FieldLabel htmlFor="fin_first_emi" required={isActive}>
+                <FieldLabel
+                  htmlFor="fin_first_emi"
+                  required={isActive || dueDateFlagged}
+                >
                   Due date
                 </FieldLabel>
                 <DatePicker
@@ -413,6 +420,19 @@ function FinanceEditForm({
                       size: 'small',
                       fullWidth: true,
                       error: !!fieldState.error,
+                      // DatePicker has no `highlight` prop, so mirror the outline
+                      // Input draws for an approval-blocking field.
+                      sx:
+                        dueDateFlagged && !fieldState.error
+                          ? {
+                              '& .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'var(--warning)',
+                              },
+                              '&:hover .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'var(--warning)',
+                              },
+                            }
+                          : undefined,
                     },
                     // An active finance must keep a due date; only a draft may clear it.
                     field: { clearable: !isActive },

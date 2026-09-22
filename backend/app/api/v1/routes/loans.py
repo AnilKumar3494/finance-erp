@@ -196,9 +196,10 @@ def list_all(
     pending_approval: Optional[bool] = Query(
         None,
         description=(
-            "When true, return only DRAFT loans whose loan-level required "
-            "terms (principal, interest rate, tenure, due date) are all set "
-            "— i.e. drafts ready for an admin to approve."
+            "When true, return only DRAFT loans whose core terms (principal, "
+            "interest rate, tenure) are set — i.e. drafts an admin can weigh. "
+            "A missing due date or HP number does NOT exclude a draft here; "
+            "both are surfaced as readiness warnings on the approval card."
         ),
     ),
     created_after: Optional[date] = Query(

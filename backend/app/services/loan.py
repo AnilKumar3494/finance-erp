@@ -251,24 +251,25 @@ def list_loans(
     if status:
         query = query.filter(Loan.status == status)
 
-    # "Awaiting approval" filter: DRAFT loans whose loan-level required terms
-    # are all filled in — i.e. the ones an admin can actually action now, as
-    # opposed to half-built drafts still being captured. Customer/vehicle
-    # completeness is re-checked at the approve step itself; this single-table
-    # predicate is the cheap, index-friendly signal that a draft is prepared.
+    # "Awaiting approval" filter: DRAFT loans whose core commercial terms are
+    # priced — i.e. the ones an admin can actually weigh, as opposed to
+    # half-built drafts still being captured. Customer/vehicle completeness is
+    # re-checked at the approve step itself; this single-table predicate is the
+    # cheap, index-friendly signal that a draft is prepared.
+    #
+    # The due date and HP number are deliberately NOT required here even though
+    # approve_loan rejects a loan missing either. Filtering on them hid exactly
+    # the drafts that need an admin's attention: a fully-priced finance whose
+    # due date was never set simply vanished from this queue, and nothing on
+    # screen said why. They are surfaced as approval-readiness warnings on the
+    # card instead (see frontend approvalReadiness.ts), which is visible rather
+    # than silent.
     if pending_approval:
         query = query.filter(
             Loan.status == LoanStatus.DRAFT,
             Loan.principal.isnot(None),
             Loan.interest_rate.isnot(None),
             Loan.tenure.isnot(None),
-            Loan.first_emi_date.isnot(None),
-            # approve_loan hard-rejects a loan with no HP number, so a draft
-            # missing one is not actually actionable. isnot(None) plus the
-            # empty-string guard mirror `if not loan.hp_number` and cover any
-            # legacy rows that stored '' before the schema normalized ''->None.
-            Loan.hp_number.isnot(None),
-            Loan.hp_number != "",
         )
 
     if created_after is not None:
