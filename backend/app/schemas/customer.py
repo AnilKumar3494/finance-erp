@@ -5,6 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.user import UserNested
 from app.utils.pii import mask_aadhaar, mask_pan
 
 # Indian formats
@@ -108,6 +109,12 @@ class CustomerResponse(CustomerBase):
     id: uuid.UUID
     is_deleted: bool
     created_by_id: Optional[uuid.UUID]
+    updated_by_id: Optional[uuid.UUID] = None
+    # Audit actors, attached by the detail route only (the relationships are
+    # lazy="noload", so list responses leave these None rather than firing a
+    # query per row).
+    created_by: Optional[UserNested] = None
+    updated_by: Optional[UserNested] = None
     assigned_employee_id: Optional[uuid.UUID]
     assigned_employee_name: Optional[str] = None
     primary_loan_number: Optional[str] = None

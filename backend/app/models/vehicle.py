@@ -9,6 +9,7 @@ from app.models.base import AuditBase
 
 if TYPE_CHECKING:
     from app.models.loan import Loan
+    from app.models.user import User
 
 
 class AssetType(str, enum.Enum):
@@ -67,4 +68,14 @@ class Vehicle(AuditBase):
         "Loan",
         back_populates="vehicle",
         primaryjoin="and_(Vehicle.id == Loan.vehicle_id, Loan.is_deleted == False)",
+    )
+
+    # Audit actors. `noload` by default — only the detail route eager-loads them
+    # (list responses would otherwise fire a query per row).
+    created_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys="[Vehicle.created_by_id]", lazy="noload"
+    )
+
+    updated_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys="[Vehicle.updated_by_id]", lazy="noload"
     )

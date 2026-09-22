@@ -8,6 +8,20 @@ from app.models.user import UserRole
 
 
 # --------------------------------------------------
+# NESTED (lightweight — for embedding in other responses)
+# --------------------------------------------------
+class UserNested(BaseModel):
+    """Lightweight user info for nesting in responses"""
+
+    id: uuid.UUID
+    username: str
+    full_name: Optional[str] = None
+    role: UserRole
+
+    model_config = {"from_attributes": True}
+
+
+# --------------------------------------------------
 # ROLE CHANGE (SUPER_ADMIN only; EMPLOYEE <-> ADMIN)
 # --------------------------------------------------
 class RoleChangeRequest(BaseModel):

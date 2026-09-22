@@ -8,20 +8,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models.loan import LoanStatus
 from app.models.transaction import PaymentMethod
 from app.models.user import UserRole
+from app.schemas.user import UserNested
 
 
 # --------------------------------------------------
 # NESTED SCHEMAS (Lightweight — for includes)
 # --------------------------------------------------
-class UserNested(BaseModel):
-    """Lightweight user info for nesting in responses"""
-
-    id: uuid.UUID
-    username: str
-    full_name: Optional[str] = None
-    role: UserRole
-
-    model_config = {"from_attributes": True}
+# UserNested lives in schemas/user.py (customer and vehicle responses embed it
+# too); re-exported here so the existing `from app.schemas.loan import
+# UserNested` call sites keep working.
+__all__ = ["UserNested"]
 
 
 class CustomerNested(BaseModel):
