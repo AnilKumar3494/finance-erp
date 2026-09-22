@@ -37,7 +37,7 @@ import { IdentityProofType } from '@/schemas/enums'
 import { EditableSection } from '../components/EditableSection'
 import { Collapsible } from '../components/Collapsible'
 import { RevealPii } from '../components/RevealPii'
-import { FieldGrid, FieldRow } from '../components/DetailFields'
+import { FieldGrid, FieldRow } from '@/components/DetailFields'
 import type { SectionPermission } from '../financePermissions'
 import type { ApprovalMissingField } from '../approvalReadiness'
 

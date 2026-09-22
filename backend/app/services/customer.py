@@ -5,7 +5,7 @@ from typing import Any, Optional
 from fastapi import Request
 from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.core.config import settings
 from app.models.customer import Customer
@@ -130,6 +130,13 @@ def get_customer(db: Session, customer_id: uuid.UUID) -> Optional[Customer]:
     row = (
         db.query(Customer, User.full_name)
         .outerjoin(User, Customer.assigned_employee_id == User.id)
+        # Audit actors for the detail page. Both relationships are lazy="noload",
+        # so this single-row read is the only place they get populated; list
+        # reads stay untouched.
+        .options(
+            joinedload(Customer.created_by),
+            joinedload(Customer.updated_by),
+        )
         .filter(Customer.id == customer_id, Customer.is_deleted == False)  # noqa: E712
         .first()
     )

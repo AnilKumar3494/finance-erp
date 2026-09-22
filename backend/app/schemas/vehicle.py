@@ -6,6 +6,7 @@ import uuid
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.user import UserNested
 from app.models.vehicle import AssetStatus, AssetType
 from app.utils.time import utcnow
 
@@ -213,6 +214,11 @@ class VehicleResponse(VehicleBase):
     created_by_id: Optional[uuid.UUID] = None
     updated_by_id: Optional[uuid.UUID] = None
     deleted_by_id: Optional[uuid.UUID] = None
+    # Audit actors, attached by the detail route only (the relationships are
+    # lazy="noload", so list responses leave these None rather than firing a
+    # query per row).
+    created_by: Optional[UserNested] = None
+    updated_by: Optional[UserNested] = None
 
     model_config = {"from_attributes": True}
 

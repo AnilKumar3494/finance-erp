@@ -3,7 +3,6 @@ import { AxiosError } from 'axios'
 import { useNavigate } from '@tanstack/react-router'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
 import PaymentsIcon from '@mui/icons-material/PaymentsOutlined'
 
@@ -12,8 +11,8 @@ import type { LoanStatus } from '@/schemas/enums'
 import { useCustomer } from '@/api/queries/customers'
 import { useDueCycles } from '@/api/queries/dueCycles'
 import { useLoanSummary, useLoanTransactions } from '@/api/queries/transactions'
-import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
-import { fmtDate, fmtDateTime } from '@/lib/format'
+import { Btn, ErrorBanner, Spinner } from '@/components/primitives'
+import { fmtDate } from '@/lib/format'
 import { deriveNetDue } from '../cycleNetDue'
 import { LoanIdentityCard } from '../components/LoanIdentityCard'
 import { LoanTermsCard } from '../components/LoanTermsCard'
@@ -23,7 +22,8 @@ import { LoanSubResources } from '../components/LoanSubResources'
 import { DeleteDraftAction } from '../components/DeleteDraftAction'
 import { DocScoreCard } from '../components/DocScoreCard'
 import { computeApprovalGaps, type ApprovalSectionKey } from '../approvalReadiness'
-import { FieldGrid, FieldRow } from '../components/DetailFields'
+import { FieldRow } from '@/components/DetailFields'
+import { AuditCard as SharedAuditCard } from '@/components/AuditCard'
 import { useFinancePermissions } from '../financePermissions'
 import { VehicleInfoSection } from '../sections/VehicleInfoSection'
 import { FinanceInfoSection } from '../sections/FinanceInfoSection'
@@ -239,28 +239,19 @@ function HeaderCard({ loan }: { loan: LoanResponse }) {
 // --------------------------------------------------
 
 function AuditCard({ loan }: { loan: LoanResponse }) {
-  const actor = (
-    nested: LoanResponse['created_by'],
-    fallbackId: string | null,
-  ): string | undefined => {
-    if (nested) return nested.full_name?.trim() || nested.username
-    return fallbackId ?? undefined
-  }
   return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 2 }}>
-        Audit
-      </Typography>
-      <FieldGrid>
-        {/* No fallback to created_at: an unapproved loan has no approval
-            date, and showing when the draft was created in its place reads
-            as a real approval that never happened. */}
-        <FieldRow label="Approved at" value={fmtDate(loan.approval_date)} />
-        <FieldRow label="Created at" value={fmtDateTime(loan.created_at)} />
-        <FieldRow label="Last updated" value={fmtDateTime(loan.updated_at)} />
-        <FieldRow label="Created by" value={actor(loan.created_by, loan.created_by_id)} />
-        <FieldRow label="Updated by" value={actor(loan.updated_by, loan.updated_by_id)} />
-      </FieldGrid>
-    </Card>
+    <SharedAuditCard
+      created_at={loan.created_at}
+      updated_at={loan.updated_at}
+      created_by={loan.created_by}
+      updated_by={loan.updated_by}
+      created_by_id={loan.created_by_id}
+      updated_by_id={loan.updated_by_id}
+    >
+      {/* No fallback to created_at: an unapproved loan has no approval date,
+          and showing when the draft was created in its place reads as a real
+          approval that never happened. */}
+      <FieldRow label="Approved at" value={fmtDate(loan.approval_date)} />
+    </SharedAuditCard>
   )
 }

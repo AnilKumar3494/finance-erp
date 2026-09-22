@@ -66,6 +66,16 @@ class Customer(AuditBase):
         "User", foreign_keys=[assigned_employee_id], backref="assigned_customers"
     )
 
+    # Audit actors. `noload` by default — only the detail route eager-loads them
+    # (list responses would otherwise fire a query per row).
+    created_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys="[Customer.created_by_id]", lazy="noload"
+    )
+
+    updated_by: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys="[Customer.updated_by_id]", lazy="noload"
+    )
+
     loans: Mapped[list["Loan"]] = relationship(
         "Loan",
         back_populates="customer",

@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query'
 
 import { apiClient } from '@/api/client'
+import type { AuditActor } from '@/components/AuditCard'
 import { nextPageParam } from '@/lib/infinitePage'
 
 // --------------------------------------------------
@@ -19,6 +20,11 @@ export interface CustomerResponse {
   id: string
   is_deleted: boolean
   created_by_id: string | null
+  updated_by_id: string | null
+  // Nested audit actors — populated by the detail read only; the list read
+  // leaves them null (the relationships are noload server-side).
+  created_by: AuditActor | null
+  updated_by: AuditActor | null
   assigned_employee_id: string | null
   assigned_employee_name: string | null
   branch_point: string | null
