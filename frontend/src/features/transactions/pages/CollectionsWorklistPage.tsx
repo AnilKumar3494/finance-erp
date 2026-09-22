@@ -549,7 +549,7 @@ export function CollectionsWorklistPage() {
           >
             <Input
               id="worklist-search"
-              placeholder="Search by customer, mobile, or loan number…"
+              placeholder="Search by customer, mobile, HP or loan number…"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               autoComplete="off"
