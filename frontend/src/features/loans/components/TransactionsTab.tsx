@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
+import { ScrollableTable } from '@/components/ScrollableTable'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import AddIcon from '@mui/icons-material/AddOutlined'
@@ -634,7 +634,7 @@ function DesktopTable({
 }) {
   return (
     <Box sx={{ display: { xs: 'none', md: 'block' } }}>
-      <TableContainer>
+      <ScrollableTable>
         <Table
           size="small"
           sx={{
@@ -714,7 +714,7 @@ function DesktopTable({
             })}
           </TableBody>
         </Table>
-      </TableContainer>
+      </ScrollableTable>
     </Box>
   )
 }

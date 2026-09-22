@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
+import { ScrollableTable } from '@/components/ScrollableTable'
 import TableRow from '@mui/material/TableRow'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
@@ -215,7 +215,7 @@ export function PnlTab() {
               </Box>
 
               <Card sx={{ p: 0, overflow: 'hidden', maxWidth: 720 }}>
-                <TableContainer sx={{ overflowX: 'auto' }}>
+                <ScrollableTable sx={{ overflowX: 'auto' }}>
                   <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                     <TableBody>
                       <TableRow sx={{ bgcolor: 'action.hover' }}>
@@ -304,7 +304,7 @@ export function PnlTab() {
                       </TableRow>
                     </TableBody>
                   </Table>
-                </TableContainer>
+                </ScrollableTable>
               </Card>
 
               <Typography variant="body2" color="text.secondary">
