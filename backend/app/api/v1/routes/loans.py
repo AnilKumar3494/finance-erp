@@ -192,7 +192,14 @@ def list_all(
             "Ignored for EMPLOYEE callers, who are always scoped to themselves."
         ),
     ),
-    status: Optional[LoanStatus] = Query(None),
+    status: Optional[LoanStatus] = Query(
+        None,
+        description=(
+            "Filter by loan status. status=DRAFT excludes drafts that are "
+            "already priced — those belong to pending_approval, and the two "
+            "partition the drafts between them rather than overlapping."
+        ),
+    ),
     pending_approval: Optional[bool] = Query(
         None,
         description=(
