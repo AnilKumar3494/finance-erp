@@ -46,6 +46,11 @@ export function computeApprovalGaps(
   // The server refuses to approve a loan without an HP number, so surface it in
   // the checklist rather than letting it fail only at the confirm step.
   if (!loan.hp_number) finance.push({ field: 'hp_number', label: 'HP number' })
+  // Same for the due date: it anchors the entire repayment schedule and the
+  // confirm dialog blocks on it, but until it appeared here nothing marked it
+  // as unfilled — the draft just silently failed the readiness check.
+  // (The approval date is NOT listed: it is optional, and defaults to today.)
+  if (!loan.first_emi_date) finance.push({ field: 'first_emi_date', label: 'Due date' })
   if (finance.length) gaps.push({ key: 'finance', title: 'Finance terms', missing: finance })
 
   if (customer) {
