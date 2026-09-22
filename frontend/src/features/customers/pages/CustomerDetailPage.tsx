@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBackOutlined'
 import EditIcon from '@mui/icons-material/EditOutlined'
 import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
+import AddIcon from '@mui/icons-material/AddOutlined'
 
 import {
   useCustomer,
@@ -23,6 +24,7 @@ import {
 } from '@/api/queries/customers'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
+import { AuditCard } from '@/components/AuditCard'
 import { fmtDate, fmtDateTime } from '@/lib/format'
 
 interface CustomerDetailPageProps {
@@ -141,8 +143,50 @@ function DetailBody({
       <PersonalCard customer={customer} />
       <AddressCard customer={customer} />
       <AssignmentCard customer={customer} />
+      <AuditCard
+        created_at={customer.created_at}
+        updated_at={customer.updated_at}
+        created_by={customer.created_by}
+        updated_by={customer.updated_by}
+        created_by_id={customer.created_by_id}
+        updated_by_id={customer.updated_by_id}
+      />
+      <StartFinanceCard customer={customer} />
       {canDelete && <DangerZoneCard customer={customer} />}
     </Stack>
+  )
+}
+
+// --------------------------------------------------
+// Start a finance for this customer
+// --------------------------------------------------
+
+function StartFinanceCard({ customer }: { customer: CustomerResponse }) {
+  const navigate = useNavigate()
+  return (
+    <Card>
+      <Typography variant="h3" sx={{ mb: 1 }}>
+        New Finance
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Start a finance application with this customer already selected.
+      </Typography>
+      <Btn
+        variant="primary"
+        startIcon={<AddIcon />}
+        onClick={() =>
+          // Pre-selects the customer on step 1; the wizard still waits for
+          // "Start finance" before it creates the draft, so landing here by
+          // accident costs nothing.
+          navigate({
+            to: '/finances/new',
+            search: { step: 0, customerId: customer.id },
+          })
+        }
+      >
+        Create finance
+      </Btn>
+    </Card>
   )
 }
 

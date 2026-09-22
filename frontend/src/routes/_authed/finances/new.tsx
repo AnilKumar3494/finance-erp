@@ -8,6 +8,11 @@ import { FinanceWizardPage } from '@/features/loans/pages/FinanceWizardPage'
 export interface NewFinanceSearch {
   financeId?: string
   step: number
+  // Optional pre-selection for step 0, set by "Create finance" on a customer's
+  // detail page. It only seeds the picker — the draft is still created by
+  // "Start finance", so arriving here never writes anything on its own. Dropped
+  // once a draft exists, since the customer is then fixed on the loan.
+  customerId?: string
 }
 
 const MAX_STEP = 5
@@ -28,7 +33,11 @@ export const Route = createFileRoute('/_authed/finances/new')({
         ? parsed
         : 1
       : 0
-    return { financeId, step }
+    const customerId =
+      !financeId && typeof raw.customerId === 'string' && raw.customerId.length > 0
+        ? raw.customerId
+        : undefined
+    return { financeId, step, customerId }
   },
   component: FinanceWizardPage,
 })
