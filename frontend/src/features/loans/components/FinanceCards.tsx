@@ -79,6 +79,10 @@ function FinanceCard({ loan }: { loan: LoanResponse }) {
   const blocking = isDraft
     ? computeApprovalGaps(loan, null).flatMap((g) => g.missing.map((m) => m.label))
     : []
+  // Not a blocker: the approve dialog asks for the due date and requires it
+  // there, so this is a heads-up about what the admin will be asked, not
+  // something to go away and fix first.
+  const needsDueDate = isDraft && !loan.first_emi_date
 
   return (
     <Card sx={{ p: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -153,6 +157,15 @@ function FinanceCard({ loan }: { loan: LoanResponse }) {
             severity="warning"
             variant="outlined"
             message={`Missing before approval: ${blocking.join(', ')}`}
+          />
+        </Box>
+      )}
+      {needsDueDate && (
+        <Box sx={{ mt: 1.5 }}>
+          <ErrorBanner
+            severity="info"
+            variant="outlined"
+            message="No due date yet — set it when you approve."
           />
         </Box>
       )}
