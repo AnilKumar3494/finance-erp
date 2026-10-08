@@ -38,7 +38,7 @@ import dayjs from 'dayjs'
 import type { LoanStatus } from '@/schemas/enums'
 import { LOAN_STATUS_META, LOAN_STATUS_ORDER } from '../loanStatusMeta'
 import { LoanStatusChip } from '../components/LoanStatusChip'
-import { ApprovalQueue } from '../components/ApprovalQueue'
+import { FinanceCards } from '../components/FinanceCards'
 import { EmiDueChip } from '../components/EmiDueChip'
 import { SortSelect, type SortOption } from '@/components/sort/SortSelect'
 import { SortableTh } from '@/components/sort/SortableTh'
@@ -208,6 +208,10 @@ export function LoansListPage() {
 
   const goToCreate = () => navigate({ to: '/finances/new', search: { step: 0 } })
 
+  // "All" (no status chip, no Awaiting-approval chip) is the only table view;
+  // every other chip renders cards.
+  const cardView = !!pending_approval || !!status
+
   // Status and the "Awaiting approval" filter are mutually exclusive — picking
   // one clears the other so the chip row always reflects a single active view.
   const setStatus = (next: LoanStatus | undefined) =>
@@ -371,11 +375,12 @@ export function LoansListPage() {
       ) : (
         <>
           <CountBar loaded={rows.length} total={total} noun="finance" nounPlural="finances" />
-          {pending_approval ? (
-            // Awaiting approval: glanceable cards with the Approve action on each,
-            // in place of the table (every row here is a DRAFT, so the status
-            // column carried no signal).
-            <ApprovalQueue
+          {cardView ? (
+            // Any chip other than "All": glanceable cards in place of the table.
+            // A filtered view is already one kind of finance, so the repeated
+            // status column earns little; "All" keeps the table for scanning
+            // across mixed statuses.
+            <FinanceCards
               rows={rows}
               hasNextPage={query.hasNextPage}
               isFetchingNextPage={query.isFetchingNextPage}

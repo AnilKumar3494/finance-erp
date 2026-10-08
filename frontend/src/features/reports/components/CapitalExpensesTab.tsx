@@ -10,7 +10,7 @@ import Typography from '@mui/material/Typography'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
+import { ScrollableTable } from '@/components/ScrollableTable'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
@@ -162,7 +162,7 @@ export function CapitalExpensesTab() {
                 </Card>
               ) : (
                 <Card sx={{ p: 0, overflow: 'hidden' }}>
-                  <TableContainer sx={{ overflowX: 'auto' }}>
+                  <ScrollableTable sx={{ overflowX: 'auto' }}>
                     <Table
                       size="small"
                       sx={{ minWidth: 720, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}
@@ -216,7 +216,7 @@ export function CapitalExpensesTab() {
                         })}
                       </TableBody>
                     </Table>
-                  </TableContainer>
+                  </ScrollableTable>
                 </Card>
               )}
             </>

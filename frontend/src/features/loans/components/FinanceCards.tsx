@@ -6,18 +6,28 @@ import Typography from '@mui/material/Typography'
 import Divider from '@mui/material/Divider'
 
 import type { LoanResponse } from '@/api/queries/loans'
-import { Btn, Card } from '@/components/primitives'
+import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { LoadMoreFooter } from '@/components/infinite/InfiniteFooter'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { loanDisplayId } from '../loanIdentity'
+import { computeApprovalGaps } from '../approvalReadiness'
 import { ApproveAction } from './LoanActions'
+import { LoanStatusChip } from './LoanStatusChip'
+import { EmiDueChip } from './EmiDueChip'
 
-// The "Awaiting approval" view: instead of a table row per draft, a box per
-// finance surfacing exactly what an admin weighs before approving — who, what
-// vehicle, the terms, the due date — with the Approve action right on the card.
-// Approve reuses the full flow (completeness gate + confirm dialog); when a
-// finance still has gaps, "Fix" sends the admin to its detail page.
-export function ApprovalQueue({
+// The card view for a filtered finances list: a box per finance instead of a
+// table row, surfacing who, what vehicle and the terms at a glance. Every chip
+// except "All" uses it — a filtered view is already narrowed to one kind of
+// finance, so the table's repeated status column carries little signal, while
+// "All" keeps the scannable table across mixed statuses.
+//
+// On a DRAFT the card additionally carries the Approve action and names what is
+// still missing; Approve reuses the full flow (completeness gate + confirm
+// dialog) and "Fix" sends the admin to the detail page. Drafts missing their due
+// date or HP number DO reach the approval queue (the server filter no longer
+// excludes them) precisely so the card can say what is unfilled, rather than the
+// finance quietly vanishing from the list.
+export function FinanceCards({
   rows,
   hasNextPage,
   isFetchingNextPage,
@@ -42,7 +52,7 @@ export function ApprovalQueue({
         }}
       >
         {rows.map((loan) => (
-          <ApprovalCard key={loan.id} loan={loan} />
+          <FinanceCard key={loan.id} loan={loan} />
         ))}
       </Box>
       <InfiniteSentinel
@@ -59,10 +69,20 @@ export function ApprovalQueue({
   )
 }
 
-function ApprovalCard({ loan }: { loan: LoanResponse }) {
+function FinanceCard({ loan }: { loan: LoanResponse }) {
   const navigate = useNavigate()
   const goToDetail = () =>
     navigate({ to: '/finances/$loanId', params: { loanId: loan.id } })
+
+  // Approve and the readiness warning only mean anything on a draft.
+  const isDraft = loan.status === 'DRAFT'
+  const blocking = isDraft
+    ? computeApprovalGaps(loan, null).flatMap((g) => g.missing.map((m) => m.label))
+    : []
+  // Not a blocker: the approve dialog asks for the due date and requires it
+  // there, so this is a heads-up about what the admin will be asked, not
+  // something to go away and fix first.
+  const needsDueDate = isDraft && !loan.first_emi_date
 
   return (
     <Card sx={{ p: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -89,6 +109,15 @@ function ApprovalCard({ loan }: { loan: LoanResponse }) {
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
         Created {loan.created_at ? fmtDate(loan.created_at) : '—'}
       </Typography>
+
+      {/* A draft's status is implied by the view it sits in; every other filter
+          can still mix EMI states, so carry the chips the table column had. */}
+      {!isDraft && (
+        <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: 'wrap', gap: 0.5 }}>
+          <LoanStatusChip status={loan.status} />
+          <EmiDueChip status={loan.emi_due_status} />
+        </Stack>
+      )}
 
       <Typography variant="body1" sx={{ mt: 1, fontWeight: 600 }}>
         {loan.customer?.full_name ?? '—'}
@@ -118,15 +147,45 @@ function ApprovalCard({ loan }: { loan: LoanResponse }) {
         />
       </Box>
 
+      {/* What still blocks approval, named on the card. Passing a null customer
+          restricts this to loan-level gaps (terms + vehicle) — the customer
+          section needs a full record this list response doesn't carry, and it
+          is re-checked by the Approve flow itself. */}
+      {blocking.length > 0 && (
+        <Box sx={{ mt: 1.5 }}>
+          <ErrorBanner
+            severity="warning"
+            variant="outlined"
+            message={`Missing before approval: ${blocking.join(', ')}`}
+          />
+        </Box>
+      )}
+      {needsDueDate && (
+        <Box sx={{ mt: 1.5 }}>
+          <ErrorBanner
+            severity="info"
+            variant="outlined"
+            message="No due date yet — set it when you approve."
+          />
+        </Box>
+      )}
+
       {/* Push the actions to the card bottom so a grid row of cards aligns. */}
       <Box sx={{ mt: 'auto', pt: 2 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Btn variant="ghost" size="sm" onClick={goToDetail} sx={{ flexShrink: 0 }}>
+          <Btn
+            variant={isDraft ? 'ghost' : 'outline'}
+            size="sm"
+            onClick={goToDetail}
+            sx={{ flexShrink: 0, ...(isDraft ? null : { width: '100%' }) }}
+          >
             View
           </Btn>
-          <Box sx={{ flexGrow: 1 }}>
-            <ApproveAction loan={loan} compact onGuide={goToDetail} />
-          </Box>
+          {isDraft && (
+            <Box sx={{ flexGrow: 1 }}>
+              <ApproveAction loan={loan} compact onGuide={goToDetail} />
+            </Box>
+          )}
         </Stack>
       </Box>
     </Card>

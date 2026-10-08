@@ -17,7 +17,7 @@ import { fmtDate, fmtINR } from '@/lib/format'
 import { PRINCIPAL_RANGE, RATE_RANGE, TENURE_MONTHS_RANGE } from '@/schemas/primitives'
 import { HpNumberFamilies } from '@/features/loans/wizard/HpNumberFamilies'
 import { EditableSection } from '../components/EditableSection'
-import { FieldGrid, FieldRow } from '../components/DetailFields'
+import { FieldGrid, FieldRow } from '@/components/DetailFields'
 import type { SectionPermission } from '../financePermissions'
 import type { ApprovalMissingField } from '../approvalReadiness'
 
@@ -342,6 +342,7 @@ function FinanceEditForm({
           required
           placeholder="e.g. SAFTNK0401"
           hint="Hire-purchase number — shown as this finance's ID."
+          highlight={highlight?.has('hp_number')}
           {...register('hp_number')}
           error={errors.hp_number?.message}
         />

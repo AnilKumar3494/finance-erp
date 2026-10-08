@@ -87,16 +87,23 @@ export function LoanTermsCard({
     loan.total_payable != null && loan.tenure ? Number(loan.total_payable) / loan.tenure : null
   // The actual amount due on the next collectible cycle (base EMI + any penalty
   // add-on), not the sticker EMI — falling back to the nominal instalment.
+  // An approved loan with no collectible cycle left owes nothing, so the sticker
+  // EMI is not a fallback here — printing it made a fully-paid or closed finance
+  // read as though another instalment were still coming. A DRAFT keeps the
+  // nominal figure: it has no schedule yet, so that IS the quote.
+  const settled = loan.status !== 'DRAFT' && !focusCycle
   const emiValue = focusCycle
     ? fmtINR(Number(focusCycle.total_due))
-    : nominalEmi != null
-      ? fmtINR(nominalEmi)
-      : '—'
+    : settled || nominalEmi == null
+      ? '—'
+      : fmtINR(nominalEmi)
   const emiHint = focusCycle
     ? Number(focusCycle.addon_from_penalties) > 0
       ? `due ${fmtDate(focusCycle.due_date)} · ${fmtINR(Number(focusCycle.base_emi))} + ${fmtINR(Number(focusCycle.addon_from_penalties))} penalty`
       : `due ${fmtDate(focusCycle.due_date)}`
-    : undefined
+    : settled
+      ? 'nothing due'
+      : undefined
 
   return (
     <Card>

@@ -19,7 +19,7 @@ import PersonAddIcon from '@mui/icons-material/PersonAddAltOutlined'
 
 import { useCreateLoan, useLoan, type LoanResponse } from '@/api/queries/loans'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
-import type { CustomerResponse } from '@/api/queries/customers'
+import { useCustomer, type CustomerResponse } from '@/api/queries/customers'
 import { Btn, Card, ErrorBanner, Spinner } from '@/components/primitives'
 import { CustomerPicker } from '@/features/loans/components/CustomerPicker'
 import { QuickAddCustomerDialog } from '@/features/loans/components/QuickAddCustomerDialog'
@@ -66,7 +66,7 @@ function mapCreateError(error: unknown): string {
 
 export function FinanceWizardPage() {
   const navigate = useNavigate()
-  const { financeId, step } = route.useSearch()
+  const { financeId, step, customerId } = route.useSearch()
   // Enabled only once a draft exists; reconstructs the customer + loan number
   // when the wizard is resumed from a URL.
   const loanQuery = useLoan(financeId)
@@ -169,7 +169,7 @@ export function FinanceWizardPage() {
         <WizardStepper step={step} clickable={financeId != null} onStep={goStep} />
 
         {financeId == null ? (
-          <CustomerGate onStarted={startedDraft} />
+          <CustomerGate onStarted={startedDraft} preselectId={customerId} />
         ) : loanQuery.isLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
             <Spinner size={26} />
@@ -224,9 +224,25 @@ function WizardStepper({
 // Step 0 — pick a customer and create the DRAFT.
 // --------------------------------------------------
 
-function CustomerGate({ onStarted }: { onStarted: (loanId: string) => void }) {
+function CustomerGate({
+  onStarted,
+  // Set when arriving from a customer's "Create finance" action: seeds the
+  // picker so the admin doesn't search for the customer they just came from.
+  preselectId,
+}: {
+  onStarted: (loanId: string) => void
+  preselectId?: string
+}) {
   const create = useCreateLoan()
-  const [customer, setCustomer] = useState<CustomerResponse | null>(null)
+  // Resolve the pre-selected customer, and derive the picker's value from it
+  // rather than syncing it into state in an effect. `undefined` means the admin
+  // has not touched the picker yet, so the pre-selection still stands; once they
+  // choose (or clear) it, their choice wins — including an explicit null.
+  // Nothing is created here: "Start finance" is still the only thing that writes.
+  const preselected = useCustomer(preselectId)
+  const [picked, setPicked] = useState<CustomerResponse | null | undefined>(undefined)
+  const customer = picked !== undefined ? picked : (preselected.data ?? null)
+  const setCustomer = setPicked
   const [customerError, setCustomerError] = useState<string>()
   const [addOpen, setAddOpen] = useState(false)
 

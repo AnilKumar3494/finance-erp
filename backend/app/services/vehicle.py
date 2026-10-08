@@ -6,7 +6,7 @@ from typing import Any, Optional
 from fastapi import Request
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Query, Session
+from sqlalchemy.orm import Query, Session, joinedload
 
 from app.models.vehicle import AssetStatus, AssetType, Vehicle
 from app.schemas.vehicle import VehicleCreate, VehicleUpdate
@@ -90,10 +90,23 @@ def _translate_integrity_error(exc: IntegrityError) -> ValueError:
     return ValueError("Vehicle uniqueness constraint violated")
 
 
+def _audit_actors():
+    """Eager-load options for the audit actors shown on the detail page.
+
+    Built on call, not at module level: a module-level joinedload() forces
+    SQLAlchemy to configure the Vehicle mapper at import time, which fails
+    because Vehicle.loans references Loan before that module is imported.
+    Both relationships are lazy="noload", so only these single-row reads
+    populate them — the list query stays untouched.
+    """
+    return (joinedload(Vehicle.created_by), joinedload(Vehicle.updated_by))
+
+
 def get_vehicle(db: Session, vehicle_id: uuid.UUID) -> Optional[Vehicle]:
     """Fetch single active vehicle by ID"""
     return (
         db.query(Vehicle)
+        .options(*_audit_actors())
         .filter(Vehicle.id == vehicle_id, Vehicle.is_deleted == False)
         .first()
     )
@@ -103,7 +116,7 @@ def get_vehicle_including_deleted(
     db: Session, vehicle_id: uuid.UUID
 ) -> Optional[Vehicle]:
     """Fetch a vehicle row whether or not it has been soft-deleted."""
-    return db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+    return db.query(Vehicle).options(*_audit_actors()).filter(Vehicle.id == vehicle_id).first()
 
 
 def get_vehicle_by_plate(db: Session, plate_number: str) -> Optional[Vehicle]:

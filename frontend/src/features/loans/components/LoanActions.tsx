@@ -357,8 +357,13 @@ export function ApproveAction({
               (pre-filled from the finance if it was set already). Approval date is optional —
               set it to backdate a finance to its original iFinance date.
             </Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <Box sx={{ flex: 1 }}>
+            {/* Stacked, not side by side: at maxWidth="sm" two date fields leave
+                ~268px each, which is narrower than "DD MMMM YYYY" plus the
+                calendar and clear icons — the Approval date was clipped and the
+                dialog grew a horizontal scrollbar. There are only two fields, so
+                a column costs nothing. */}
+            <Stack direction="column" spacing={2}>
+              <Box>
                 <FieldLabel htmlFor="approve_first_emi" required>
                   Due date
                 </FieldLabel>
@@ -378,7 +383,7 @@ export function ApproveAction({
                   }}
                 />
               </Box>
-              <Box sx={{ flex: 1 }}>
+              <Box>
                 <FieldLabel htmlFor="approve_date">Approval date</FieldLabel>
                 <DatePicker
                   value={approvalDate}

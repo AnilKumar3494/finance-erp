@@ -8,6 +8,7 @@ import {
 import { v4 as uuidv4 } from 'uuid'
 
 import { apiClient } from '@/api/client'
+import type { AuditActor } from '@/components/AuditCard'
 import type { LoanListResponse } from '@/api/queries/loans'
 import { nextPageParam } from '@/lib/infinitePage'
 import type { AssetStatus, AssetType } from '@/schemas/enums'
@@ -38,6 +39,10 @@ export interface VehicleResponse {
   deleted_at: string | null
   created_by_id: string | null
   updated_by_id: string | null
+  // Nested audit actors — populated by the detail read only; the list read
+  // leaves them null (the relationships are noload server-side).
+  created_by: AuditActor | null
+  updated_by: AuditActor | null
   deleted_by_id: string | null
 }
 

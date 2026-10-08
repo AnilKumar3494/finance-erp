@@ -5,7 +5,7 @@ import Typography from '@mui/material/Typography'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
+import { ScrollableTable } from '@/components/ScrollableTable'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import DownloadIcon from '@mui/icons-material/FileDownloadOutlined'
@@ -162,7 +162,7 @@ export function CustomersReportTab() {
               </Typography>
             ) : (
               <Card sx={{ p: 0, overflow: 'hidden' }}>
-                <TableContainer>
+                <ScrollableTable>
                   <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
                     <TableHead>
                       <TableRow>
@@ -197,7 +197,7 @@ export function CustomersReportTab() {
                       ))}
                     </TableBody>
                   </Table>
-                </TableContainer>
+                </ScrollableTable>
               </Card>
             )}
 

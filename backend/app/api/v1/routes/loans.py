@@ -192,13 +192,21 @@ def list_all(
             "Ignored for EMPLOYEE callers, who are always scoped to themselves."
         ),
     ),
-    status: Optional[LoanStatus] = Query(None),
+    status: Optional[LoanStatus] = Query(
+        None,
+        description=(
+            "Filter by loan status. status=DRAFT excludes drafts that are "
+            "already priced — those belong to pending_approval, and the two "
+            "partition the drafts between them rather than overlapping."
+        ),
+    ),
     pending_approval: Optional[bool] = Query(
         None,
         description=(
-            "When true, return only DRAFT loans whose loan-level required "
-            "terms (principal, interest rate, tenure, due date) are all set "
-            "— i.e. drafts ready for an admin to approve."
+            "When true, return only DRAFT loans whose core terms (principal, "
+            "interest rate, tenure) are set — i.e. drafts an admin can weigh. "
+            "A missing due date or HP number does NOT exclude a draft here; "
+            "both are surfaced as readiness warnings on the approval card."
         ),
     ),
     created_after: Optional[date] = Query(

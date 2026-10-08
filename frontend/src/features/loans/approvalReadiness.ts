@@ -46,6 +46,12 @@ export function computeApprovalGaps(
   // The server refuses to approve a loan without an HP number, so surface it in
   // the checklist rather than letting it fail only at the confirm step.
   if (!loan.hp_number) finance.push({ field: 'hp_number', label: 'HP number' })
+  // The due date is deliberately NOT a gap, even though approval requires it.
+  // A gap means "leave this screen and go fix it" — `handleApprove` diverts to
+  // the checklist whenever one exists — but the approve dialog collects the due
+  // date itself, pre-filled when set and required when not. Listing it here
+  // would block the one dialog that can resolve it. The approval date is not
+  // listed either: it is optional and defaults to today.
   if (finance.length) gaps.push({ key: 'finance', title: 'Finance terms', missing: finance })
 
   if (customer) {

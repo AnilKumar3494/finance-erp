@@ -4,7 +4,7 @@ from typing import Any, Optional
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import Request
-from sqlalchemy import Date, Integer, desc, func, or_, text
+from sqlalchemy import Date, Integer, and_, desc, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -189,6 +189,30 @@ _SORTABLE_COLUMNS: dict[str, Any] = {
 _CUSTOMER_SORT_KEYS = {"full_name", "mandal_village"}
 
 
+def _ready_to_weigh():
+    """A draft is ready for an admin to weigh once its core commercial terms are
+    priced — as opposed to a half-built one still being captured.
+
+    Customer/vehicle completeness is re-checked at the approve step itself; this
+    single-table predicate is the cheap, index-friendly signal. It is the single
+    definition behind both the "Awaiting approval" filter and the matching
+    exclusion from "Draft", so the two views cannot drift apart and no finance
+    can land in both or in neither.
+
+    The due date and HP number are deliberately NOT required even though
+    approve_loan rejects a loan missing either. Requiring them hid exactly the
+    drafts needing attention: a fully-priced finance whose due date was never set
+    vanished from the queue with nothing on screen saying why. They surface as
+    readiness warnings on the approval card instead (frontend
+    approvalReadiness.ts), which is visible rather than silent.
+    """
+    return and_(
+        Loan.principal.isnot(None),
+        Loan.interest_rate.isnot(None),
+        Loan.tenure.isnot(None),
+    )
+
+
 def list_loans(
     db: Session,
     customer_id: Optional[uuid.UUID] = None,
@@ -250,26 +274,16 @@ def list_loans(
 
     if status:
         query = query.filter(Loan.status == status)
+        # Awaiting approval and Draft are two halves of one split, not two
+        # overlapping views: a priced draft belongs to the approval queue, so it
+        # is taken out of Draft rather than listed in both. What is left under
+        # Draft is what the name implies — finances still being captured.
+        if status == LoanStatus.DRAFT and not pending_approval:
+            query = query.filter(~_ready_to_weigh())
 
-    # "Awaiting approval" filter: DRAFT loans whose loan-level required terms
-    # are all filled in — i.e. the ones an admin can actually action now, as
-    # opposed to half-built drafts still being captured. Customer/vehicle
-    # completeness is re-checked at the approve step itself; this single-table
-    # predicate is the cheap, index-friendly signal that a draft is prepared.
+    # "Awaiting approval": DRAFT loans whose core commercial terms are priced.
     if pending_approval:
-        query = query.filter(
-            Loan.status == LoanStatus.DRAFT,
-            Loan.principal.isnot(None),
-            Loan.interest_rate.isnot(None),
-            Loan.tenure.isnot(None),
-            Loan.first_emi_date.isnot(None),
-            # approve_loan hard-rejects a loan with no HP number, so a draft
-            # missing one is not actually actionable. isnot(None) plus the
-            # empty-string guard mirror `if not loan.hp_number` and cover any
-            # legacy rows that stored '' before the schema normalized ''->None.
-            Loan.hp_number.isnot(None),
-            Loan.hp_number != "",
-        )
+        query = query.filter(Loan.status == LoanStatus.DRAFT, _ready_to_weigh())
 
     if created_after is not None:
         query = query.filter(Loan.created_at >= datetime.combine(created_after, time.min))

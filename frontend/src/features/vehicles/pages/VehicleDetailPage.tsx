@@ -24,7 +24,7 @@ import { useDocuments } from '@/api/queries/documents'
 import type { LoanResponse } from '@/api/queries/loans'
 import { useAuth } from '@/app/auth-context'
 import { Btn, Card, ErrorBanner, FieldLabel, Input, Spinner } from '@/components/primitives'
-import { fmtDateTime, fmtINR } from '@/lib/format'
+import { fmtINR } from '@/lib/format'
 import { isValidVehiclePlate } from '@/schemas/primitives'
 import { EditableSection } from '@/features/loans/components/EditableSection'
 import { CollapsibleCard } from '@/features/loans/components/CollapsibleCard'
@@ -32,7 +32,8 @@ import { DocumentLine } from '@/features/loans/components/DocumentLine'
 import { VehicleDocsBody } from '@/features/loans/sections/VehicleInfoSection'
 import { LoanStatusChip } from '@/features/loans/components/LoanStatusChip'
 import { loanDisplayId } from '@/features/loans/loanIdentity'
-import { FieldGrid, FieldRow } from '@/features/loans/components/DetailFields'
+import { FieldGrid, FieldRow } from '@/components/DetailFields'
+import { AuditCard as SharedAuditCard } from '@/components/AuditCard'
 import { ASSET_TYPE_LABELS, VEHICLE_STATUS_META } from '../vehicleStatusMeta'
 import { VehicleStatusChip } from '../components/VehicleStatusChip'
 import { VehicleForm } from '../components/VehicleForm'
@@ -494,17 +495,16 @@ function DangerZone({ vehicle, loans }: { vehicle: VehicleResponse; loans: LoanR
 // --------------------------------------------------
 
 function AuditCard({ vehicle }: { vehicle: VehicleResponse }) {
+  // Was printing the raw created_by_id/updated_by_id UUIDs: the response now
+  // nests the users, so the shared card resolves them to names.
   return (
-    <Card>
-      <Typography variant="h3" sx={{ mb: 2 }}>
-        Audit
-      </Typography>
-      <FieldGrid>
-        <FieldRow label="Created" value={fmtDateTime(vehicle.created_at)} />
-        <FieldRow label="Last updated" value={fmtDateTime(vehicle.updated_at)} />
-        <FieldRow label="Created by" value={vehicle.created_by_id ?? undefined} />
-        <FieldRow label="Updated by" value={vehicle.updated_by_id ?? undefined} />
-      </FieldGrid>
-    </Card>
+    <SharedAuditCard
+      created_at={vehicle.created_at}
+      updated_at={vehicle.updated_at}
+      created_by={vehicle.created_by}
+      updated_by={vehicle.updated_by}
+      created_by_id={vehicle.created_by_id}
+      updated_by_id={vehicle.updated_by_id}
+    />
   )
 }

@@ -15,7 +15,7 @@ interface LoanIdentityCardProps {
   eyebrow: string
   // Retained for API compatibility; the compact band no longer renders it.
   showLmsNumber?: boolean
-  // When set, a clickable status chip is shown to jump to loan actions. Used
+  // When set, the status chip becomes clickable and jumps to loan actions. Used
   // by the collections cockpit for statuses that carry a pending decision.
   onStatusClick?: () => void
 }
@@ -25,8 +25,10 @@ interface LoanIdentityCardProps {
 // top bar so the statement stays one click away no matter how far down the
 // page you are; keeping it to a single line stops it eating the viewport while
 // scrolled. The header's stats live in a separate card below. The collections
-// cockpit additionally surfaces a clickable status chip (via `onStatusClick`)
-// when the status carries a pending decision.
+// The status chip always rides along: without it a fully-paid AWAITING_CLOSURE
+// or a CLOSED finance looked identical to an active one, still advertising a
+// "Next EMI". `onStatusClick` only makes the chip actionable (collections
+// cockpit), it no longer decides whether the status is shown at all.
 export function LoanIdentityCard({ loan, onStatusClick }: LoanIdentityCardProps) {
   return (
     <Card
@@ -79,13 +81,11 @@ export function LoanIdentityCard({ loan, onStatusClick }: LoanIdentityCardProps)
           spacing={1}
           sx={{ flexShrink: 0, alignItems: 'center' }}
         >
-          {onStatusClick && (
-            <LoanStatusChip
-              status={loan.status}
-              onClick={onStatusClick}
-              title="Go to loan actions"
-            />
-          )}
+          <LoanStatusChip
+            status={loan.status}
+            onClick={onStatusClick}
+            title={onStatusClick ? 'Go to loan actions' : undefined}
+          />
           {loan.status !== 'DRAFT' && <PrintStatementButton loan={loan} />}
         </Stack>
       </Stack>
