@@ -11,6 +11,10 @@ What it does
 - Scans backend/migrations/ for files matching `NNN_*.sql` (lexically sorted).
 - Connects to the DB using settings.DATABASE_URL.
 - Compares against the schema_migrations table.
+- On a truly empty database, first loads migrations/baseline.sql (the full
+  schema at its `baseline-version`) and records every migration up to that
+  version as applied. Migration 001 assumes the original pre-tracker schema,
+  so replaying 001.. on an empty database cannot work.
 - For each pending file: opens a transaction, executes the file, records
   (version, filename, sha256, applied_at, applied_by) in schema_migrations,
   and commits. Failure rolls back ONLY that file — earlier successes stay.
@@ -56,6 +60,8 @@ logger = logging.getLogger("migrate")
 # Defer settings import so a missing .env doesn't crash --help.
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _FILENAME_RE = re.compile(r"^(\d{3,})_.+\.sql$")
+_BASELINE_PATH = _MIGRATIONS_DIR / "baseline.sql"
+_BASELINE_VERSION_RE = re.compile(r"^-- baseline-version: (\d{3,})$", re.M)
 
 
 @dataclass(frozen=True)
@@ -172,6 +178,50 @@ def _bootstrap_tracker_table(conn) -> None:
             """
         )
         conn.commit()
+
+
+def _apply_baseline(conn, migrations: list[Migration], applied_by: str) -> None:
+    """Load baseline.sql into an EMPTY database and record the migrations it covers.
+
+    The baseline is a schema-only dump taken at `baseline-version`; every
+    migration at or below that version is already reflected in it, so they
+    are recorded (with their current sha256) rather than executed. One
+    transaction: a failure leaves the database empty again.
+    """
+    sql = _BASELINE_PATH.read_text(encoding="utf-8")
+    m = _BASELINE_VERSION_RE.search(sql)
+    if not m:
+        raise ValueError(f"{_BASELINE_PATH.name} has no '-- baseline-version: NNN' line")
+    baseline_version = m.group(1)
+    covered = [mig for mig in migrations if mig.version <= baseline_version]
+    if not covered or covered[-1].version != baseline_version:
+        raise ValueError(
+            f"baseline-version {baseline_version} has no matching migration file"
+        )
+
+    with conn.cursor() as cur:
+        try:
+            cur.execute(sql)
+            # The dump turns this off so function bodies may reference
+            # objects created later in the file; restore the default.
+            cur.execute("RESET check_function_bodies")
+            for mig in covered:
+                cur.execute(
+                    """
+                    INSERT INTO schema_migrations
+                        (version, filename, sha256, applied_by)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (mig.version, mig.filename, mig.sha256, f"{applied_by} (baseline)"),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    logger.info(
+        "loaded %s; recorded %d migrations (%s..%s) as applied",
+        _BASELINE_PATH.name, len(covered), covered[0].version, baseline_version,
+    )
 
 
 def _fetch_applied(conn) -> dict[str, dict]:
@@ -303,6 +353,19 @@ def cmd_apply(only_version: Optional[str] = None) -> int:
             _bootstrap_tracker_table(conn)
 
         applied = _fetch_applied(conn)
+
+        # Empty database (no app tables, nothing recorded — also the state a
+        # failed baseline load rolls back to): start from the baseline.
+        if not applied and not _has_app_tables(conn):
+            if only_version is not None:
+                logger.error(
+                    "--version is not allowed on an empty database. Run "
+                    "`migrate.py apply` without --version first."
+                )
+                return 2
+            _apply_baseline(conn, discover_migrations(), applied_by)
+            applied = _fetch_applied(conn)
+
         to_run = [m for m in migrations if m.version not in applied]
 
         if not to_run:

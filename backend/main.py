@@ -20,6 +20,7 @@ from app.api.v1.routes import (
     documents,
     reports,
     due_cycles,
+    settings as settings_routes,
 )
 from app.api.v1.routes.personnel import personnel_router, loan_personnel_router
 from app.api.v1.routes.identity_proofs import router as identity_proofs_router
@@ -80,13 +81,15 @@ app.add_middleware(SlowAPIMiddleware)
 register_error_handlers(app)
 
 # --------------------------------------------------
-# CORS — origin list comes from settings.CORS_ORIGINS (env-driven).
+# CORS — origin list comes from settings.CORS_ORIGINS and the optional
+# settings.CORS_ORIGIN_REGEX (both env-driven).
 # Local default covers dev; production deployments must override the env var.
 # --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_origin_regex=r"^https://(finance-erp-xzjz(-[a-z0-9-]+)?|sriadithyafinance(-[a-z0-9-]+)?)\.vercel\.app$",
+    # Empty string disables regex matching (Starlette treats None as off).
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -108,6 +111,7 @@ app.include_router(due_cycles.router, prefix="/api/v1")
 app.include_router(bad_debt_propose_router, prefix="/api/v1")
 app.include_router(bad_debt_review_router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(settings_routes.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 app.include_router(cash_entries.router, prefix="/api/v1")
 
