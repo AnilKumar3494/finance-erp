@@ -13,6 +13,7 @@ import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 
 import { usePnl } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
@@ -37,6 +38,7 @@ const MAX_RANGE_DAYS = 366
  * down payments are balance-sheet items and deliberately absent here.
  */
 export function PnlTab() {
+  const branding = useBranding()
   const [from, setFrom] = useState<Dayjs>(() => dayjs().startOf('month'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
   const isDefault = from.isSame(dayjs().startOf('month'), 'day') && to.isSame(dayjs(), 'day')
@@ -96,6 +98,7 @@ export function PnlTab() {
   const exportPdf = () =>
     report &&
     downloadStatementPdf({
+      orgName: branding.display_name,
       filename: `Profit_and_Loss_${report.date1}_${report.date2}.pdf`,
       title: 'Profit & Loss',
       subtitle: `${fmtDate(report.date1)} — ${fmtDate(report.date2)}`,

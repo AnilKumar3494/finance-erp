@@ -6,6 +6,7 @@ import DirectionsCarOutlined from '@mui/icons-material/DirectionsCarOutlined'
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined'
 import CalculateOutlined from '@mui/icons-material/CalculateOutlined'
 import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined'
+import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 export interface NavItem {
@@ -19,11 +20,14 @@ export interface NavItem {
     | '/reports'
     | '/irr-sheet'
     | '/team'
+    | '/settings'
   icon: SvgIconComponent
   showInBottomBar: boolean
   // When true, the item is only shown to ADMIN / SUPER_ADMIN (see
   // useVisibleNavItems in navUtils). The page itself also enforces this.
   adminOnly?: boolean
+  // Only SUPER_ADMIN sees it; the page enforces this too.
+  superAdminOnly?: boolean
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -46,12 +50,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     showInBottomBar: false,
     adminOnly: true,
   },
+  {
+    label: 'Settings',
+    path: '/settings',
+    icon: SettingsOutlined,
+    showInBottomBar: false,
+    superAdminOnly: true,
+  },
 ] as const
-
-export const BRAND = {
-  full: 'Sri Adithya Finance',
-  short: 'Sri',
-} as const
 
 declare module '@tanstack/react-router' {
   interface StaticDataRouteOption {
