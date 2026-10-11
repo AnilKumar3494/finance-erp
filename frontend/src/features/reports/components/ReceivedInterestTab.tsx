@@ -15,6 +15,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useReceivedInterest, type ReceivedInterestRow } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
@@ -48,6 +49,7 @@ const RI_ACCESSORS: Partial<
  * loan's fixed interest share; the backend does the math.
  */
 export function ReceivedInterestTab() {
+  const branding = useBranding()
   const [from, setFrom] = useState<Dayjs>(() => dayjs().subtract(29, 'day'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
   const isDefault = from.isSame(dayjs().subtract(29, 'day'), 'day') && to.isSame(dayjs(), 'day')
@@ -93,6 +95,7 @@ export function ReceivedInterestTab() {
   const exportPdf = () =>
     report &&
     downloadTablePdf({
+      orgName: branding.display_name,
       filename: `Received_Interest_${iso(from)}_${iso(to)}.pdf`,
       title: 'Received Interest',
       subtitle: `${fmtDate(report.date1)} — ${fmtDate(report.date2)}  ·  ${report.results.length} finances paid`,

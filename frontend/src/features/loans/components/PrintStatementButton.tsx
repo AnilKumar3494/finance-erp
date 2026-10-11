@@ -8,6 +8,7 @@ import { useLoanTransactions, useLoanSummary } from '@/api/queries/transactions'
 import { useCustomer } from '@/api/queries/customers'
 import { useVehicle } from '@/api/queries/vehicles'
 import { useLoanPersonnel } from '@/api/queries/personnel'
+import { useBranding } from '@/api/queries/settings'
 import { Btn } from '@/components/primitives'
 import { buildLoanStatementHtml } from '../loanStatement'
 import { StatementPreviewDialog } from './StatementPreviewDialog'
@@ -26,6 +27,7 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
   const customer = useCustomer(loan.customer_id)
   const vehicle = useVehicle(loan.vehicle_id ?? undefined)
   const personnel = useLoanPersonnel(loan.id)
+  const branding = useBranding()
 
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -53,8 +55,18 @@ export function PrintStatementButton({ loan }: { loan: LoanResponse }) {
         customer: customer.data,
         vehicle: vehicle.data,
         personnel: personnel.data?.results ?? [],
+        orgName: branding.display_name,
       }),
-    [loan, cycles.data, transactions.data, summary.data, customer.data, vehicle.data, personnel.data],
+    [
+      loan,
+      cycles.data,
+      transactions.data,
+      summary.data,
+      customer.data,
+      vehicle.data,
+      personnel.data,
+      branding.display_name,
+    ],
   )
 
   return (

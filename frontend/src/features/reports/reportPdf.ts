@@ -1,6 +1,5 @@
 import { jsPDF } from 'jspdf'
 
-import { ORG_NAME } from '@/features/loans/branding'
 import { fmtDateTime, fmtINRPdf } from '@/lib/format'
 
 // Re-exported so report tabs get their table/statement builders and the
@@ -34,11 +33,11 @@ function newDoc(orientation: 'portrait' | 'landscape'): Frame {
 }
 
 // Branded page header; returns the y where content starts.
-function drawHeader(f: Frame, title: string, subtitle?: string): number {
+function drawHeader(f: Frame, orgName: string, title: string, subtitle?: string): number {
   const { doc, left, right } = f
   let y = 50
   doc.setFont('helvetica', 'bold').setFontSize(15).setTextColor(0)
-  doc.text(ORG_NAME, left, y)
+  doc.text(orgName, left, y)
   doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(110)
   doc.text(title, right, y, { align: 'right' })
   y += 10
@@ -107,7 +106,9 @@ export function downloadTablePdf({
   rows,
   totals,
   note,
+  orgName,
 }: {
+  orgName: string
   filename: string
   title: string
   subtitle?: string
@@ -145,7 +146,7 @@ export function downloadTablePdf({
     return y + ROW_H + 2
   }
 
-  let y = drawHeader(f, title, subtitle)
+  let y = drawHeader(f, orgName, title, subtitle)
   y = drawHeadRow(y)
   doc.setFontSize(TABLE_FONT)
 
@@ -204,7 +205,9 @@ export function downloadStatementPdf({
   subtitle,
   sections,
   note,
+  orgName,
 }: {
+  orgName: string
   filename: string
   title: string
   subtitle?: string
@@ -215,7 +218,7 @@ export function downloadStatementPdf({
   const { doc, left, right, bottom } = f
   const LINE_H = 19
 
-  let y = drawHeader(f, title, subtitle)
+  let y = drawHeader(f, orgName, title, subtitle)
 
   const ensureRoom = (needed: number) => {
     if (y + needed > bottom) {

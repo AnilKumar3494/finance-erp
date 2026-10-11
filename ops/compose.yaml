@@ -1,0 +1,44 @@
+# FinERP backend: one compose project per tenant slug, all driven by this one
+# template. Nothing here is edited per franchise.
+#
+#   docker compose -p finerp-<slug> -f ops/compose.yaml \
+#     --env-file /srv/finerp/env/<slug>.deploy up -d
+#
+# <slug>.deploy holds only non-secret values (SLUG, PORT, CHANNEL); see
+# ops/env/deploy.example. The app's secrets come from <slug>.env via env_file.
+#
+# IMAGE_TAG is set by ops/release.sh to pin a container to an exact build
+# (finerp-api:<sha>). Unset, the container follows the channel's moving tag
+# (finerp-api:production or finerp-api:develop), which release.sh moves only
+# after a successful release.
+#
+# FINERP_ENV_DIR defaults to /srv/finerp/env; ops/lib/common.sh passes its
+# own ENV_DIR so a FINERP_ROOT override (testing) stays consistent.
+
+name: finerp-${SLUG:?SLUG missing from the .deploy file}
+
+services:
+  api:
+    image: finerp-api:${IMAGE_TAG:-${CHANNEL:?CHANNEL missing from the .deploy file}}
+    container_name: finerp-api-${SLUG}
+    env_file: ${FINERP_ENV_DIR:-/srv/finerp/env}/${SLUG}.env
+    # Loopback only: cloudflared on the host is the sole way in.
+    ports:
+      - "127.0.0.1:${PORT:?PORT missing from the .deploy file}:8000"
+    restart: unless-stopped
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

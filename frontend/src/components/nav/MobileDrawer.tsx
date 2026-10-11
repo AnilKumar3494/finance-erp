@@ -11,9 +11,9 @@ import LogoutOutlined from '@mui/icons-material/LogoutOutlined'
 import LockResetOutlined from '@mui/icons-material/LockResetOutlined'
 import { Link, useNavigate } from '@tanstack/react-router'
 
+import { useBranding } from '@/api/queries/settings'
 import { useAuth } from '@/app/auth-context'
 import { ChangePasswordDialog } from '@/features/auth/components/ChangePasswordDialog'
-import { BRAND } from './navConfig'
 import { getInitials, isActive, useCurrentPath, useVisibleNavItems } from './navUtils'
 
 interface MobileDrawerProps {
@@ -26,6 +26,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const navigate = useNavigate()
   const currentPath = useCurrentPath()
   const navItems = useVisibleNavItems()
+  const branding = useBranding()
   const [pwOpen, setPwOpen] = useState(false)
 
   const handleLogout = () => {
@@ -76,14 +77,17 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
         }}
       >
         <Typography
+          noWrap
+          title={branding.display_name}
           sx={{
             color: 'var(--sidebar-text-strong)',
             fontWeight: 700,
             fontSize: 16,
             letterSpacing: 'var(--tracking-tight)',
+            minWidth: 0,
           }}
         >
-          {BRAND.full}
+          {branding.display_name}
         </Typography>
         <IconButton
           onClick={onClose}

@@ -9,12 +9,16 @@ export function isActive(currentPath: string, itemPath: NavItem['path']): boolea
 }
 
 // NAV_ITEMS filtered by the current user's role: `adminOnly` items are hidden
-// from non-admins. Shared by every nav surface (sidebar, mobile drawer, bottom
-// bar) so visibility stays consistent.
+// from non-admins and `superAdminOnly` items from everyone but SUPER_ADMIN.
+// Shared by every nav surface (sidebar, mobile drawer, bottom bar) so
+// visibility stays consistent.
 export function useVisibleNavItems(): readonly NavItem[] {
   const { user } = useAuth()
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
-  return NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin)
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+  const isAdmin = user?.role === 'ADMIN' || isSuperAdmin
+  return NAV_ITEMS.filter(
+    (item) => (!item.adminOnly || isAdmin) && (!item.superAdminOnly || isSuperAdmin),
+  )
 }
 
 export function getInitials(source: string | null | undefined, fallback: string): string {

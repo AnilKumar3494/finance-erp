@@ -1,7 +1,6 @@
 import type { DayReport, DayReportDay, DayReportEntry } from '@/api/queries/reports'
 import { CASH_ENTRY_TYPE_LABELS } from '@/api/queries/cashEntries'
 import { fmtDate, fmtINR } from '@/lib/format'
-import { ORG_NAME } from '@/features/loans/branding'
 
 const inr = (s: string) => fmtINR(Number(s))
 
@@ -81,7 +80,7 @@ function daySection(day: DayReportDay): string {
  * browser's print dialog — same no-backend, no-dependency approach as the
  * loan statement.
  */
-export function printDayReport(report: DayReport): void {
+export function printDayReport(report: DayReport, orgName: string): void {
   const single = report.date1 === report.date2
   const title = single
     ? `Day Report — ${fmtDate(report.date1)}`
@@ -112,7 +111,7 @@ export function printDayReport(report: DayReport): void {
 </style>
 </head>
 <body>
-  <div class="org">${esc(ORG_NAME)}</div>
+  <div class="org">${esc(orgName)}</div>
   <h1>${esc(title)}</h1>
   <p class="sub">Opening ${inr(report.opening_balance)} · Receipts ${inr(report.total_receipts)} · Payments ${inr(report.total_payments)} · Closing ${inr(report.closing_balance)}<br/>
   EMI ${inr(report.total_emi_collection)} · Down payments ${inr(report.total_down_payments)} · Capital in ${inr(report.total_capital_in)} · Other income ${inr(report.total_other_income)} · Expenses ${inr(report.total_expenses)} · Withdrawals ${inr(report.total_capital_out)}<br/>

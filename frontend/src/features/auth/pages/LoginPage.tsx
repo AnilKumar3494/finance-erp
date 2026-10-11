@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 
 import { useLogin } from '@/api/queries/auth'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, ErrorBanner, Input, PasswordReveal } from '@/components/primitives'
 import { sanitizeRedirect } from '@/features/auth/redirect'
 
@@ -44,6 +45,7 @@ interface LoginPageProps {
 export function LoginPage({ redirectAfterLogin }: LoginPageProps = {}) {
   const navigate = useNavigate()
   const loginMutation = useLogin()
+  const branding = useBranding()
   const target = sanitizeRedirect(redirectAfterLogin)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -76,7 +78,7 @@ export function LoginPage({ redirectAfterLogin }: LoginPageProps = {}) {
               variant="h1"
               sx={{ fontWeight: 700, fontSize: 28, mb: 1, letterSpacing: '-0.01em' }}
             >
-              Sri Adithya Finance
+              {branding.display_name}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Sign in to your account

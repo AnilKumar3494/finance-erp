@@ -7,6 +7,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useFeeReport, type FeeRow } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
@@ -64,6 +65,7 @@ const ACCESSORS: Partial<Record<Field, (r: FeeRow) => string | number | null>> =
  * nothing in the schema records a fee payment separately from the loan row.
  */
 export function FeesTab() {
+  const branding = useBranding()
   const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
   const invalidRange = rangeError(range)
   const query = useFeeReport(!invalidRange, {
@@ -253,6 +255,7 @@ export function FeesTab() {
 
   const exportPdf = () =>
     downloadTablePdf({
+      orgName: branding.display_name,
       filename: 'Fees.pdf',
       title: 'Fees',
       subtitle: [

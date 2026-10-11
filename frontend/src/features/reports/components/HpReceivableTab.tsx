@@ -7,6 +7,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpReceivable, type HpReceivableRow } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtINR } from '@/lib/format'
@@ -39,6 +40,7 @@ const ACCESSORS: Partial<Record<Field, (r: HpReceivableRow) => string | number |
  * flat-rate interest share applied to its outstanding balance.
  */
 export function HpReceivableTab() {
+  const branding = useBranding()
   const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
   const invalidRange = rangeError(range)
   const query = useHpReceivable(!invalidRange, {
@@ -135,6 +137,7 @@ export function HpReceivableTab() {
 
   const exportPdf = () =>
     downloadTablePdf({
+      orgName: branding.display_name,
       filename: 'Receivable_Interest.pdf',
       title: 'Receivable Interest',
       subtitle: [

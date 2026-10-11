@@ -2,18 +2,19 @@ import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
 
 import { tokenStorage } from '@/lib/storage'
+import { resolveApiBaseUrl } from './baseUrl'
 
 // Endpoints where POSTs must carry an Idempotency-Key so retries don't
 // double-create. Backend de-dupes by this key. Match is on the path portion
 // only — collection endpoints, not sub-resources.
 const IDEMPOTENT_POST_PATHS = new Set(['/customers', '/transactions', '/loans'])
 
-// Prod sets VITE_API_BASE_URL to an absolute backend URL (Vercel dashboard).
-// With no env file — a fresh clone running `pnpm dev` — fall back to a relative
-// `/api/v1`, which the Vite dev proxy (see vite.config.ts) forwards to the
-// local backend. Either way the app has a working base URL out of the box.
+// See resolveApiBaseUrl: VITE_API_BASE_URL when set (Vercel dashboard, local
+// .env), else the tenant's API derived from the hostname on the franchise
+// domain, else a relative `/api/v1` that the Vite dev proxy (vite.config.ts)
+// forwards to the local backend.
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
+  baseURL: resolveApiBaseUrl(window.location.hostname, import.meta.env.VITE_API_BASE_URL),
   headers: { 'Content-Type': 'application/json' },
 })
 
