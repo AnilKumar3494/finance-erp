@@ -157,6 +157,13 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173, http://localhost:8008,http://127.0.0.1:8008, http://localhost:8000,http://127.0.0.1:8000"
     )
 
+    # Regex of extra allowed origins (preview deploys). Defaults to the two
+    # Vercel projects so servers whose env predates this setting behave as
+    # before. Set it to an empty string to disable regex matching entirely.
+    CORS_ORIGIN_REGEX: Optional[str] = (
+        r"^https://(finance-erp-xzjz(-[a-z0-9-]+)?|sriadithyafinance(-[a-z0-9-]+)?)\.vercel\.app$"
+    )
+
     @field_validator("CORS_ORIGINS")
     @classmethod
     def _no_wildcard_origin(cls, v: str) -> str:
@@ -179,6 +186,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    # --------------------------------------------------
+    # ORGANISATION BRANDING
+    # Defaults only: once a SUPER_ADMIN saves in Settings, the org_settings
+    # row wins (see app/services/org_settings.py).
+    # --------------------------------------------------
+    ORG_DISPLAY_NAME: str = "Sri Adithya Finance"
+    ORG_SHORT_NAME: str = "Sri"
 
     # --------------------------------------------------
     # LOGGING
