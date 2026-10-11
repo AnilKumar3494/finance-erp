@@ -1,0 +1,27 @@
+# /etc/cloudflared/config.yml on the Singapore server (tunnel finerp-singapore).
+# The credentials JSON is a secret: it stays on the server (chmod 600) and is
+# never committed. ops/new-franchise.sh appends one ingress rule per franchise
+# above the catch-all. Check after editing:
+#   cloudflared tunnel ingress validate
+#   sudo systemctl restart cloudflared
+
+tunnel: finerp-singapore
+credentials-file: /etc/cloudflared/<tunnel-uuid>.json
+
+ingress:
+  # dev tenant (channel develop)
+  - hostname: dev-api.sriadithyafinance.loan
+    service: http://localhost:8100
+  # main tenant (channel production)
+  - hostname: api.sriadithyafinance.loan
+    service: http://localhost:8101
+  # Transitional: old hostnames repointed to this tunnel during the move,
+  # removed in Phase 4/6. Their DNS records are CNAMEs edited by hand to
+  # <tunnel-uuid>.cfargotunnel.com (proxied) in the mrprawns.monster zone.
+  - hostname: sriadithya-dev.mrprawns.monster
+    service: http://localhost:8100
+  - hostname: sriadithya-uat.mrprawns.monster
+    service: http://localhost:8101
+  # Franchises: <slug>-api.sriadithyafinance.loan -> http://localhost:<port>
+  # Catch-all: must stay last.
+  - service: http_status:404

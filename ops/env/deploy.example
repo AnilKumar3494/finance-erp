@@ -1,0 +1,13 @@
+# /srv/finerp/env/<slug>.deploy — NON-SECRET values only. Read by
+# `docker compose --env-file` (template variables) and by ops/release.sh.
+# ops/new-franchise.sh writes this file for franchises.
+
+# Permanent lowercase tenant id: main, dev, or a franchise slug like vizag.
+SLUG=example
+
+# Host port on 127.0.0.1. dev 8100, main 8101, franchises 8102 and up.
+PORT=8102
+
+# Release channel: production (main + franchises, branch `production`) or
+# develop (dev tenant, branch `develop`).
+CHANNEL=production
