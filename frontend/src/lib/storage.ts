@@ -87,3 +87,4 @@ export const tokenStorage = createReactiveStringStore(
 ) // finerp_token
 export const themeStorage = createStringStore('theme') // finerp_theme
 export const sidebarStorage = createStringStore('sidebar_collapsed') // finerp_sidebar_collapsed
+export const brandingStorage = createStringStore('branding') // finerp_branding

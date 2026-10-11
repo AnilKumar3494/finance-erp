@@ -7,6 +7,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 
 import { useDayReport } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, Card } from '@/components/primitives'
 import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
@@ -25,6 +26,7 @@ const iso = (d: Dayjs) => d.format('YYYY-MM-DD')
  * the chosen date, with the rolling position carried in from all history.
  */
 export function DayReportTab() {
+  const branding = useBranding()
   const [day, setDay] = useState<Dayjs>(() => dayjs())
   const isDefault = day.isSame(dayjs(), 'day')
   const query = useDayReport(iso(day), iso(day))
@@ -57,7 +59,7 @@ export function DayReportTab() {
           variant="ghost"
           startIcon={<PrintOutlinedIcon />}
           disabled={!report}
-          onClick={() => report && printDayReport(report)}
+          onClick={() => report && printDayReport(report, branding.display_name)}
         >
           Print
         </Btn>

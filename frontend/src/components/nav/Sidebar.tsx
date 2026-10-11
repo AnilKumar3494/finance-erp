@@ -7,7 +7,7 @@ import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined'
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined'
 import { Link } from '@tanstack/react-router'
 
-import { BRAND } from './navConfig'
+import { useBranding } from '@/api/queries/settings'
 import { isActive, useCurrentPath, useVisibleNavItems } from './navUtils'
 
 interface SidebarProps {
@@ -18,6 +18,7 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const currentPath = useCurrentPath()
   const navItems = useVisibleNavItems()
+  const branding = useBranding()
   const width = collapsed ? 'var(--sidebar-w-collapsed)' : 'var(--sidebar-w)'
 
   return (
@@ -50,31 +51,45 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         }}
       >
         {collapsed ? (
-          <Box
-            sx={{
-              width: 28,
-              height: 28,
-              borderRadius: 'var(--radius-sm)',
-              bgcolor: 'var(--sidebar-active)',
-              color: 'var(--sidebar-active-text)',
-              display: 'grid',
-              placeItems: 'center',
-              fontWeight: 700,
-              fontSize: 14,
-            }}
-          >
-            {BRAND.short}
-          </Box>
+          <Tooltip title={branding.display_name} placement="right" arrow>
+            <Box
+              sx={{
+                minWidth: 28,
+                maxWidth: 48,
+                height: 28,
+                px: 0.5,
+                borderRadius: 'var(--radius-sm)',
+                bgcolor: 'var(--sidebar-active)',
+                color: 'var(--sidebar-active-text)',
+                display: 'grid',
+                placeItems: 'center',
+                fontWeight: 700,
+                fontSize: branding.short_name.length > 3 ? 11 : 14,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {branding.short_name}
+            </Box>
+          </Tooltip>
         ) : (
           <Typography
+            title={branding.display_name}
             sx={{
               color: 'var(--sidebar-text-strong)',
               fontWeight: 700,
               fontSize: 16,
+              lineHeight: 1.25,
               letterSpacing: 'var(--tracking-tight)',
+              minWidth: 0,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
             }}
           >
-            {BRAND.full}
+            {branding.display_name}
           </Typography>
         )}
       </Stack>

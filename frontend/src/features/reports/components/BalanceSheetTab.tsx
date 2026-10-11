@@ -12,6 +12,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useState } from 'react'
 
 import { useBalanceSheet, type BalanceSheetReport } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, Card } from '@/components/primitives'
 import { fmtDate, fmtINR } from '@/lib/format'
 import { AsyncSection } from './AsyncSection'
@@ -121,8 +122,9 @@ function exportCsv(report: BalanceSheetReport, v: SheetView) {
   )
 }
 
-function exportPdf(report: BalanceSheetReport, v: SheetView) {
+function exportPdf(report: BalanceSheetReport, v: SheetView, orgName: string) {
   downloadStatementPdf({
+    orgName,
     filename: `Balance_Sheet_${report.as_of}.pdf`,
     title: 'Balance Sheet',
     subtitle: `As of ${fmtDate(report.as_of)}  ·  ${report.open_loans} open finances`,
@@ -182,6 +184,7 @@ function exportPdf(report: BalanceSheetReport, v: SheetView) {
  * line rather than hidden.
  */
 export function BalanceSheetTab() {
+  const branding = useBranding()
   const query = useBalanceSheet()
   const report = query.data
   const [showFees, setShowFees] = useState(true)
@@ -209,7 +212,7 @@ export function BalanceSheetTab() {
               variant="ghost"
               size="sm"
               startIcon={<PictureAsPdfOutlinedIcon />}
-              onClick={() => exportPdf(report, view)}
+              onClick={() => exportPdf(report, view, branding.display_name)}
             >
               Download PDF
             </Btn>

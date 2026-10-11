@@ -8,6 +8,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpOutstanding, type HpOutstandingRow } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtINR } from '@/lib/format'
@@ -58,6 +59,7 @@ const STATUS_LABELS: Record<string, string> = {
  * payable, collected, and outstanding per loan, with portfolio totals.
  */
 export function HpOutstandingTab() {
+  const branding = useBranding()
   const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
   const invalidRange = rangeError(range)
   const query = useHpOutstanding(!invalidRange, {
@@ -203,6 +205,7 @@ export function HpOutstandingTab() {
 
   const exportPdf = () =>
     downloadTablePdf({
+      orgName: branding.display_name,
       filename: 'HP_Outstanding.pdf',
       title: 'HP Outstanding',
       subtitle: [

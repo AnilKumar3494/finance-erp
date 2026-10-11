@@ -36,6 +36,7 @@ import {
 } from '@/api/queries/transactions'
 import { useDueCycles, type DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanResponse } from '@/api/queries/loans'
+import { useBranding } from '@/api/queries/settings'
 import { useFinancePermissions } from '../financePermissions'
 import { useTransactionFocus } from '../txnFocus'
 import { useAuth } from '@/app/auth-context'
@@ -107,6 +108,7 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
 
   const query = useLoanTransactions(loan.id)
   const summaryQuery = useLoanSummary(loan.id)
+  const branding = useBranding()
   // Cycles are joined client-side so the Cycle column resolves to the
   // cycle # + due date instead of a raw UUID. The query is shared with
   // DueCyclesTab so this is a cache hit when both render together.
@@ -183,7 +185,7 @@ export function TransactionsTab({ loan }: { loan: LoanResponse }) {
   // stays out of the loan-detail chunk.
   const onReceipt = async (txn: TransactionResponse) => {
     const { downloadReceiptPdf } = await import('../receiptPdf')
-    downloadReceiptPdf({ txn, loan, summary: summaryQuery.data })
+    downloadReceiptPdf({ txn, loan, summary: summaryQuery.data, orgName: branding.display_name })
   }
 
   const openEdit = (txn: TransactionResponse) => {

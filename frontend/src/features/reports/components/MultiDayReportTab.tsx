@@ -7,6 +7,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 
 import { useDayReport } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, Card, ErrorBanner } from '@/components/primitives'
 import { ClearDatesButton } from '@/components/filters/ClearDatesButton'
 import { FieldLabel } from '@/components/primitives/FieldLabel'
@@ -28,6 +29,7 @@ const MAX_RANGE_DAYS = 92
  * active day with balances rolling from section to section.
  */
 export function MultiDayReportTab() {
+  const branding = useBranding()
   const [from, setFrom] = useState<Dayjs>(() => dayjs().subtract(6, 'day'))
   const [to, setTo] = useState<Dayjs>(() => dayjs())
   const isDefault = from.isSame(dayjs().subtract(6, 'day'), 'day') && to.isSame(dayjs(), 'day')
@@ -80,7 +82,7 @@ export function MultiDayReportTab() {
           variant="ghost"
           startIcon={<PrintOutlinedIcon />}
           disabled={!report}
-          onClick={() => report && printDayReport(report)}
+          onClick={() => report && printDayReport(report, branding.display_name)}
         >
           Print
         </Btn>

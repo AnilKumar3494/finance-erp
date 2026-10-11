@@ -3,7 +3,6 @@ import { jsPDF } from 'jspdf'
 import type { LoanResponse } from '@/api/queries/loans'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
 import { fmtDate, fmtDateTime, fmtINRPdf } from '@/lib/format'
-import { ORG_NAME } from './branding'
 import { loanDisplayId } from './loanIdentity'
 import { PAYMENT_METHOD_LABELS } from './paymentMethodLabels'
 
@@ -25,10 +24,12 @@ export function downloadReceiptPdf({
   txn,
   loan,
   summary,
+  orgName,
 }: {
   txn: TransactionResponse
   loan: LoanResponse
   summary?: LoanTransactionSummary | null
+  orgName: string
 }): void {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -37,7 +38,7 @@ export function downloadReceiptPdf({
   let y = 56
 
   // Header
-  doc.setFont('helvetica', 'bold').setFontSize(18).text(ORG_NAME, left, y)
+  doc.setFont('helvetica', 'bold').setFontSize(18).text(orgName, left, y)
   doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(110)
   doc.text('Payment Receipt', right, y, { align: 'right' })
   doc.setTextColor(0)

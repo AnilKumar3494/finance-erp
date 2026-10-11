@@ -5,7 +5,6 @@ import type { LoanPersonnelResponse } from '@/api/queries/personnel'
 import type { DueCycleResponse } from '@/api/queries/dueCycles'
 import type { LoanTransactionSummary, TransactionResponse } from '@/api/queries/transactions'
 import { fmtDate, fmtDateTime, fmtINR } from '@/lib/format'
-import { ORG_NAME } from './branding'
 import { loanDisplayId } from './loanIdentity'
 import { LOAN_STATUS_META } from './loanStatusMeta'
 
@@ -57,6 +56,7 @@ export interface LoanStatementData {
   customer?: CustomerResponse | null
   vehicle?: VehicleResponse | null
   personnel?: LoanPersonnelResponse[]
+  orgName: string
 }
 
 // Compose a printable customer statement in the layout of the old iFinance
@@ -77,6 +77,7 @@ export function buildLoanStatementHtml({
   customer,
   vehicle,
   personnel,
+  orgName,
 }: LoanStatementData): string {
   const customerName = customer?.full_name ?? loan.customer?.full_name ?? '—'
   const customerMobile = customer?.mobile_number ?? loan.customer?.mobile_number ?? '—'
@@ -182,7 +183,7 @@ export function buildLoanStatementHtml({
     <span>${esc(fmtDateTime(new Date()))}</span>
     <span>${esc(loanDisplayId(loan))}</span>
   </div>
-  <h1>${esc(ORG_NAME)}</h1>
+  <h1>${esc(orgName)}</h1>
 
   <div class="cols">
     <div class="col">
@@ -272,7 +273,7 @@ export function buildLoanStatementHtml({
 
   <div class="foot">
     <span>Generated ${esc(fmtDateTime(new Date()))}</span>
-    <span>Computer-generated statement — ${esc(ORG_NAME)}</span>
+    <span>Computer-generated statement — ${esc(orgName)}</span>
   </div>
 </body>
 </html>`

@@ -8,6 +8,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useVehicleRegister, type VehicleRegisterRow } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtINR } from '@/lib/format'
@@ -60,6 +61,7 @@ const ACCESSORS: Partial<Record<Field, (r: VehicleRegisterRow) => string | numbe
  * against (if any). The date window bounds the registration date.
  */
 export function VehiclesReportTab() {
+  const branding = useBranding()
   const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
   const invalidRange = rangeError(range)
   const query = useVehicleRegister(!invalidRange, {
@@ -215,6 +217,7 @@ export function VehiclesReportTab() {
 
   const exportPdf = () =>
     downloadTablePdf({
+      orgName: branding.display_name,
       filename: 'Vehicle_Register.pdf',
       title: 'Vehicle Register',
       subtitle: [

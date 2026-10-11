@@ -7,6 +7,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useNavigate } from '@tanstack/react-router'
 
 import { useHpRegister, type HpRegisterRow } from '@/api/queries/reports'
+import { useBranding } from '@/api/queries/settings'
 import { Btn, ErrorBanner, Input } from '@/components/primitives'
 import { toggleSort, useClientSort, type SortState } from '@/components/sort/useTableSort'
 import { fmtDate, fmtINR } from '@/lib/format'
@@ -52,6 +53,7 @@ const STATUS_LABELS: Record<string, string> = {
  * agreement terms, vehicle, and approval date per loan.
  */
 export function HpRegisterTab() {
+  const branding = useBranding()
   const [range, setRange] = useState<DateRangeValue>(EMPTY_RANGE)
   const invalidRange = rangeError(range)
   const query = useHpRegister(!invalidRange, {
@@ -200,6 +202,7 @@ export function HpRegisterTab() {
 
   const exportPdf = () =>
     downloadTablePdf({
+      orgName: branding.display_name,
       filename: 'HP_Register.pdf',
       title: 'HP Register',
       subtitle: [
