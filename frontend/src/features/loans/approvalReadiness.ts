@@ -28,10 +28,10 @@ export function computeApprovalGaps(
 ): ApprovalGap[] {
   const gaps: ApprovalGap[] = []
 
+  // Collateral is optional — not every finance is secured by a vehicle. Only an
+  // attached vehicle is checked, and then it must be fully described.
   const vehicle: ApprovalMissingField[] = []
-  if (!loan.vehicle_id || !loan.vehicle) {
-    vehicle.push({ field: 'vehicle', label: 'Attach a collateral vehicle' })
-  } else {
+  if (loan.vehicle_id && loan.vehicle) {
     if (!loan.vehicle.plate_number) vehicle.push({ field: 'plate_number', label: 'Registration number' })
     if (!loan.vehicle.make) vehicle.push({ field: 'make', label: 'Make' })
     if (!loan.vehicle.model) vehicle.push({ field: 'model', label: 'Model' })

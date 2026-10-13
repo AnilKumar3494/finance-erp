@@ -304,6 +304,12 @@ export function ApproveAction({
             {requireMode ? ' records the down payment. ' : ' '}
             cannot be undone. The action is audited.
           </Typography>
+          {/* Collateral is optional — a caution, never a gate. */}
+          {!loan.vehicle_id && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'warning.main' }}>
+              No vehicle attached — this finance will be approved without collateral.
+            </Typography>
+          )}
 
           {/* Advisory context at the moment of decision. It renders its own
               loading state and must never gate the Approve button — the hard
