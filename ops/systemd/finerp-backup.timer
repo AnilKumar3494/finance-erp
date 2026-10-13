@@ -1,0 +1,12 @@
+# 01:30 IST (20:00 UTC), before the nightly jobs (main 03:00 IST, dev 03:30
+# IST). Persistent: a run missed while the server was off happens at boot.
+[Unit]
+Description=Daily FinERP backups at 01:30 IST
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 UTC
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
