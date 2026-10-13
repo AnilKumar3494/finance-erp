@@ -83,6 +83,8 @@ function FinanceCard({ loan }: { loan: LoanResponse }) {
   // there, so this is a heads-up about what the admin will be asked, not
   // something to go away and fix first.
   const needsDueDate = isDraft && !loan.first_emi_date
+  // Collateral is optional, so a missing vehicle is a caution, not a blocker.
+  const noVehicle = isDraft && !loan.vehicle_id
 
   return (
     <Card sx={{ p: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -168,6 +170,15 @@ function FinanceCard({ loan }: { loan: LoanResponse }) {
             message="No due date yet — set it when you approve."
           />
         </Box>
+      )}
+
+      {noVehicle && (
+        <Typography
+          variant="caption"
+          sx={{ display: 'block', mt: 1.5, color: 'warning.main' }}
+        >
+          No vehicle attached — this finance will be approved without collateral.
+        </Typography>
       )}
 
       {/* Push the actions to the card bottom so a grid row of cards aligns. */}

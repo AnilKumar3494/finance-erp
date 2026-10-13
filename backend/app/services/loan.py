@@ -606,10 +606,13 @@ def update_loan(
     # Collateral swaps need the same eligibility check as loan creation.
     # Once a loan is ACTIVE the collateral is locked — swapping it out would
     # break the audit chain between vehicle, schedule and disbursement.
+    # Collateral is optional, so an ACTIVE loan approved without a vehicle may
+    # still have one attached later (e.g. the RC arrived after approval); only
+    # replacing or detaching an existing vehicle is refused.
     if "vehicle_id" in changes:
         new_vehicle_id = changes["vehicle_id"]
         if new_vehicle_id != loan.vehicle_id:
-            if loan.status == LoanStatus.ACTIVE:
+            if loan.status == LoanStatus.ACTIVE and loan.vehicle_id is not None:
                 raise ValueError(
                     "Cannot change collateral on an ACTIVE loan"
                 )

@@ -1,0 +1,22 @@
+# Daily tenant database backups to S3; started by finerp-backup.timer.
+# Install: see the header of ops/backup.sh.
+[Unit]
+Description=FinERP tenant database backups to S3
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/local/sbin/finerp-backup
+SyslogIdentifier=finerp-backup
+TimeoutStartSec=1h
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/finerp/backups /srv/finerp/state
