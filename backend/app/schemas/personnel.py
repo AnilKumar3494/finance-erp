@@ -101,7 +101,21 @@ class PersonnelUpdate(_PersonnelValidatorsMixin):
 # --------------------------------------------------
 # RESPONSE (Aadhaar/PAN masked on the wire)
 # --------------------------------------------------
-class PersonnelResponse(PersonnelBase):
+# Deliberately NOT PersonnelBase: it serialises stored rows, and legacy imports
+# predate the input rules (e.g. 1-character names). A rule here would 500 the
+# person and every loan's personnel list that embeds them.
+class PersonnelResponse(BaseModel):
+    full_name: str
+    mobile_number: str
+    date_of_birth: Optional[date] = None
+    alt_mobile_number: Optional[str] = None
+    aadhaar_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    mandal_village: Optional[str] = None
+    pincode: Optional[str] = None
+    remarks: Optional[str] = None
     id: uuid.UUID
     is_deleted: bool
     created_at: datetime
