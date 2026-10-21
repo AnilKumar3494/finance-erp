@@ -14,10 +14,26 @@ from app.models.transaction import (
 
 
 # --------------------------------------------------
-# BASE
+# FIELDS (shape only — shared by input and response)
 # --------------------------------------------------
-class TransactionBase(BaseModel):
+# No range rules here: TransactionResponse serialises stored rows, and legacy
+# imports can predate the input rules. A rule here would 500 the transaction
+# and every list page holding it. Input rules live on TransactionBase.
+class TransactionFields(BaseModel):
     loan_id: uuid.UUID
+    amount: Decimal
+    payment_mode: PaymentMethod
+    ta_amount: Decimal = Field(
+        Decimal("0"),
+        description="Travelling Allowance collected with this EMI (separate income; not part of the EMI amount or loan balance).",
+    )
+    notes: Optional[str] = None
+
+
+# --------------------------------------------------
+# BASE (input rules)
+# --------------------------------------------------
+class TransactionBase(TransactionFields):
     amount: Decimal = Field(
         ...,
         gt=0,
@@ -25,7 +41,6 @@ class TransactionBase(BaseModel):
         decimal_places=2,
         description="Payment amount must be positive",
     )
-    payment_mode: PaymentMethod
     ta_amount: Decimal = Field(
         Decimal("0"),
         ge=0,
@@ -109,7 +124,7 @@ class TransactionUpdate(BaseModel):
 # --------------------------------------------------
 # RESPONSE
 # --------------------------------------------------
-class TransactionResponse(TransactionBase):
+class TransactionResponse(TransactionFields):
     id: uuid.UUID
     status: TransactionStatus
     transaction_type: TransactionType

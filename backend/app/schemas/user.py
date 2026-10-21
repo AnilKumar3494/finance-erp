@@ -145,8 +145,13 @@ class UserLogin(BaseModel):
 #
 # `is_deleted` is intentionally NOT exposed. Soft-deleted users are filtered
 # out before they ever reach the response layer, so callers don't need it.
+# Deliberately NOT UserBase: a stored username/email that predates the input
+# rules must not 500 /auth/me or the Team list.
 # --------------------------------------------------
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
+    username: str
+    email: str
+    full_name: Optional[str] = None
     id: uuid.UUID
     role: UserRole
     is_active: bool

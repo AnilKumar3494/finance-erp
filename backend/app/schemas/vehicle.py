@@ -103,29 +103,31 @@ def _validate_money(v: Optional[Decimal]) -> Optional[Decimal]:
 
 
 # --------------------------------------------------
-# BASE
+# FIELDS (shape + whitespace/case cleanup — shared by input and response)
 # --------------------------------------------------
-class VehicleBase(BaseModel):
+# No rejecting rules here: VehicleResponse serialises stored rows, and legacy
+# imports can predate the input rules. A rule here would 500 the vehicle and
+# every list page holding it. Input rules live on VehicleBase / VehicleUpdate.
+class VehicleFields(BaseModel):
     type: AssetType
-    plate_number: str = Field(..., min_length=2, max_length=20)
-    make: Optional[str] = Field(None, max_length=50)
-    model: Optional[str] = Field(None, max_length=50)
+    plate_number: str
+    make: Optional[str] = None
+    model: Optional[str] = None
     year: Optional[int] = None
-    color: Optional[str] = Field(None, max_length=30)
-    chassis_number: Optional[str] = Field(None, max_length=50)
-    engine_number: Optional[str] = Field(None, max_length=50)
-    market_value: Decimal = Field(default=Decimal("0.00"))
-    purchase_cost: Decimal = Field(default=Decimal("0.00"))
+    color: Optional[str] = None
+    chassis_number: Optional[str] = None
+    engine_number: Optional[str] = None
+    market_value: Decimal = Decimal("0.00")
+    purchase_cost: Decimal = Decimal("0.00")
     status: AssetStatus = AssetStatus.IN_YARD
 
     @field_validator("plate_number")
     @classmethod
     def uppercase_plate(cls, v: str) -> str:
-        normalized = _normalize_plate(v)
-        # _normalize_plate only returns None when input is None; on a required
-        # field that can't happen, but assert to satisfy the type checker.
-        assert normalized is not None
-        return normalized
+        try:
+            return _normalize_plate(v) or v
+        except ValueError:
+            return v
 
     @field_validator("make", "model", "color")
     @classmethod
@@ -136,6 +138,27 @@ class VehicleBase(BaseModel):
     @classmethod
     def trim_alnum(cls, v: Optional[str]) -> Optional[str]:
         return _normalize_alnum_upper(v)
+
+
+# --------------------------------------------------
+# BASE (input rules)
+# --------------------------------------------------
+class VehicleBase(VehicleFields):
+    plate_number: str = Field(..., min_length=2, max_length=20)
+    make: Optional[str] = Field(None, max_length=50)
+    model: Optional[str] = Field(None, max_length=50)
+    color: Optional[str] = Field(None, max_length=30)
+    chassis_number: Optional[str] = Field(None, max_length=50)
+    engine_number: Optional[str] = Field(None, max_length=50)
+
+    @field_validator("plate_number")
+    @classmethod
+    def uppercase_plate(cls, v: str) -> str:
+        normalized = _normalize_plate(v)
+        # _normalize_plate only returns None when input is None; on a required
+        # field that can't happen, but assert to satisfy the type checker.
+        assert normalized is not None
+        return normalized
 
     @field_validator("year")
     @classmethod
@@ -205,7 +228,7 @@ class VehicleUpdate(BaseModel):
 # --------------------------------------------------
 # RESPONSE
 # --------------------------------------------------
-class VehicleResponse(VehicleBase):
+class VehicleResponse(VehicleFields):
     id: uuid.UUID
     is_deleted: bool
     created_at: datetime
