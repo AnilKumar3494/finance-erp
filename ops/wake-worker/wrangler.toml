@@ -1,0 +1,35 @@
+# Wake-on-request Worker for the app server. See worker.js.
+#
+# Deploy (needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in the
+# environment; token: Workers Scripts Edit + Workers Routes Edit on both zones):
+#   cd ops/wake-worker && npx wrangler@4 deploy
+#
+# Secrets: the access key of IAM user finerp-wake, whose only policy is
+# iam-policy.json (start this instance). Set once, never committed:
+#   npx wrangler@4 secret put AWS_ACCESS_KEY_ID
+#   npx wrangler@4 secret put AWS_SECRET_ACCESS_KEY
+#
+# Logs:  npx wrangler@4 tail
+#
+# Turn waking off without touching the server: delete the routes in the
+# Cloudflare dashboard (Workers Routes) or `npx wrangler@4 delete`. The
+# hostnames then go straight to the tunnel again.
+name = "finerp-wake"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+# Every hostname in /etc/cloudflared/config.yml. `*-api` also covers dev-api
+# and each future franchise. The frontends (Vercel, Pages) are not routed.
+routes = [
+  { pattern = "api.sriadithyafinance.loan/*", zone_name = "sriadithyafinance.loan" },
+  { pattern = "*-api.sriadithyafinance.loan/*", zone_name = "sriadithyafinance.loan" },
+  { pattern = "kapil-job-search.sriadithyafinance.loan/*", zone_name = "sriadithyafinance.loan" },
+  { pattern = "kapil.sriadithyafinance.loan/*", zone_name = "sriadithyafinance.loan" },
+  { pattern = "sriadithya-dev.mrprawns.monster/*", zone_name = "mrprawns.monster" },
+  { pattern = "sriadithya-uat.mrprawns.monster/*", zone_name = "mrprawns.monster" },
+]
+
+[vars]
+AWS_REGION = "ap-southeast-1"
+INSTANCE_ID = "i-02b5fbd4cdd8ac591"
