@@ -2,7 +2,7 @@
 # Power the server off once nobody has used it for IDLE_MINUTES.
 #
 # Usage:
-#   ops/idle-shutdown.sh          (run every 3 minutes by finerp-idle.timer)
+#   ops/idle-shutdown.sh          (run every 2 minutes by finerp-idle.timer)
 #
 # "Used" means any of:
 #   - cloudflared_tunnel_total_requests moved since the last check (every
@@ -35,7 +35,7 @@
 # Needs: curl, cloudflared with its metrics server on METRICS_URL.
 set -euo pipefail
 
-IDLE_MINUTES=${IDLE_MINUTES:-15}
+IDLE_MINUTES=${IDLE_MINUTES:-10}
 METRICS_URL=${METRICS_URL:-http://127.0.0.1:20241/metrics}
 NO_SLEEP_FLAG=${NO_SLEEP_FLAG:-/etc/finerp/no-sleep}
 STATE_DIR=${STATE_DIR:-/run/finerp-idle}
