@@ -1,0 +1,10 @@
+# Power the server off when idle; started by finerp-idle.timer.
+# Install: see the header of ops/idle-shutdown.sh.
+[Unit]
+Description=FinERP idle shutdown check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/finerp-idle-shutdown
+SyslogIdentifier=finerp-idle
+TimeoutStartSec=1min
