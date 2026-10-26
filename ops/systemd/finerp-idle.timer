@@ -1,11 +1,11 @@
-# Every 5 minutes, from 5 minutes after boot. Not Persistent: a missed check
+# Every 3 minutes, from 3 minutes after boot. Not Persistent: a missed check
 # while the server was off means nothing.
 [Unit]
-Description=FinERP idle shutdown check every 5 minutes
+Description=FinERP idle shutdown check every 3 minutes
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=5min
+OnBootSec=3min
+OnUnitActiveSec=3min
 AccuracySec=30s
 
 [Install]
