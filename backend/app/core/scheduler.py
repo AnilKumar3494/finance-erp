@@ -32,10 +32,12 @@ Disabling
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -111,8 +113,9 @@ def start_scheduler() -> None:
             timezone=ZoneInfo(settings.REPORTS_TIMEZONE),
         ),
         id="nightly_cycle_check",
-        # `coalesce=True`: if the app was offline at fire time, run ONCE on
-        # next start (not N times for every missed window).
+        # `coalesce=True`: if fires pile up while the process is alive but
+        # busy, run ONCE (not N times). It does NOT catch up fires missed
+        # while the process was down; the startup job below covers that.
         coalesce=True,
         # `max_instances=1`: a misconfigured short cron would otherwise
         # let two runs overlap inside one process.
@@ -120,6 +123,22 @@ def start_scheduler() -> None:
         # 15-minute grace so a slow startup doesn't drop the day's run.
         misfire_grace_time=15 * 60,
     )
+    # The cron fire alone is not enough: the server sleeps when idle, the
+    # in-memory job store forgets missed fires across restarts, so we also
+    # run once shortly after each boot. The advisory lock stops it
+    # overlapping a cron fire, and the job is idempotent.
+    if settings.NIGHTLY_JOB_STARTUP_DELAY_SECONDS > 0:
+        tz = ZoneInfo(settings.REPORTS_TIMEZONE)
+        _scheduler.add_job(
+            _run_nightly_with_lock,
+            trigger=DateTrigger(
+                run_date=datetime.now(tz)
+                + timedelta(seconds=settings.NIGHTLY_JOB_STARTUP_DELAY_SECONDS),
+                timezone=tz,
+            ),
+            id="nightly_cycle_check_startup",
+            misfire_grace_time=15 * 60,
+        )
     _scheduler.start()
     logger.info(
         "scheduler started: nightly_cycle_check @ %02d:%02d %s",
