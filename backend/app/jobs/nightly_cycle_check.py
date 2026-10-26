@@ -10,9 +10,8 @@ non-deleted cycle:
      a shortfall to AWAITING_REVIEW.
 
   2. For cycles in AWAITING_REVIEW or LATE_PAYMENT, compute days_late
-     against today. Log a notification milestone the first time the cycle
-     crosses 30 days late and 60 days late (idempotency: based on
-     classification status + previously logged audit rows).
+     against today. Log a notification milestone once per cycle when it is
+     30-36 or 60-66 days late (idempotency: previously logged audit rows).
 
   3. When days_late × penalty_rate / days_in_due_month ≥ 100%, auto-classify
      the cycle LATE_PAYMENT with as-of date = due_date + cap_days. This
@@ -24,10 +23,9 @@ import logging
 import math
 import sys
 import uuid
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, timezone
 from decimal import Decimal
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -51,6 +49,10 @@ logger = logging.getLogger("nightly_cycle_check")
 # These milestones drive the visual / notification flow described in the spec.
 DAYS_LATE_NOTIFY_30 = 30
 DAYS_LATE_NOTIFY_60 = 60
+# A milestone fires on any night inside [N, N + window), not only on day N:
+# the server sleeps when idle, so the job can skip days. Bounded so the first
+# run does not back-fire alerts for every long-overdue cycle.
+MILESTONE_CATCH_UP_DAYS = 7
 
 
 def _cap_days_for(due_date: date, penalty_rate: Decimal) -> int:
@@ -131,36 +133,27 @@ def _record_cap_advisory(
 
 
 # --------------------------------------------------
-# N2: same-day idempotency for milestone alerts.
+# N2: milestone idempotency.
 # --------------------------------------------------
-# The job is cron-fired and may also be re-run by hand after a crash.
-# Before this guard, both fires would emit the 30/60-day alert. We use
-# audit_logs as the dedup ledger — a CYCLE_MILESTONE_30 / _60 row keyed
-# by cycle_id (record_id) means "we already alerted today".
-#
-# The day boundary is the configured business timezone, NOT UTC. A 23:30
-# IST log row for cycle X should block another emission at 03:00 IST the
-# same calendar day, even though the rows straddle UTC midnight.
-def _has_milestone_for_today(
-    db: Session, cycle_id: uuid.UUID, milestone_days: int, today: date
-) -> bool:
-    """Has CYCLE_MILESTONE_<days> already fired for this cycle today?"""
-    tz = ZoneInfo(settings.REPORTS_TIMEZONE)
-    day_start_local = datetime.combine(today, time.min, tzinfo=tz)
-    day_end_local = day_start_local + timedelta(days=1)
-
-    action = f"CYCLE_MILESTONE_{milestone_days}"
+# The job may run several times a day (cron, each startup, by hand after a
+# crash) and a milestone stays eligible for a whole catch-up window. We use
+# audit_logs as the dedup ledger: a CYCLE_MILESTONE_30 / _60 row keyed by
+# cycle_id (record_id) means "already alerted", so each fires once per cycle.
+def _has_milestone(db: Session, cycle_id: uuid.UUID, milestone_days: int) -> bool:
+    """Has CYCLE_MILESTONE_<days> ever fired for this cycle?"""
     return (
         db.query(AuditLog.id)
         .filter(
-            AuditLog.action_type == action,
+            AuditLog.action_type == f"CYCLE_MILESTONE_{milestone_days}",
             AuditLog.record_id == cycle_id,
-            AuditLog.timestamp >= day_start_local,
-            AuditLog.timestamp < day_end_local,
         )
         .first()
         is not None
     )
+
+
+def _in_milestone_window(days_late: int, milestone_days: int) -> bool:
+    return milestone_days <= days_late < milestone_days + MILESTONE_CATCH_UP_DAYS
 
 
 def _record_milestone(
@@ -174,7 +167,7 @@ def _record_milestone(
     """Append the audit row that flags the milestone for today.
 
     Caller controls commit. The row doubles as: (a) the dedup ledger for
-    same-day re-runs, (b) the lookback for an eventual notification
+    re-runs, (b) the lookback for an eventual notification
     provider that wants delivery context.
     """
     write_audit(
@@ -230,22 +223,15 @@ def process_loan(db: Session, loan: Loan, today: date) -> dict:
                 cycle.id, loan.id, cycle.cycle_number, shortfall,
             )
 
-        # (2) Milestone alerts — fire when days_late equals the threshold
-        # exactly. The exact-day match prevents emitting on every nightly
-        # run AFTER the threshold (no spam across days).
-        #
-        # N2: same-day idempotency via audit_logs.
-        # `_has_milestone_for_today` checks for an existing CYCLE_MILESTONE_<N>
-        # audit row keyed on cycle_id for today's date in the configured
-        # business timezone. The audit row IS the dedup ledger — when we
-        # wire a real notification provider, swap the logger.warning for
-        # the provider call (the audit row already exists by then so
-        # delivery context is captured for free).
+        # (2) Milestone alerts: fire once per cycle while days_late is inside
+        # the catch-up window (see MILESTONE_CATCH_UP_DAYS). The audit row is
+        # the dedup ledger; when we wire a real notification provider, swap
+        # the logger.warning for the provider call.
         if cycle.cycle_status in (CycleStatus.AWAITING_REVIEW, CycleStatus.LATE_PAYMENT) and shortfall > 0:
             days_late = (today - cycle.due_date).days
             if (
-                days_late == DAYS_LATE_NOTIFY_30
-                and not _has_milestone_for_today(db, cycle.id, 30, today)
+                _in_milestone_window(days_late, DAYS_LATE_NOTIFY_30)
+                and not _has_milestone(db, cycle.id, DAYS_LATE_NOTIFY_30)
             ):
                 counts["notify_30_days"] += 1
                 logger.warning(
@@ -254,8 +240,8 @@ def process_loan(db: Session, loan: Loan, today: date) -> dict:
                 )
                 _record_milestone(db, cycle, loan, 30, days_late, shortfall)
             elif (
-                days_late == DAYS_LATE_NOTIFY_60
-                and not _has_milestone_for_today(db, cycle.id, 60, today)
+                _in_milestone_window(days_late, DAYS_LATE_NOTIFY_60)
+                and not _has_milestone(db, cycle.id, DAYS_LATE_NOTIFY_60)
             ):
                 counts["notify_60_days"] += 1
                 logger.warning(

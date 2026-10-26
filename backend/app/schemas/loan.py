@@ -59,20 +59,56 @@ class HpNumberFamily(BaseModel):
 
 
 # --------------------------------------------------
-# BASE
+# FIELDS (shape only — shared by input and response)
 # --------------------------------------------------
-class LoanBase(BaseModel):
+# No range rules here: LoanResponse serialises stored rows, and legacy imports
+# predate the input rules (e.g. CLOSED loans at 0% interest). A rule on the
+# response would 500 the detail page and every list page holding such a row.
+# Input rules live on LoanBase / LoanUpdate.
+class LoanFields(BaseModel):
     customer_id: uuid.UUID
     vehicle_id: Optional[uuid.UUID] = None
     # Customer-facing hire-purchase number ("HP No"). User-entered for now;
     # optional at create (draft-first wizard), required at approval. Normalised
     # to trimmed uppercase; blank strings collapse to None.
     hp_number: Optional[str] = Field(
-        default=None, max_length=30, description="Hire-purchase number (HP No)"
+        default=None, description="Hire-purchase number (HP No)"
     )
     # Financial terms are optional: a DRAFT loan may be created before they're
     # entered (New Finance wizard). They become mandatory at approval — see
     # services/loan.approve_loan.
+    principal: Optional[Decimal] = None
+    interest_rate: Optional[Decimal] = Field(
+        default=None, description="Annual interest rate"
+    )
+    tenure: Optional[int] = Field(default=None, description="Tenure in months")
+    down_payment: Decimal = Decimal("0.00")
+    processing_fee: Decimal = Decimal("0.00")
+    documentation_fee: Decimal = Decimal("0.00")
+    dsc_fee: Decimal = Decimal("0.00")
+    rto_fee: Decimal = Decimal("0.00")
+    # Date the first EMI falls due ("Due date"). Optional at create; required at
+    # approval (where an override in the approve body still takes precedence).
+    first_emi_date: Optional[date] = Field(
+        default=None, description="Date the first EMI falls due"
+    )
+
+    @field_validator("hp_number")
+    @classmethod
+    def normalize_hp_number(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip().upper()
+        return v or None
+
+
+# --------------------------------------------------
+# BASE (input rules)
+# --------------------------------------------------
+class LoanBase(LoanFields):
+    hp_number: Optional[str] = Field(
+        default=None, max_length=30, description="Hire-purchase number (HP No)"
+    )
     principal: Optional[Decimal] = Field(
         default=None, gt=0, description="Loan amount must be positive"
     )
@@ -87,19 +123,6 @@ class LoanBase(BaseModel):
     documentation_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     dsc_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
     rto_fee: Decimal = Field(default=Decimal("0.00"), ge=0)
-    # Date the first EMI falls due ("Due date"). Optional at create; required at
-    # approval (where an override in the approve body still takes precedence).
-    first_emi_date: Optional[date] = Field(
-        default=None, description="Date the first EMI falls due"
-    )
-
-    @field_validator("hp_number")
-    @classmethod
-    def normalize_hp_number(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        v = v.strip().upper()
-        return v or None
 
     @field_validator("principal")
     @classmethod
@@ -212,7 +235,7 @@ class LoanUpdate(BaseModel):
 # --------------------------------------------------
 # RESPONSE
 # --------------------------------------------------
-class LoanResponse(LoanBase):
+class LoanResponse(LoanFields):
     id: uuid.UUID
     status: LoanStatus
     loan_number: str

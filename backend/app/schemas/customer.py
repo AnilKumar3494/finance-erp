@@ -105,7 +105,23 @@ class CustomerUpdate(_CustomerValidatorsMixin):
 # --------------------------------------------------
 # RESPONSE (Aadhaar/PAN masked on the wire)
 # --------------------------------------------------
-class CustomerResponse(CustomerBase):
+# Deliberately NOT CustomerBase: it serialises stored rows, and legacy imports
+# can predate the input rules. A rule here would 500 the customer and every
+# list page holding them.
+class CustomerResponse(BaseModel):
+    full_name: str
+    mobile_number: str
+    aadhaar_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    assigned_employee_id: Optional[uuid.UUID]
+    branch_point: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    alt_mobile_number: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    mandal_village: Optional[str] = None
+    pincode: Optional[str] = None
+    remarks: Optional[str] = None
     id: uuid.UUID
     is_deleted: bool
     created_by_id: Optional[uuid.UUID]
@@ -115,7 +131,6 @@ class CustomerResponse(CustomerBase):
     # query per row).
     created_by: Optional[UserNested] = None
     updated_by: Optional[UserNested] = None
-    assigned_employee_id: Optional[uuid.UUID]
     assigned_employee_name: Optional[str] = None
     primary_loan_number: Optional[str] = None
     primary_vehicle_number: Optional[str] = None

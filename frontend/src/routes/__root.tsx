@@ -3,6 +3,7 @@ import { Outlet, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 import { useBranding } from '@/api/queries/settings'
+import { ServerWakingOverlay } from '@/components/ServerWakingOverlay'
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -18,6 +19,7 @@ function RootLayout() {
   return (
     <>
       <Outlet />
+      <ServerWakingOverlay />
       <TanStackRouterDevtools position="bottom-right" />
     </>
   )

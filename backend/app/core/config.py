@@ -219,6 +219,12 @@ class Settings(BaseSettings):
     NIGHTLY_JOB_ENABLED: bool = True
     NIGHTLY_JOB_HOUR: int = Field(default=2, ge=0, le=23)     # 02:00 IST
     NIGHTLY_JOB_MINUTE: int = Field(default=0, ge=0, le=59)
+    # Also run the job once this many seconds after startup. The server
+    # sleeps when idle and is usually stopped at the cron hour, and the
+    # in-memory job store cannot tell it missed a fire, so without this the
+    # job would rarely run. Safe because the job is idempotent and locked.
+    # 0 disables the startup run.
+    NIGHTLY_JOB_STARTUP_DELAY_SECONDS: int = Field(default=60, ge=0)
     # When True the nightly job auto-classifies a capped cycle and flips the
     # loan to BAD_DEBT_PROPOSED (spreading the penalty). When False it runs in
     # ADVISORY mode: it still records the cap-crossing (an audit row, for

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { tokenStorage } from '@/lib/storage'
 import { resolveApiBaseUrl } from './baseUrl'
+import { isServerWakingError, markServerAwake, retryWhileWaking } from './serverWake'
 
 // Endpoints where POSTs must carry an Idempotency-Key so retries don't
 // double-create. Backend de-dupes by this key. Match is on the path portion
@@ -37,8 +38,14 @@ apiClient.interceptors.request.use((config) => {
 })
 
 apiClient.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    markServerAwake()
+    return res
+  },
   (error) => {
+    if (isServerWakingError(error)) {
+      return retryWhileWaking(error, apiClient.request)
+    }
     if (error.response?.status === 401) {
       tokenStorage.clear()
       // Hard redirect so router state resets cleanly.
